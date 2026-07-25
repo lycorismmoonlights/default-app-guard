@@ -1,0 +1,173 @@
+DefaultAppGuard Community
+环境配置要求与风险提示 / Environment Requirements and Risk Notice
+
+适用版本 / Applies to version: 0.1.1
+更新日期 / Updated: 2026-07-25
+
+============================================================
+中文
+============================================================
+
+1. 环境要求
+
+- 操作系统：Windows 11 x64。
+- 已验证环境：Windows 11 25H2（内部版本 26200）。
+- 目标应用：必须已安装 Microsoft Media Player（媒体播放器）。
+- 账户：需要可交互登录的普通 Windows 用户账户。
+- 安装方式：按用户安装到 %LOCALAPPDATA%，通常不需要管理员权限。
+- 运行方式：登录任务“DefaultAppGuard Agent”会启动后台 Agent。
+- 本地端口：Agent 仅监听 127.0.0.1:51873。
+- 运行时：发布包是自包含的，不需要单独安装 Node.js 或 .NET。
+
+2. 安装前必须了解
+
+- 必须完整解压 ZIP，不能只从压缩包内直接运行脚本。
+- 请用随发布包提供的 SHA-256 文件核对下载文件。
+- 当前 EXE 和 PowerShell 脚本未进行商业代码签名。
+- Windows SmartScreen、Smart App Control 或组织安全策略可能阻止未签名程序。
+- 不要为了安装本程序而永久关闭系统安全功能或绕过组织策略。
+- 建议在安装前查看 Install-DefaultAppGuard.ps1。
+
+3. 实际工作机制
+
+- 主查询算法使用 IApplicationAssociationRegistration.QueryCurrentDefault
+  读取 Windows 当前实际生效的默认程序。
+- UserChoice 注册表数据只作为交叉证据，不作为保底查询结果。
+- 主监控算法使用 RegNotifyChangeKeyValue 监听当前用户的 FileExts 变化。
+- Agent 会周期性重新执行 COM 查询，以减少遗漏变化的时间窗口。
+- 程序只保存自己的监控范围、状态和安装信息。
+- 程序不会直接改写 UserChoice，不会绕过 UCPD，也不会静默强制恢复默认程序。
+- 需要修复时，程序会打开 Windows 官方“默认应用”设置，由用户确认修改。
+
+4. 已知风险和限制
+
+- 本版本为 alpha 预发布版本，不提供“永久锁定”或不可绕过的保证。
+- 未签名发布物在部分电脑上可能无法运行，这是当前最大的推广限制。
+- Windows 更新、Media Player 更新或注册机制变化可能导致误报、漏报或暂时失效。
+- 注册表通知和周期复检之间存在有限时间窗口，变化不会被承诺为瞬时发现。
+- 当前只保护视频扩展名，并且目标固定为本机动态解析到的 Microsoft Media Player。
+- 当前只支持单个登录用户实例；不同 Windows 用户需要分别安装和配置。
+- 后台 Agent 和计划任务会占用少量内存、CPU 和本地端口。
+- 本地 API 只允许回环地址和受限 Origin，但同一用户会话中的恶意本地进程仍可能尝试访问它。
+- 当前仅在上面列出的 Windows 版本上完成完整发布验证，其他 Windows 11 版本需要单独验证。
+- 软件按“现状”提供，不附带无故障、无数据损失或适用于特定用途的保证。
+
+5. 隐私与安全
+
+- 当前版本不包含遥测、广告、云同步或主动外网请求。
+- 状态和配置默认保存在 %LOCALAPPDATA%\DefaultAppGuard 下。
+- 报告问题时不要公开令牌、完整注册表导出、个人路径或 runtime 目录中的原始文件。
+- 安全问题请使用 GitHub 私密漏洞报告，不要在公开 Issue 中发布利用细节。
+
+6. 卸载
+
+运行：
+
+& "$env:LOCALAPPDATA\Programs\DefaultAppGuard\Uninstall-DefaultAppGuard.ps1"
+
+使用 -KeepData 可以保留监控范围和最近状态。
+
+7. 许可
+
+本项目使用 PolyForm Noncommercial License 1.0.0，仅授予许可条款允许的
+非商业使用、修改和再分发权利。商业使用未获授权。再分发时必须保留
+LICENSE.md、NOTICE 和本提示文本。
+
+============================================================
+English
+============================================================
+
+1. Environment requirements
+
+- Operating system: Windows 11 x64.
+- Fully validated environment: Windows 11 25H2, build 26200.
+- Target application: Microsoft Media Player must be installed.
+- Account: a normal interactive Windows user account is required.
+- Installation: per-user under %LOCALAPPDATA%; administrator rights are
+  normally not required.
+- Startup: the "DefaultAppGuard Agent" logon task starts the background Agent.
+- Local port: the Agent listens only on 127.0.0.1:51873.
+- Runtime: the release package is self-contained and does not require a
+  separate Node.js or .NET installation.
+
+2. Before installation
+
+- Extract the complete ZIP before running any script.
+- Verify the download against the SHA-256 file supplied with the release.
+- The current EXE and PowerShell scripts are not commercially code-signed.
+- Windows SmartScreen, Smart App Control, or organization policy may block
+  unsigned software.
+- Do not permanently disable Windows security controls or bypass organization
+  policy to install this application.
+- Review Install-DefaultAppGuard.ps1 before running it.
+
+3. What the application actually does
+
+- The primary query algorithm uses
+  IApplicationAssociationRegistration.QueryCurrentDefault to read the
+  effective Windows default handler.
+- UserChoice registry data is cross-evidence only, never a fallback result.
+- The primary monitor algorithm uses RegNotifyChangeKeyValue on the current
+  user's FileExts tree.
+- The Agent periodically repeats the COM query to reduce missed-change windows.
+- The application writes only its own monitored scope, status, and install data.
+- It does not write UserChoice, bypass UCPD, or silently force a default app.
+- Repair opens the official Windows Default Apps surface for user approval.
+
+4. Known risks and limitations
+
+- This is an alpha prerelease. It does not provide an unbreakable hard lock.
+- Unsigned artifacts may be blocked on some computers. This is the largest
+  current distribution limitation.
+- Windows or Media Player updates may cause false positives, false negatives,
+  or temporary incompatibility.
+- A limited detection window exists between registry notifications and
+  periodic readback; instant detection is not guaranteed.
+- The current version protects video extensions only and targets the locally
+  resolved Microsoft Media Player installation.
+- One instance is supported per signed-in user. Each Windows user must install
+  and configure the application separately.
+- The background Agent and scheduled task use a small amount of memory, CPU,
+  and one loopback port.
+- The API is loopback-only with restricted Origins, but a malicious local
+  process in the same user session may still attempt to access it.
+- Full release validation has only been completed on the Windows build listed
+  above. Other Windows 11 versions require separate validation.
+- The software is provided "as is", without warranties of uninterrupted
+  operation, no data loss, or fitness for a particular purpose.
+
+5. Privacy and security
+
+- The current version contains no telemetry, advertising, cloud sync, or
+  proactive outbound network request.
+- Configuration and status are stored under %LOCALAPPDATA%\DefaultAppGuard.
+- Do not publish tokens, full registry exports, personal paths, or raw runtime
+  files in bug reports.
+- Report security issues through GitHub private vulnerability reporting rather
+  than publishing exploit details in a public issue.
+
+6. Uninstall
+
+Run:
+
+& "$env:LOCALAPPDATA\Programs\DefaultAppGuard\Uninstall-DefaultAppGuard.ps1"
+
+Use -KeepData to retain the monitored scope and latest status.
+
+7. License
+
+This project is licensed under the PolyForm Noncommercial License 1.0.0.
+Use, modification, and redistribution are allowed only as granted for permitted
+noncommercial purposes. Commercial use is not granted. Redistributions must
+retain LICENSE.md, NOTICE, and this notice file.
+
+============================================================
+Version maintenance rule / 版本维护规则
+============================================================
+
+This file must be reviewed for every release. Its "Applies to version" value
+must exactly match the package version. The automated release gate rejects a
+package when they differ.
+
+每次发布都必须重新审阅本文件。“适用版本”必须与软件包版本完全一致；
+若不一致，自动发布门禁会拒绝生成发布包。

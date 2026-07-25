@@ -17,21 +17,21 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 11.9.0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 9.0.x
 
@@ -43,6 +43,12 @@ jobs:
 
       - name: Test Sites worker
         run: pnpm run test:sites
+
+      - name: Test promotion contracts
+        run: pnpm run test:promotion
+
+      - name: Audit production dependencies
+        run: pnpm audit --prod
 
       - name: Test portable .NET behavior
         run: >

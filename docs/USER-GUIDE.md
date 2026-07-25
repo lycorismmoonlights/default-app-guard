@@ -1,5 +1,9 @@
 # DefaultAppGuard Alpha User Guide
 
+Before installation, read the package's `ENVIRONMENT-AND-RISKS.txt`. It is a
+version-matched bilingual notice covering environment requirements, unsigned
+artifact warnings, privacy behavior, known limitations, and license terms.
+
 ## Requirements
 
 - Windows 11 x64.
@@ -26,6 +30,9 @@ task, starts the Agent, and creates a Start menu shortcut.
 
 The scripts and binary are not yet code-signed. Windows may display a warning
 for files downloaded from the internet.
+
+Do not permanently disable Windows security controls or bypass organization
+policy to install the application.
 
 ## Use
 

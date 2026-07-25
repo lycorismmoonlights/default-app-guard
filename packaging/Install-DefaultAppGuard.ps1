@@ -24,19 +24,27 @@ function Stop-InstalledAgent {
     param([Parameter(Mandatory)][string]$ExecutablePath)
 
     $target = Get-NormalizedPath $ExecutablePath
-    $processes = Get-CimInstance Win32_Process -Filter `
-        "Name='DefaultAppGuard.Agent.exe'"
-    foreach ($process in $processes) {
-        if ([string]::IsNullOrWhiteSpace($process.ExecutablePath)) {
-            continue
+    for ($attempt = 1; $attempt -le 20; $attempt++) {
+        $matchingProcesses = @(
+            Get-CimInstance Win32_Process -Filter `
+                "Name='DefaultAppGuard.Agent.exe'" |
+                Where-Object {
+                    -not [string]::IsNullOrWhiteSpace(
+                        $_.ExecutablePath) -and
+                    (Get-NormalizedPath $_.ExecutablePath) -eq $target
+                })
+        if ($matchingProcesses.Count -eq 0) {
+            return
         }
 
-        if ((Get-NormalizedPath $process.ExecutablePath) -eq $target) {
-            Stop-Process -Id $process.ProcessId -Force
-            Wait-Process -Id $process.ProcessId -Timeout 10 `
+        foreach ($process in $matchingProcesses) {
+            Stop-Process -Id $process.ProcessId -Force `
                 -ErrorAction SilentlyContinue
         }
+        Start-Sleep -Milliseconds 250
     }
+
+    throw "Installed Agent did not stop before the upgrade: $target"
 }
 
 $sourceDirectory = Get-NormalizedPath $PSScriptRoot
@@ -63,6 +71,7 @@ if ($agentUri.Scheme -ne "http" -or
 $existingTask = Get-ScheduledTask -TaskName $TaskName `
     -ErrorAction SilentlyContinue
 if ($null -ne $existingTask) {
+    Disable-ScheduledTask -TaskName $TaskName | Out-Null
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 }
 

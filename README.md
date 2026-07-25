@@ -13,7 +13,7 @@ Default Apps surface for user-driven repair. It does not silently overwrite
 > “默认应用”页面恢复。Windows Home 不支持可靠的静默强制锁定，因此本项目不会
 > 伪造“永久锁定”能力。
 
-![DefaultAppGuard application overview](docs/images/app-overview.png)
+![DefaultAppGuard application overview](docs/images/app-overview.jpg)
 
 ## Download
 
@@ -24,11 +24,17 @@ PowerShell.
 The current alpha is unsigned. Verify the checksum before installation:
 
 ```powershell
-Get-FileHash .\DefaultAppGuard-0.1.0-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DefaultAppGuard-0.1.1-win-x64.zip -Algorithm SHA256
 ```
 
-See [docs/USER-GUIDE.md](docs/USER-GUIDE.md) for installation, use, diagnostics,
-and uninstallation.
+Read [ENVIRONMENT-AND-RISKS.txt](ENVIRONMENT-AND-RISKS.txt) before
+installation. It provides the supported environment, unsigned-software warning,
+privacy boundary, known limitations, and license notice in Chinese and English.
+The release gate requires this file to be reviewed and version-matched for every
+release.
+
+See [docs/USER-GUIDE.md](docs/USER-GUIDE.md) for installation, use,
+diagnostics, and uninstallation.
 
 ## Main Algorithm
 
@@ -61,7 +67,7 @@ approaches and product boundaries.
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.0 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.1 `
   -PackageManagerPath pnpm
 ```
 
@@ -77,8 +83,9 @@ Hosted CI alone is intentionally insufficient for a release.
 ```
 
 The script builds the React UI and publishes a compressed, self-contained
-`win-x64` Agent. The output includes installation and uninstallation scripts.
-See [docs/USER-GUIDE.md](docs/USER-GUIDE.md) and
+`win-x64` Agent. The output includes installation and uninstallation scripts,
+plus the versioned bilingual environment and risk notice. See
+[docs/USER-GUIDE.md](docs/USER-GUIDE.md) and
 [docs/MAINTAINER-GUIDE.md](docs/MAINTAINER-GUIDE.md).
 
 ## Release And Trust

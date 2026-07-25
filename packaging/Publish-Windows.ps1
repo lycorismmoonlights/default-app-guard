@@ -17,11 +17,17 @@ $packageMetadata = Get-Content `
     -LiteralPath (Join-Path $projectRoot "package.json") `
     -Raw |
     ConvertFrom-Json
+$riskNoticePath = Join-Path $projectRoot "ENVIRONMENT-AND-RISKS.txt"
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = $packageMetadata.version
 }
 if ($Version -notmatch '^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$') {
     throw "Version must be a semantic version without a v prefix."
+}
+$riskNoticeVersionLine = "Applies to version: $Version"
+$riskNotice = Get-Content -LiteralPath $riskNoticePath -Raw -Encoding UTF8
+if (-not $riskNotice.Contains($riskNoticeVersionLine)) {
+    throw "ENVIRONMENT-AND-RISKS.txt is not updated for version $Version."
 }
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
     $OutputDirectory = Join-Path $projectRoot `
@@ -79,6 +85,9 @@ try {
     Copy-Item `
         -LiteralPath (Join-Path $projectRoot "NOTICE") `
         -Destination $outputPath
+    Copy-Item `
+        -LiteralPath $riskNoticePath `
+        -Destination $outputPath
 } catch {
     Write-Error $_
     throw
@@ -94,6 +103,7 @@ $manifest = [ordered]@{
     executable = "DefaultAppGuard.Agent.exe"
     ui = "wwwroot\index.html"
     license = "PolyForm Noncommercial License 1.0.0"
+    environmentAndRisks = "ENVIRONMENT-AND-RISKS.txt"
     builtAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
 }
 $manifest |

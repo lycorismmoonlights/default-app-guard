@@ -42,7 +42,7 @@ audit does not pass.
 1. Merge the intended release commit into protected `main`.
 2. Confirm the dedicated runner is online and its default associations are
    healthy.
-3. Run the `Release` workflow with a semantic version such as `0.1.0`.
+3. Run the `Release` workflow with the version declared in `package.json`.
 4. Review the attached ZIP, checksum, evidence JSON, and artifact attestation.
 5. Keep the result marked as a prerelease while the project remains alpha.
 

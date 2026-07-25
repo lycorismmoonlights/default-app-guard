@@ -41,6 +41,12 @@ $packageVersion = (
 if ($packageVersion -ne $Version) {
     throw "Requested version $Version does not match package.json $packageVersion."
 }
+$riskNoticePath = Join-Path $projectRoot "ENVIRONMENT-AND-RISKS.txt"
+$riskNoticeVersionLine = "Applies to version: $Version"
+$riskNotice = Get-Content -LiteralPath $riskNoticePath -Raw -Encoding UTF8
+if (-not $riskNotice.Contains($riskNoticeVersionLine)) {
+    throw "ENVIRONMENT-AND-RISKS.txt is not updated for version $Version."
+}
 
 $dotnetCommand = (Get-Command dotnet -ErrorAction Stop).Source
 $packageManagerCommand = (
@@ -118,6 +124,7 @@ try {
 
     Invoke-CheckedCommand $packageManagerCommand @("run", "build")
     Invoke-CheckedCommand $packageManagerCommand @("run", "test:sites")
+    Invoke-CheckedCommand $packageManagerCommand @("run", "test:promotion")
 
     $parseFailures = @()
     foreach ($script in Get-ChildItem $PSScriptRoot -Filter "*.ps1" -File) {
@@ -171,6 +178,7 @@ try {
         "package-manifest.json",
         "LICENSE.md",
         "NOTICE",
+        "ENVIRONMENT-AND-RISKS.txt",
         "wwwroot/index.html"
     )
     foreach ($requiredEntry in $requiredPackageEntries) {

@@ -1,41 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Apps24Regular,
-  Archive24Regular,
   ArrowSync24Regular,
   CheckmarkCircle24Filled,
   Dismiss24Regular,
-  Document24Regular,
-  Globe24Regular,
   History24Regular,
-  Image24Regular,
   Info24Regular,
-  MoviesAndTv24Regular,
-  MusicNote224Regular,
   PlayCircle24Filled,
   Settings24Regular,
   Shield24Regular,
   ShieldCheckmark24Filled,
-  Video24Regular,
   Warning24Regular,
-  WindowApps24Regular,
 } from "@fluentui/react-icons";
 
 const sections = [
   { id: "status", label: "状态", icon: Shield24Regular },
   { id: "defaults", label: "默认应用", icon: Apps24Regular },
   { id: "history", label: "保护记录", icon: History24Regular },
-  { id: "backup", label: "备份与恢复", icon: ArrowSync24Regular },
   { id: "settings", label: "设置", icon: Settings24Regular },
-];
-
-const categories = [
-  { id: "browser", label: "浏览器", count: 4, icon: Globe24Regular },
-  { id: "document", label: "文档", count: 15, icon: Document24Regular },
-  { id: "image", label: "图片", count: 8, icon: Image24Regular },
-  { id: "audio", label: "音频", count: 22, icon: MusicNote224Regular },
-  { id: "video", label: "视频", count: 34, icon: Video24Regular },
-  { id: "archive", label: "压缩文件", count: 9, icon: Archive24Regular },
 ];
 
 const videoExtensions = [
@@ -75,43 +57,6 @@ const videoExtensions = [
   ".xvid",
 ];
 
-const appChoices = [
-  {
-    id: "media-player",
-    name: "媒体播放器",
-    publisher: "Microsoft Corporation",
-    note: "系统应用",
-    icon: PlayCircle24Filled,
-    color: "media",
-  },
-  {
-    id: "movies-tv",
-    name: "电影和电视",
-    publisher: "Microsoft Corporation",
-    note: "",
-    icon: MoviesAndTv24Regular,
-    color: "movies",
-    disabled: true,
-  },
-  {
-    id: "vlc",
-    name: "VLC media player",
-    publisher: "VideoLAN",
-    note: "",
-    icon: WindowApps24Regular,
-    color: "vlc",
-    disabled: true,
-  },
-  {
-    id: "quark",
-    name: "夸克",
-    publisher: "Quark Technology Co. Ltd.",
-    note: "",
-    icon: Globe24Regular,
-    color: "quark",
-    disabled: true,
-  },
-];
 
 const agentBaseUrl =
   import.meta.env.VITE_AGENT_BASE_URL ||
@@ -223,18 +168,9 @@ function useAgentStatus() {
   };
 }
 
-function AppIcon({ app }) {
-  const Icon = app.icon;
-  return (
-    <span className={`app-icon app-icon-${app.color}`} aria-hidden="true">
-      <Icon />
-    </span>
-  );
-}
-
 function PrimaryNav({ activeSection, agentError, agentStatus, onChange }) {
   const healthy = agentStatus?.audit?.healthy === true && !agentError;
-  const connected = agentStatus?.serviceState === "running" && !agentError;
+  const reachable = Boolean(agentStatus) && !agentError;
   return (
     <aside className="primary-nav" aria-label="主要导航">
       <nav className="primary-nav-list">
@@ -242,10 +178,12 @@ function PrimaryNav({ activeSection, agentError, agentStatus, onChange }) {
           const Icon = section.icon;
           return (
             <button
+              aria-label={section.label}
               aria-current={activeSection === section.id ? "page" : undefined}
               className={`nav-item ${activeSection === section.id ? "active" : ""}`}
               key={section.id}
               onClick={() => onChange(section.id)}
+              title={section.label}
               type="button"
             >
               <Icon />
@@ -261,16 +199,16 @@ function PrimaryNav({ activeSection, agentError, agentStatus, onChange }) {
           <span>
             {healthy
               ? "实时监控正常"
-              : connected
-                ? "发现关联变化"
+              : reachable
+                ? "Agent 运行异常"
                 : "Agent 未连接"}
           </span>
         </div>
         <span>
           {healthy
             ? `${agentStatus.audit.healthyCount} 个视频格式正常`
-            : connected
-              ? `${agentStatus.audit?.driftCount ?? 0} 个格式需要检查`
+            : reachable
+              ? agentStatus.lastError || "请立即复检并查看保护记录"
               : "本地监控服务未运行"}
         </span>
       </div>
@@ -278,35 +216,11 @@ function PrimaryNav({ activeSection, agentError, agentStatus, onChange }) {
   );
 }
 
-function CategoryNav({ activeCategory, onChange }) {
-  return (
-    <aside className="category-nav" aria-label="默认应用类别">
-      {categories.map((category) => {
-        const Icon = category.icon;
-        return (
-          <button
-            aria-pressed={activeCategory === category.id}
-            className={`category-item ${activeCategory === category.id ? "active" : ""}`}
-            key={category.id}
-            onClick={() => onChange(category.id)}
-            type="button"
-          >
-            <Icon />
-            <span>{category.label}</span>
-          </button>
-        );
-      })}
-    </aside>
-  );
-}
-
 function VideoDefaults({
-  activeCategory,
   agentError,
   agentStatus,
   configuration,
   isRefreshing,
-  onCategoryChange,
   onOpenSettings,
   onRefresh,
   onSaveConfiguration,
@@ -351,6 +265,13 @@ function VideoDefaults({
   }, [agentError, agentStatus]);
 
   const allSelected = selectedIds.size === videoExtensions.length;
+  const target = agentStatus?.audit?.target;
+  const targetName =
+    target?.applicationName &&
+    !target.applicationName.startsWith("@{") &&
+    !target.applicationName.includes("ms-resource:")
+      ? target.applicationName
+      : "Microsoft Media Player";
 
   const toggleRow = (id) => {
     setNotice(null);
@@ -401,11 +322,6 @@ function VideoDefaults({
 
   return (
     <div className="defaults-page">
-      <CategoryNav
-        activeCategory={activeCategory}
-        onChange={onCategoryChange}
-      />
-
       <main className="defaults-workspace">
         <section className="extension-panel" aria-labelledby="video-title">
           <header className="workspace-header">
@@ -474,7 +390,10 @@ function VideoDefaults({
 
             <div className="selection-summary">
               <div>
-                <input checked={selectedIds.size > 0} readOnly type="checkbox" />
+                <CheckmarkCircle24Filled
+                  aria-hidden="true"
+                  className={selectedIds.size > 0 ? "" : "inactive"}
+                />
                 <span>
                   已选择 {selectedIds.size} 项（共 {videoExtensions.length} 项）
                 </span>
@@ -490,42 +409,39 @@ function VideoDefaults({
           </div>
         </section>
 
-        <aside className="app-chooser" aria-labelledby="chooser-title">
+        <aside className="target-panel" aria-labelledby="target-title">
           <div className="chooser-title">
-            <h2 id="chooser-title">选择打开方式</h2>
-            <button
-              className="icon-button"
-              title="只显示支持所选格式的已安装应用"
-              type="button"
-            >
-              <Info24Regular />
-            </button>
+            <h2 id="target-title">保护目标</h2>
+            <Info24Regular aria-hidden="true" />
           </div>
 
-          <div className="app-list">
-            {appChoices.map((app) => (
-              <label
-                className={`app-choice ${
-                  app.id === "media-player" ? "selected" : ""
-                } ${app.disabled ? "disabled" : ""}`}
-                key={app.id}
-              >
-                <input
-                  checked={app.id === "media-player"}
-                  disabled={app.disabled}
-                  name="application"
-                  onChange={() => setNotice(null)}
-                  type="radio"
-                />
-                <AppIcon app={app} />
-                <span className="app-copy">
-                  <strong>{app.name}</strong>
-                  <small>{app.publisher}</small>
-                </span>
-                {app.note && <span className="app-note">{app.note}</span>}
-              </label>
-            ))}
+          <div className="target-card">
+            <span className="app-icon app-icon-media" aria-hidden="true">
+              <PlayCircle24Filled />
+            </span>
+            <span className="app-copy">
+              <strong>{targetName}</strong>
+              <small>本机动态解析的系统应用</small>
+            </span>
+            <span className={`target-state ${target ? "" : "pending"}`}>
+              {target ? "已识别" : "等待 Agent"}
+            </span>
           </div>
+
+          <dl className="target-details">
+            <div>
+              <dt>ProgID</dt>
+              <dd>{target?.progId || "尚未读取"}</dd>
+            </div>
+            <div>
+              <dt>Package</dt>
+              <dd>{target?.packageId || "尚未读取"}</dd>
+            </div>
+          </dl>
+
+          <p className="target-note">
+            应用只核验并监控该目标，不会直接改写 Windows 的默认关联。
+          </p>
         </aside>
 
         <footer className="action-bar">
@@ -553,7 +469,7 @@ function VideoDefaults({
                 {isApplying ? "正在处理..." : "保存范围并打开设置"}
               </button>
               <p>
-                目标：媒体播放器 · {selectedIds.size} 种格式
+                目标：{targetName} · {selectedIds.size} 种格式
               </p>
             </div>
           </div>
@@ -594,55 +510,16 @@ function DefaultsPage({
   onRefresh,
   onSaveConfiguration,
 }) {
-  const [activeCategory, setActiveCategory] = useState("video");
-
-  if (activeCategory === "video") {
-    return (
-      <VideoDefaults
-        activeCategory={activeCategory}
-        agentError={agentError}
-        agentStatus={agentStatus}
-        configuration={configuration}
-        isRefreshing={isRefreshing}
-        onCategoryChange={setActiveCategory}
-        onOpenSettings={onOpenSettings}
-        onRefresh={onRefresh}
-        onSaveConfiguration={onSaveConfiguration}
-      />
-    );
-  }
-
-  const category = categories.find((item) => item.id === activeCategory);
-  const Icon = category.icon;
   return (
-    <div className="defaults-page">
-      <CategoryNav
-        activeCategory={activeCategory}
-        onChange={setActiveCategory}
-      />
-      <main className="simple-page">
-        <div className="simple-page-heading">
-          <span className="simple-page-icon">
-            <Icon />
-          </span>
-          <div>
-            <h1>{category.label}默认应用</h1>
-            <p>此类别中有 {category.count} 个可保护的关联。</p>
-          </div>
-        </div>
-        <div className="empty-state">
-          <h2>选择一个格式开始配置</h2>
-          <p>应用会只显示本机已经安装并且明确支持该格式的程序。</p>
-          <button
-            className="secondary-button"
-            onClick={() => setActiveCategory("video")}
-            type="button"
-          >
-            查看视频配置示例
-          </button>
-        </div>
-      </main>
-    </div>
+    <VideoDefaults
+      agentError={agentError}
+      agentStatus={agentStatus}
+      configuration={configuration}
+      isRefreshing={isRefreshing}
+      onOpenSettings={onOpenSettings}
+      onRefresh={onRefresh}
+      onSaveConfiguration={onSaveConfiguration}
+    />
   );
 }
 
@@ -763,26 +640,6 @@ function HistoryPage({ agentError, agentStatus }) {
   );
 }
 
-function BackupPage() {
-  return (
-    <main className="simple-page">
-      <header className="page-heading">
-        <h1>备份与恢复</h1>
-        <p>当前没有可恢复的系统关联快照。</p>
-      </header>
-      <div className="backup-row">
-        <div>
-          <strong>监控范围配置</strong>
-          <p>Agent 会原子化保存已选择的视频格式。</p>
-        </div>
-        <button className="secondary-button" disabled type="button">
-          暂无快照
-        </button>
-      </div>
-    </main>
-  );
-}
-
 function SettingsPage({ agentStatus }) {
   return (
     <main className="simple-page">
@@ -819,6 +676,13 @@ export function App() {
     saveConfiguration,
     openSettings,
   } = useAgentStatus();
+  const reachable = Boolean(agentStatus) && !agentError;
+  const agentRunning = agentStatus?.serviceState === "running" && reachable;
+  const agentLabel = !reachable
+    ? "Agent 未连接"
+    : agentRunning
+      ? "Agent 已连接"
+      : "Agent 运行异常";
 
   const content = useMemo(() => {
     if (activeSection === "status") {
@@ -837,7 +701,6 @@ export function App() {
         <HistoryPage agentError={agentError} agentStatus={agentStatus} />
       );
     }
-    if (activeSection === "backup") return <BackupPage />;
     if (activeSection === "settings") {
       return <SettingsPage agentStatus={agentStatus} />;
     }
@@ -872,16 +735,9 @@ export function App() {
           </span>
           <span>DefaultAppGuard</span>
         </div>
-        <div className="window-actions" aria-label="窗口操作">
-          <button aria-label="最小化" title="最小化" type="button">
-            <span className="minimize-line" />
-          </button>
-          <button aria-label="最大化" title="最大化" type="button">
-            <span className="maximize-box" />
-          </button>
-          <button aria-label="关闭" title="关闭" type="button">
-            <Dismiss24Regular />
-          </button>
+        <div className={`topbar-status ${agentRunning ? "" : "warning"}`}>
+          <span aria-hidden="true" />
+          {agentLabel}
         </div>
       </header>
       <div className="app-frame">
