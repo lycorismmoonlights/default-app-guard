@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version without the v prefix
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  attestations: write
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    name: Main algorithm gate and release
+    if: github.ref == 'refs/heads/main'
+    runs-on:
+      - self-hosted
+      - Windows
+      - X64
+      - default-app-guard-release
+    environment: release
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run release gate
+        id: gate
+        shell: pwsh
+        run: |
+          $releaseRoot = Join-Path $env:RUNNER_TEMP (
+            "DefaultAppGuard-release-{0}" -f '${{ inputs.version }}')
+          $result = ./packaging/Test-ReleaseGate.ps1 `
+            -Version '${{ inputs.version }}' `
+            -OutputRoot $releaseRoot `
+            -PackageManagerPath pnpm
+
+          "archive=$($result.Archive)" >> $env:GITHUB_OUTPUT
+          "checksum=$($result.ChecksumFile)" >> $env:GITHUB_OUTPUT
+          "evidence=$($result.EvidenceFile)" >> $env:GITHUB_OUTPUT
+
+      - name: Upload release-gate evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-gate-${{ inputs.version }}
+          path: |
+            ${{ steps.gate.outputs.archive }}
+            ${{ steps.gate.outputs.checksum }}
+            ${{ steps.gate.outputs.evidence }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attest release archive
+        if: github.event.repository.visibility == 'public'
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.gate.outputs.archive }}
+
+      - name: Publish GitHub prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ inputs.version }}" `
+            '${{ steps.gate.outputs.archive }}' `
+            '${{ steps.gate.outputs.checksum }}' `
+            '${{ steps.gate.outputs.evidence }}' `
+            --target "$env:GITHUB_SHA" `
+            --title "DefaultAppGuard v${{ inputs.version }} alpha" `
+            --generate-notes `
+            --prerelease

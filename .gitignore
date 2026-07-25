@@ -1,0 +1,31 @@
+# JavaScript dependencies and generated frontend output
+node_modules/
+dist/
+
+# .NET build output
+**/bin/
+**/obj/
+.vs/
+*.user
+*.suo
+TestResults/
+
+# Local packages, installations, runtime state, and logs
+artifacts/
+installed/
+runtime/
+*.log
+
+# Local editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Design iteration evidence that is not part of the shipped product
+design-qa-comparison*.png
+implementation-initial.png
+implementation-final.png
+implementation-final-v2.png
+implementation-final-v3.png
+implementation-final-v4.png
