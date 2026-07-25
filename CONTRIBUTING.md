@@ -36,3 +36,7 @@ or synthetic notification test satisfy the main-algorithm gate.
   of commits.
 - Do not submit code that directly writes or ACL-locks a user's `UserChoice`
   data.
+
+By submitting a contribution, you agree to license it under the project's
+PolyForm Noncommercial License 1.0.0 and represent that you have the right to
+do so.

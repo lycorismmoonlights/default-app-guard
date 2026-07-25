@@ -73,6 +73,12 @@ try {
     Copy-Item `
         -LiteralPath (Join-Path $projectRoot "docs\USER-GUIDE.md") `
         -Destination (Join-Path $outputPath "README.md")
+    Copy-Item `
+        -LiteralPath (Join-Path $projectRoot "LICENSE.md") `
+        -Destination $outputPath
+    Copy-Item `
+        -LiteralPath (Join-Path $projectRoot "NOTICE") `
+        -Destination $outputPath
 } catch {
     Write-Error $_
     throw
@@ -87,6 +93,7 @@ $manifest = [ordered]@{
     runtime = "win-x64"
     executable = "DefaultAppGuard.Agent.exe"
     ui = "wwwroot\index.html"
+    license = "PolyForm Noncommercial License 1.0.0"
     builtAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
 }
 $manifest |

@@ -64,6 +64,12 @@ Use `-KeepData` to retain the monitored-format configuration and last status.
 The uninstaller removes only a recognized installation containing the package
 manifest. It stops and unregisters the task before removing files.
 
+## License
+
+DefaultAppGuard is provided under the PolyForm Noncommercial License 1.0.0.
+The package includes `LICENSE.md` and the required `NOTICE`. Commercial use is
+not granted.
+
 ## Supported Claim
 
 DefaultAppGuard detects and verifies default-app drift. It does not provide a

@@ -3,13 +3,18 @@
 The current alpha package is unsigned. A SHA-256 checksum proves file integrity
 after publication, but it does not establish a Windows publisher identity.
 
-## Preferred route: SignPath Foundation
+## SignPath Foundation
 
 SignPath Foundation offers free code-signing certificates for qualifying open
 source projects. Its GitHub integration verifies build origin and requires
 GitHub-hosted runners for the jobs leading to an open-source signing request.
 
-This route requires:
+This route is not currently available to DefaultAppGuard because the project
+uses the PolyForm Noncommercial License 1.0.0, which is source-available rather
+than OSI-approved open source. Adopting this route would require an explicit
+future relicensing decision by the project owner.
+
+If the project is relicensed, this route requires:
 
 1. A public repository with an OSI-approved license.
 2. An accepted SignPath Foundation application.

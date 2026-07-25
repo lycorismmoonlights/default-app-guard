@@ -84,9 +84,18 @@ See [docs/USER-GUIDE.md](docs/USER-GUIDE.md) and
 ## Release And Trust
 
 - The binary and PowerShell scripts are not code-signed.
-- A project license has not been selected.
 - The alpha has only been installation-tested on Windows 11 25H2, x64.
 
 See [docs/RELEASE.md](docs/RELEASE.md) for the GitHub release gate and
 [docs/CODE-SIGNING.md](docs/CODE-SIGNING.md) for the SignPath Foundation and
 Microsoft Artifact Signing options.
+
+## License
+
+DefaultAppGuard is source-available under the
+[PolyForm Noncommercial License 1.0.0](LICENSE.md). It may be used, changed,
+and redistributed for permitted noncommercial purposes under those terms.
+Commercial use is not granted.
+
+This is a noncommercial source-available license, not an OSI-approved open
+source license. Redistributions must include both `LICENSE.md` and `NOTICE`.

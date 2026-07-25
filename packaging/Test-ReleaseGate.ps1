@@ -158,6 +158,30 @@ if (-not (Test-Path -LiteralPath $checksumPath -PathType Leaf)) {
     throw "Release checksum was not produced: $checksumPath"
 }
 
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$archive = [IO.Compression.ZipFile]::OpenRead($archivePath)
+try {
+    $archiveEntries = @(
+        $archive.Entries |
+            ForEach-Object { $_.FullName.Replace("\", "/") })
+    $requiredPackageEntries = @(
+        "DefaultAppGuard.Agent.exe",
+        "Install-DefaultAppGuard.ps1",
+        "Uninstall-DefaultAppGuard.ps1",
+        "package-manifest.json",
+        "LICENSE.md",
+        "NOTICE",
+        "wwwroot/index.html"
+    )
+    foreach ($requiredEntry in $requiredPackageEntries) {
+        if ($requiredEntry -notin $archiveEntries) {
+            throw "Required package entry is missing: $requiredEntry"
+        }
+    }
+} finally {
+    $archive.Dispose()
+}
+
 $commit = $env:GITHUB_SHA
 if ([string]::IsNullOrWhiteSpace($commit)) {
     $git = Get-Command git -ErrorAction SilentlyContinue
