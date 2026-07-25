@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@fluentui/react-icons':
-        specifier: ^2.0.333
-        version: 2.0.333(react@19.2.0)
+        specifier: ^2.0.334
+        version: 2.0.334(react@19.2.0)
       '@vitejs/plugin-react':
         specifier: 5.0.4
         version: 5.0.4(vite@6.4.3)
@@ -272,8 +272,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@fluentui/react-icons@2.0.333':
-    resolution: {integrity: sha512-HvS5kKw9tGweI3Poy6OGAiFqrt6HGElO46DFhNBeoIQRK/q35mZ2ep0u762MFuvOfLX3bVGSB8frORFTjh1E7A==}
+  '@fluentui/react-icons@2.0.334':
+    resolution: {integrity: sha512-6A2boRTWkn7qOSX6kgLPVqCMZ9WQg6babIx14LKrwpsRGPOYx7QaqgGs+XE671wiJqNQX0JjuIGhvRRGL5zD+A==}
     peerDependencies:
       react: '>=16.8.0 <20.0.0'
 
@@ -850,7 +850,7 @@ snapshots:
   '@esbuild/win32-x64@0.25.12':
     optional: true
 
-  '@fluentui/react-icons@2.0.333(react@19.2.0)':
+  '@fluentui/react-icons@2.0.334(react@19.2.0)':
     dependencies:
       '@griffel/react': 1.7.6(react@19.2.0)
       react: 19.2.0
