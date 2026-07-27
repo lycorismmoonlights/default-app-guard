@@ -47,6 +47,10 @@ jobs:
       - name: Test promotion contracts
         run: pnpm run test:promotion
 
+      - name: Test package integrity behavior
+        shell: pwsh
+        run: ./tests/Test-PackageIntegrity.ps1
+
       - name: Audit production dependencies
         run: pnpm audit --prod
 
@@ -62,7 +66,11 @@ jobs:
         shell: pwsh
         run: |
           $failed = $false
-          Get-ChildItem packaging -Filter *.ps1 -File | ForEach-Object {
+          @(
+            Get-ChildItem packaging -File |
+              Where-Object { $_.Extension -in @(".ps1", ".psm1") }
+            Get-ChildItem tests -Filter *.ps1 -File
+          ) | ForEach-Object {
             $tokens = $null
             $errors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile(

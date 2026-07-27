@@ -26,43 +26,6 @@ function Invoke-CheckedCommand {
     }
 }
 
-function Get-PeSubsystem {
-    param(
-        [Parameter(Mandatory)]
-        [string]$Path
-    )
-
-    $stream = [IO.File]::OpenRead($Path)
-    try {
-        $reader = [IO.BinaryReader]::new($stream)
-        if ($reader.ReadUInt16() -ne 0x5A4D) {
-            throw "Published Agent does not contain a valid DOS header."
-        }
-
-        $stream.Position = 0x3C
-        $peOffset = $reader.ReadInt32()
-        if ($peOffset -lt 0 -or $peOffset -gt ($stream.Length - 94)) {
-            throw "Published Agent contains an invalid PE header offset."
-        }
-
-        $stream.Position = $peOffset
-        if ($reader.ReadUInt32() -ne 0x00004550) {
-            throw "Published Agent does not contain a valid PE signature."
-        }
-
-        $stream.Position = $peOffset + 24
-        $optionalHeaderMagic = $reader.ReadUInt16()
-        if ($optionalHeaderMagic -notin @(0x010B, 0x020B)) {
-            throw "Published Agent contains an unsupported PE optional header."
-        }
-
-        $stream.Position = $peOffset + 24 + 68
-        return $reader.ReadUInt16()
-    } finally {
-        $stream.Dispose()
-    }
-}
-
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
     throw "The release gate must run on Windows."
 }
@@ -72,6 +35,9 @@ if ($Version -notmatch '^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$') {
 
 $projectRoot = [System.IO.Path]::GetFullPath(
     (Join-Path $PSScriptRoot ".."))
+$packageModulePath = Join-Path $PSScriptRoot `
+    "DefaultAppGuard.Package.psm1"
+Import-Module -Name $packageModulePath -Force
 $packageVersion = (
     Get-Content -LiteralPath (Join-Path $projectRoot "package.json") -Raw |
         ConvertFrom-Json).version
@@ -162,9 +128,19 @@ try {
     Invoke-CheckedCommand $packageManagerCommand @("run", "build")
     Invoke-CheckedCommand $packageManagerCommand @("run", "test:sites")
     Invoke-CheckedCommand $packageManagerCommand @("run", "test:promotion")
+    & (Join-Path $projectRoot "tests\Test-PackageIntegrity.ps1") |
+        ForEach-Object { Write-Host $_ }
 
     $parseFailures = @()
-    foreach ($script in Get-ChildItem $PSScriptRoot -Filter "*.ps1" -File) {
+    $powerShellFiles = @(
+        Get-ChildItem $PSScriptRoot -File |
+            Where-Object { $_.Extension -in @(".ps1", ".psm1") }
+        Get-ChildItem `
+            (Join-Path $projectRoot "tests") `
+            -Filter "*.ps1" `
+            -File
+    )
+    foreach ($script in $powerShellFiles) {
         $tokens = $null
         $errors = $null
         [void][System.Management.Automation.Language.Parser]::ParseFile(
@@ -197,7 +173,16 @@ $archivePath = "$packageDirectory.zip"
 $checksumPath = "$archivePath.sha256"
 $publishedExecutable = Join-Path $packageDirectory `
     "DefaultAppGuard.Agent.exe"
-$peSubsystem = Get-PeSubsystem $publishedExecutable
+$packageCheck = Test-DagPackageIntegrity -PackageRoot $packageDirectory
+if (-not $packageCheck.Passed) {
+    throw "Published package integrity failed: $(
+        $packageCheck.IssueCodes -join ', ')"
+}
+$publishedManifest = $packageCheck.Manifest
+if ($publishedManifest.version -ne $Version) {
+    throw "Published package manifest version does not match the release."
+}
+$peSubsystem = Get-DagPeSubsystem $publishedExecutable
 if ($peSubsystem -ne 2) {
     throw "Published Agent must use the Windows GUI PE subsystem. Actual: $peSubsystem"
 }
@@ -218,6 +203,8 @@ try {
         "DefaultAppGuard.Agent.exe",
         "Install-DefaultAppGuard.ps1",
         "Uninstall-DefaultAppGuard.ps1",
+        "Get-DefaultAppGuardDiagnostics.ps1",
+        "DefaultAppGuard.Package.psm1",
         "package-manifest.json",
         "LICENSE.md",
         "NOTICE",
@@ -265,6 +252,12 @@ $evidenceFile = Join-Path $releaseRoot "release-gate.json"
         mode = "background-no-console"
         peSubsystem = $peSubsystem
         passed = $true
+    }
+    packageIntegrity = [ordered]@{
+        manifestSchemaVersion = $publishedManifest.schemaVersion
+        declaredFileCount = $packageCheck.DeclaredFileCount
+        actualFileCount = $packageCheck.ActualFileCount
+        passed = $packageCheck.Passed
     }
     archive = [IO.Path]::GetFileName($archivePath)
     sha256 = $archiveHash

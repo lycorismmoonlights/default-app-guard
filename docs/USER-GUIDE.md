@@ -28,6 +28,12 @@ The default installation is per-user and does not request administrator
 privileges. It installs below `%LOCALAPPDATA%`, registers a current-user logon
 task, starts the Agent, and creates a Start menu shortcut.
 
+Before changing an existing installation, the installer verifies every package
+file against `package-manifest.json` and prepares a complete staging directory.
+An upgrade is committed only after the new Agent reports the primary algorithms,
+the expected version and PID, and the no-console process mode. A failed upgrade
+restores the previous files and scheduled task.
+
 The Agent is a long-running background process compiled without a console
 window. The watchdog task may check or restart it in the background, but it
 should not open Windows Terminal. If an Agent terminal remains visible, verify
@@ -52,6 +58,19 @@ The application does not silently change Windows defaults. After completing a
 change in Windows Settings, return to DefaultAppGuard and run another check.
 
 ## Diagnostics
+
+Generate a constrained support report:
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\DefaultAppGuard\Get-DefaultAppGuardDiagnostics.ps1"
+```
+
+The command writes a timestamped JSON report in the current directory. It
+checks package integrity, version and signature status, the scheduled task,
+Agent process identity, loopback listener, console children, and the current
+main-algorithm audit. The report does not include personal paths, registry
+exports, raw runtime file contents, or tokens. Review it before attaching it
+to an issue.
 
 The default runtime files are:
 

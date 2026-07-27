@@ -60,9 +60,65 @@ $dataPath = Get-NormalizedPath $DataDirectory
 $installedExecutable = Join-Path $installPath `
     "DefaultAppGuard.Agent.exe"
 
+$verifiedInstall = $null
+$packageManifest = $null
+if (Test-Path -LiteralPath $installPath -PathType Container) {
+    $verifiedInstall = Assert-RemovableDirectory `
+        -Path $installPath `
+        -Marker "package-manifest.json"
+    try {
+        $packageManifest = Get-Content `
+            -LiteralPath (
+                Join-Path $verifiedInstall "package-manifest.json") `
+            -Raw `
+            -Encoding UTF8 |
+            ConvertFrom-Json
+    } catch {
+        throw "Refusing to remove an installation with an unreadable manifest."
+    }
+    if ($packageManifest.product -ne "DefaultAppGuard Community") {
+        throw "Refusing to remove an installation for another product."
+    }
+}
+
+$installState = $null
+$verifiedData = $null
+if (Test-Path -LiteralPath $dataPath -PathType Container) {
+    $installStatePath = Join-Path $dataPath "install-state.json"
+    if (Test-Path -LiteralPath $installStatePath -PathType Leaf) {
+        try {
+            $installState = Get-Content `
+                -LiteralPath $installStatePath `
+                -Raw `
+                -Encoding UTF8 |
+                ConvertFrom-Json
+        } catch {
+            throw "Refusing to remove data with an unreadable install state."
+        }
+        if ((Get-NormalizedPath $installState.installDirectory) -ne
+            $installPath -or
+            (Get-NormalizedPath $installState.dataDirectory) -ne $dataPath -or
+            [string]$installState.taskName -ne $TaskName) {
+            throw "Refusing to remove data owned by another installation."
+        }
+    } elseif (-not $KeepData) {
+        throw "Refusing to remove data without install-state.json."
+    }
+
+    if (-not $KeepData) {
+        $verifiedData = Assert-RemovableDirectory `
+            -Path $dataPath `
+            -Marker "install-state.json"
+    }
+}
+
 $task = Get-ScheduledTask -TaskName $TaskName `
     -ErrorAction SilentlyContinue
 if ($null -ne $task) {
+    $taskExecutable = Get-NormalizedPath $task.Actions[0].Execute
+    if ($taskExecutable -ne (Get-NormalizedPath $installedExecutable)) {
+        throw "Refusing to remove a scheduled task owned by another installation."
+    }
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
 }
@@ -83,23 +139,22 @@ foreach ($process in $processes) {
     }
 }
 
-$shortcutPath = Join-Path $env:APPDATA `
-    "Microsoft\Windows\Start Menu\Programs\DefaultAppGuard.lnk"
+$shortcutPath = if ($null -ne $installState -and
+    -not [string]::IsNullOrWhiteSpace($installState.shortcutPath)) {
+    [string]$installState.shortcutPath
+} else {
+    Join-Path $env:APPDATA `
+        "Microsoft\Windows\Start Menu\Programs\DefaultAppGuard.lnk"
+}
 if (Test-Path -LiteralPath $shortcutPath) {
     Remove-Item -LiteralPath $shortcutPath -Force
 }
 
-if (Test-Path -LiteralPath $installPath) {
-    $verifiedInstall = Assert-RemovableDirectory `
-        -Path $installPath `
-        -Marker "package-manifest.json"
+if ($null -ne $verifiedInstall) {
     Remove-DirectoryWithRetry $verifiedInstall
 }
 
-if (-not $KeepData -and (Test-Path -LiteralPath $dataPath)) {
-    $verifiedData = Assert-RemovableDirectory `
-        -Path $dataPath `
-        -Marker "install-state.json"
+if (-not $KeepData -and $null -ne $verifiedData) {
     Remove-DirectoryWithRetry $verifiedData
 }
 

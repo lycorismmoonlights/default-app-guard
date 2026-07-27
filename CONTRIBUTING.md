@@ -11,6 +11,8 @@ Run the portable checks before opening a pull request:
 pnpm install --frozen-lockfile
 pnpm run build
 pnpm run test:sites
+pnpm run test:promotion
+.\tests\Test-PackageIntegrity.ps1
 dotnet test native\DefaultAppGuard.Tests\DefaultAppGuard.Tests.csproj `
   --configuration Release `
   --filter "Category!=MainAlgorithmIntegration"
@@ -21,7 +23,7 @@ Windows 11 x64 system with Microsoft Media Player installed and selected for
 the declared video formats:
 
 ```powershell
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.2 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.3 `
   -PackageManagerPath pnpm
 ```
 

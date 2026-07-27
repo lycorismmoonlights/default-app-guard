@@ -83,6 +83,8 @@ app.MapGet("/api/health", () => Results.Ok(new
     Version = typeof(Program).Assembly.GetName().Version?.ToString(),
     Monitor = "RegNotifyChangeKeyValue",
     Query = "IApplicationAssociationRegistration.QueryCurrentDefault",
+    ProcessId = Environment.ProcessId,
+    ProcessMode = "background-no-console",
     PeriodicReadbackSeconds =
         (int)options.PeriodicAuditInterval.TotalSeconds,
     PackagedUi = packagedUiAvailable,

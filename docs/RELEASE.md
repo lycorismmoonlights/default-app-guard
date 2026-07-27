@@ -33,7 +33,9 @@ must never run pull-request code from forks.
 6. Produces a fresh self-contained Windows package.
 7. Parses the final Agent PE header and requires the Windows GUI subsystem so
    scheduled starts cannot create a console window.
-8. Writes a SHA-256 file and machine-readable release evidence.
+8. Verifies the generated per-file package manifest, including the installer,
+   uninstaller, diagnostics script, UI assets, and Agent executable.
+9. Writes a SHA-256 file and machine-readable release evidence.
 
 The gate fails if the COM query, Media Player resolver, effective plan, real
 `RegNotifyChangeKeyValue` notification, re-arm behavior, or full 34-format

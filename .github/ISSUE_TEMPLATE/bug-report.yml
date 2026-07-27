@@ -13,7 +13,7 @@ body:
     id: version
     attributes:
       label: Version
-      placeholder: 0.1.2
+      placeholder: 0.1.3
     validations:
       required: true
 
@@ -51,5 +51,5 @@ body:
     id: diagnostics
     attributes:
       label: Relevant diagnostics
-      description: Remove personal paths and unrelated data before posting.
+      description: Run Get-DefaultAppGuardDiagnostics.ps1, review the JSON, and remove anything you do not want to publish.
       render: text

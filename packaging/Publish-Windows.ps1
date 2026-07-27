@@ -13,6 +13,9 @@ $ErrorActionPreference = "Stop"
 
 $projectRoot = [System.IO.Path]::GetFullPath(
     (Join-Path $PSScriptRoot ".."))
+Import-Module -Name (
+    Join-Path $PSScriptRoot "DefaultAppGuard.Package.psm1") `
+    -Force
 $packageMetadata = Get-Content `
     -LiteralPath (Join-Path $projectRoot "package.json") `
     -Raw |
@@ -23,6 +26,9 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
 }
 if ($Version -notmatch '^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$') {
     throw "Version must be a semantic version without a v prefix."
+}
+if ($Version -ne $packageMetadata.version) {
+    throw "Requested version $Version does not match package.json."
 }
 $riskNoticeVersionLine = "Applies to version: $Version"
 $riskNotice = Get-Content -LiteralPath $riskNoticePath -Raw -Encoding UTF8
@@ -77,6 +83,12 @@ try {
         -LiteralPath (Join-Path $PSScriptRoot "Uninstall-DefaultAppGuard.ps1") `
         -Destination $outputPath
     Copy-Item `
+        -LiteralPath (Join-Path $PSScriptRoot "Get-DefaultAppGuardDiagnostics.ps1") `
+        -Destination $outputPath
+    Copy-Item `
+        -LiteralPath (Join-Path $PSScriptRoot "DefaultAppGuard.Package.psm1") `
+        -Destination $outputPath
+    Copy-Item `
         -LiteralPath (Join-Path $projectRoot "docs\USER-GUIDE.md") `
         -Destination (Join-Path $outputPath "README.md")
     Copy-Item `
@@ -96,7 +108,24 @@ try {
     $env:Path = $originalPath
 }
 
+$payload = @(
+    Get-ChildItem -LiteralPath $outputPath -Recurse -File |
+        Sort-Object FullName |
+        ForEach-Object {
+            [ordered]@{
+                path = Get-DagRelativePackagePath `
+                    -Root $outputPath `
+                    -Path $_.FullName
+                length = $_.Length
+                sha256 = (Get-FileHash `
+                    -LiteralPath $_.FullName `
+                    -Algorithm SHA256).Hash
+            }
+        }
+)
+
 $manifest = [ordered]@{
+    schemaVersion = 2
     product = "DefaultAppGuard Community"
     version = $Version
     runtime = "win-x64"
@@ -106,12 +135,18 @@ $manifest = [ordered]@{
     license = "PolyForm Noncommercial License 1.0.0"
     environmentAndRisks = "ENVIRONMENT-AND-RISKS.txt"
     builtAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
+    payload = $payload
 }
 $manifest |
     ConvertTo-Json |
     Set-Content `
         -LiteralPath (Join-Path $outputPath "package-manifest.json") `
         -Encoding UTF8
+$packageCheck = Test-DagPackageIntegrity -PackageRoot $outputPath
+if (-not $packageCheck.Passed) {
+    throw "Published package integrity failed: $(
+        $packageCheck.IssueCodes -join ', ')"
+}
 
 $archivePath = $null
 $checksumPath = $null

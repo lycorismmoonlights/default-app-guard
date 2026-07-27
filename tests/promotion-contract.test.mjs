@@ -38,20 +38,76 @@ test("published package includes the bilingual risk notice", async () => {
   assert.ok(publishScript.includes('"ENVIRONMENT-AND-RISKS.txt"'));
   assert.ok(publishScript.includes("environmentAndRisks"));
   assert.ok(publishScript.includes('processMode = "background-no-console"'));
+  assert.ok(publishScript.includes("schemaVersion = 2"));
+  assert.ok(publishScript.includes("sha256 = (Get-FileHash"));
+  assert.ok(publishScript.includes('"DefaultAppGuard.Package.psm1"'));
+  assert.ok(publishScript.includes('"Get-DefaultAppGuardDiagnostics.ps1"'));
   assert.ok(releaseGate.includes('"ENVIRONMENT-AND-RISKS.txt"'));
-  assert.ok(releaseGate.includes("Get-PeSubsystem"));
+  assert.ok(releaseGate.includes("Test-DagPackageIntegrity"));
+  assert.ok(releaseGate.includes("Get-DagPeSubsystem"));
   assert.ok(releaseGate.includes("$peSubsystem -ne 2"));
+  assert.ok(releaseGate.includes("packageIntegrity = [ordered]@{"));
 });
 
-test("installer disables the watchdog before replacing a running Agent", async () => {
+test("installer validates, stages, and can roll back an upgrade", async () => {
   const installer = await read("packaging/Install-DefaultAppGuard.ps1");
+  const sourceCheckIndex = installer.indexOf(
+    "Assert-DagPackageIntegrity -PackageRoot $sourceDirectory",
+  );
+  const stagingCheckIndex = installer.indexOf(
+    "Assert-DagPackageIntegrity -PackageRoot $stagingPath",
+  );
   const disableIndex = installer.indexOf("Disable-ScheduledTask");
-  const stopIndex = installer.indexOf("Stop-InstalledAgent $installedExecutable");
+  const stopIndex = installer.indexOf(
+    "Stop-InstalledAgent -ExecutablePath $installedExecutable",
+  );
 
-  assert.ok(disableIndex >= 0);
+  assert.ok(sourceCheckIndex >= 0);
+  assert.ok(stagingCheckIndex > sourceCheckIndex);
+  assert.ok(disableIndex > stagingCheckIndex);
   assert.ok(stopIndex > disableIndex);
   assert.ok(installer.includes("for ($attempt = 1; $attempt -le 20; $attempt++)"));
   assert.ok(installer.includes("Installed Agent did not stop before the upgrade"));
+  assert.ok(installer.includes("Export-ScheduledTask"));
+  assert.ok(installer.includes(".$installLeaf.backup-$transactionId"));
+  assert.ok(installer.includes("Move-Item -LiteralPath $backupPath -Destination $installPath"));
+  assert.ok(installer.includes("the previous installation was restored"));
+  assert.ok(installer.includes("Health endpoint is not owned by the installed Agent"));
+  assert.ok(installer.includes("ProcessMode -ne \"background-no-console\""));
+  assert.ok(installer.includes("$replacementBackupPath"));
+  assert.equal(installer.includes("[IO.File]::Replace($temporaryPath, $Path, $null)"), false);
+});
+
+test("diagnostics are packaged, redacted, and inspect the primary algorithm", async () => {
+  const diagnostics = await read(
+    "packaging/Get-DefaultAppGuardDiagnostics.ps1",
+  );
+
+  assert.ok(diagnostics.includes("Test-DagPackageIntegrity"));
+  assert.ok(diagnostics.includes("containsPersonalPaths = $false"));
+  assert.ok(diagnostics.includes("containsRegistryExports = $false"));
+  assert.ok(diagnostics.includes("containsRuntimeFileContents = $false"));
+  assert.ok(
+    diagnostics.includes(
+      "IApplicationAssociationRegistration.QueryCurrentDefault",
+    ),
+  );
+  assert.ok(diagnostics.includes('RegNotifyChangeKeyValue'));
+  assert.ok(diagnostics.includes("consoleChildCount"));
+  assert.ok(diagnostics.includes("loopbackOnly"));
+});
+
+test("uninstaller verifies ownership before removing task or directories", async () => {
+  const uninstaller = await read("packaging/Uninstall-DefaultAppGuard.ps1");
+  const ownershipIndex = uninstaller.indexOf(
+    "Refusing to remove a scheduled task owned by another installation.",
+  );
+  const unregisterIndex = uninstaller.indexOf("Unregister-ScheduledTask");
+
+  assert.ok(uninstaller.includes('product -ne "DefaultAppGuard Community"'));
+  assert.ok(uninstaller.includes("data owned by another installation"));
+  assert.ok(ownershipIndex >= 0);
+  assert.ok(unregisterIndex > ownershipIndex);
 });
 
 test("production UI exposes only implemented product capabilities", async () => {

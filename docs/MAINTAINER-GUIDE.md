@@ -6,7 +6,7 @@ Run all of the following on Windows:
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.2 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.3 `
   -PackageManagerPath pnpm
 ```
 
@@ -44,14 +44,21 @@ $testRoot = Join-Path $env:TEMP "DefaultAppGuard-install-test"
 
 Verify:
 
-1. `/api/health` reports the COM query and registry monitor.
-2. `/api/status` reports all declared formats individually.
-3. A harmless subkey created below the current user's `FileExts` tree increases
+1. The installer reports `PackageIntegrityVerified: True`,
+   `TransactionalUpgrade: True`, and `ProcessMode: background-no-console`.
+2. `/api/health` reports the COM query, registry monitor, expected PID, and
+   background process mode.
+3. `/api/status` reports all declared formats individually.
+4. A harmless subkey created below the current user's `FileExts` tree increases
    `registryEventCount`.
-4. The exact probe key is removed.
-5. Killing the installed process produces a different PID after the watchdog
+5. The exact probe key is removed.
+6. Killing the installed process produces a different PID after the watchdog
    trigger and a fresh 34-format startup audit.
-6. Uninstallation leaves no task, process, install directory, data directory,
+7. A deliberately failed upgrade restores the previous package version, task
+   definition, process, and healthy audit.
+8. `Get-DefaultAppGuardDiagnostics.ps1` reports no issues and does not include
+   personal paths or raw runtime contents.
+9. Uninstallation leaves no task, process, install directory, data directory,
    or probe key.
 
 ## Packaging

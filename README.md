@@ -24,7 +24,7 @@ PowerShell.
 The current alpha is unsigned. Verify the checksum before installation:
 
 ```powershell
-Get-FileHash .\DefaultAppGuard-0.1.2-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DefaultAppGuard-0.1.3-win-x64.zip -Algorithm SHA256
 ```
 
 Read [ENVIRONMENT-AND-RISKS.txt](ENVIRONMENT-AND-RISKS.txt) before
@@ -32,6 +32,11 @@ installation. It provides the supported environment, unsigned-software warning,
 privacy boundary, known limitations, and license notice in Chinese and English.
 The release gate requires this file to be reviewed and version-matched for every
 release.
+
+Version 0.1.3 packages contain a per-file SHA-256 manifest. The installer
+verifies it before stopping an existing Agent, stages the complete update, and
+restores the previous files and scheduled task if the new Agent fails its
+identity, primary-algorithm, or no-console health checks.
 
 See [docs/USER-GUIDE.md](docs/USER-GUIDE.md) for installation, use,
 diagnostics, and uninstallation.
@@ -67,7 +72,7 @@ approaches and product boundaries.
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.2 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.3 `
   -PackageManagerPath pnpm
 ```
 
@@ -86,7 +91,8 @@ alone is intentionally insufficient for a release.
 
 The script builds the React UI and publishes a compressed, self-contained
 `win-x64` Agent. The output includes installation and uninstallation scripts,
-plus the versioned bilingual environment and risk notice. See
+the redacted diagnostics script, a per-file integrity manifest, and the
+versioned bilingual environment and risk notice. See
 [docs/USER-GUIDE.md](docs/USER-GUIDE.md) and
 [docs/MAINTAINER-GUIDE.md](docs/MAINTAINER-GUIDE.md).
 

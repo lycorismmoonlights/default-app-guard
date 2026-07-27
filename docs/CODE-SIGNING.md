@@ -27,18 +27,27 @@ References:
 - https://signpath.org/
 - https://docs.signpath.io/trusted-build-systems/github
 
-## Alternative: Microsoft Artifact Signing
+## Alternative: Azure Artifact Signing
 
-Microsoft Artifact Signing provides publicly trusted Windows code signing.
-The Basic tier is currently USD 9.99 per month for up to 5,000 signatures.
-Public Trust identity validation is region-limited, so eligibility must be
-confirmed before adopting it.
+Azure Artifact Signing, formerly Trusted Signing, is Microsoft's recommended
+managed signing option for applications distributed outside Microsoft Store.
+Pricing and Public Trust identity eligibility vary by account type and region,
+so the project owner must confirm the current terms before adoption. Production
+signatures should use SHA-256 and an RFC 3161 timestamp.
 
 References:
 
-- https://learn.microsoft.com/azure/artifact-signing/quickstart
-- https://learn.microsoft.com/azure/artifact-signing/how-to-change-sku
-- https://learn.microsoft.com/azure/artifact-signing/concept-trust-models
+- https://learn.microsoft.com/windows/apps/package-and-deploy/code-signing-options
+- https://learn.microsoft.com/windows/msix/package/signing-package-overview
+- https://learn.microsoft.com/windows/win32/seccrypto/signtool
+
+## Microsoft Store MSIX
+
+Microsoft Store signs submitted MSIX packages without requiring the publisher
+to buy and manage a certificate. This is a possible future distribution path,
+but it requires a separate MSIX packaging and Store submission project. An
+unsigned sideloaded MSIX is not a shortcut: Windows requires sideloaded MSIX
+packages to be signed by a certificate trusted on the target computer.
 
 ## Supply-chain evidence
 
