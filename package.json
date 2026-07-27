@@ -1,6 +1,6 @@
 {
   "name": "default-app-guard",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "license": "SEE LICENSE IN LICENSE.md",
   "packageManager": "pnpm@11.9.0",

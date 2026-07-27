@@ -19,6 +19,7 @@ test("release metadata and risk notice stay version-aligned", async () => {
     project,
     new RegExp(`<Version>${packageMetadata.version.replaceAll(".", "\\.")}</Version>`),
   );
+  assert.ok(project.includes("<OutputType>WinExe</OutputType>"));
   assert.ok(
     notice.includes(
       `适用版本 / Applies to version: ${packageMetadata.version}`,
@@ -36,7 +37,10 @@ test("published package includes the bilingual risk notice", async () => {
 
   assert.ok(publishScript.includes('"ENVIRONMENT-AND-RISKS.txt"'));
   assert.ok(publishScript.includes("environmentAndRisks"));
+  assert.ok(publishScript.includes('processMode = "background-no-console"'));
   assert.ok(releaseGate.includes('"ENVIRONMENT-AND-RISKS.txt"'));
+  assert.ok(releaseGate.includes("Get-PeSubsystem"));
+  assert.ok(releaseGate.includes("$peSubsystem -ne 2"));
 });
 
 test("installer disables the watchdog before replacing a running Agent", async () => {

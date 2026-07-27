@@ -31,11 +31,14 @@ must never run pull-request code from forks.
 4. Builds and tests the frontend.
 5. parses every packaging PowerShell script.
 6. Produces a fresh self-contained Windows package.
-7. Writes a SHA-256 file and machine-readable release evidence.
+7. Parses the final Agent PE header and requires the Windows GUI subsystem so
+   scheduled starts cannot create a console window.
+8. Writes a SHA-256 file and machine-readable release evidence.
 
 The gate fails if the COM query, Media Player resolver, effective plan, real
 `RegNotifyChangeKeyValue` notification, re-arm behavior, or full 34-format
-audit does not pass.
+audit does not pass. It also fails if the final Agent uses the Windows Console
+subsystem.
 
 ## Publishing
 
@@ -48,3 +51,6 @@ audit does not pass.
 
 The workflow creates the `v<version>` tag and GitHub prerelease only after the
 main-algorithm gate succeeds.
+
+A manual release is a fallback only. It cannot receive GitHub build provenance
+from the release workflow and must state that limitation in its release notes.

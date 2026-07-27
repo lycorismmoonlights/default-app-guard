@@ -101,6 +101,7 @@ $manifest = [ordered]@{
     version = $Version
     runtime = "win-x64"
     executable = "DefaultAppGuard.Agent.exe"
+    processMode = "background-no-console"
     ui = "wwwroot\index.html"
     license = "PolyForm Noncommercial License 1.0.0"
     environmentAndRisks = "ENVIRONMENT-AND-RISKS.txt"

@@ -28,6 +28,11 @@ The default installation is per-user and does not request administrator
 privileges. It installs below `%LOCALAPPDATA%`, registers a current-user logon
 task, starts the Agent, and creates a Start menu shortcut.
 
+The Agent is a long-running background process compiled without a console
+window. The watchdog task may check or restart it in the background, but it
+should not open Windows Terminal. If an Agent terminal remains visible, verify
+that version 0.1.2 or later is installed.
+
 The scripts and binary are not yet code-signed. Windows may display a warning
 for files downloaded from the internet.
 

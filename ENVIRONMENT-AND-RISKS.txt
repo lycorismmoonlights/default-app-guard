@@ -1,8 +1,8 @@
 DefaultAppGuard Community
 环境配置要求与风险提示 / Environment Requirements and Risk Notice
 
-适用版本 / Applies to version: 0.1.1
-更新日期 / Updated: 2026-07-25
+适用版本 / Applies to version: 0.1.2
+更新日期 / Updated: 2026-07-27
 
 ============================================================
 中文
@@ -16,6 +16,7 @@ DefaultAppGuard Community
 - 账户：需要可交互登录的普通 Windows 用户账户。
 - 安装方式：按用户安装到 %LOCALAPPDATA%，通常不需要管理员权限。
 - 运行方式：登录任务“DefaultAppGuard Agent”会启动后台 Agent。
+- 进程模式：Agent 使用无控制台的 Windows 后台子系统，不应弹出或常驻终端窗口。
 - 本地端口：Agent 仅监听 127.0.0.1:51873。
 - 运行时：发布包是自包含的，不需要单独安装 Node.js 或 .NET。
 
@@ -48,6 +49,8 @@ DefaultAppGuard Community
 - 当前只保护视频扩展名，并且目标固定为本机动态解析到的 Microsoft Media Player。
 - 当前只支持单个登录用户实例；不同 Windows 用户需要分别安装和配置。
 - 后台 Agent 和计划任务会占用少量内存、CPU 和本地端口。
+- Agent 是长期运行的后台进程；关闭应用页面不会停止监控。若出现 Agent
+  控制台窗口，通常表示仍在运行 0.1.1 或更早版本，应升级并重新安装。
 - 本地 API 只允许回环地址和受限 Origin，但同一用户会话中的恶意本地进程仍可能尝试访问它。
 - 当前仅在上面列出的 Windows 版本上完成完整发布验证，其他 Windows 11 版本需要单独验证。
 - 软件按“现状”提供，不附带无故障、无数据损失或适用于特定用途的保证。
@@ -86,6 +89,8 @@ English
 - Installation: per-user under %LOCALAPPDATA%; administrator rights are
   normally not required.
 - Startup: the "DefaultAppGuard Agent" logon task starts the background Agent.
+- Process mode: the Agent uses the no-console Windows GUI subsystem and should
+  not open or keep a terminal window visible.
 - Local port: the Agent listens only on 127.0.0.1:51873.
 - Runtime: the release package is self-contained and does not require a
   separate Node.js or .NET installation.
@@ -129,6 +134,9 @@ English
   and configure the application separately.
 - The background Agent and scheduled task use a small amount of memory, CPU,
   and one loopback port.
+- The Agent is a long-running background process; closing the application page
+  does not stop monitoring. A visible Agent console normally means version
+  0.1.1 or earlier is still installed and should be upgraded.
 - The API is loopback-only with restricted Origins, but a malicious local
   process in the same user session may still attempt to access it.
 - Full release validation has only been completed on the Windows build listed

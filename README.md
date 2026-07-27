@@ -24,7 +24,7 @@ PowerShell.
 The current alpha is unsigned. Verify the checksum before installation:
 
 ```powershell
-Get-FileHash .\DefaultAppGuard-0.1.1-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DefaultAppGuard-0.1.2-win-x64.zip -Algorithm SHA256
 ```
 
 Read [ENVIRONMENT-AND-RISKS.txt](ENVIRONMENT-AND-RISKS.txt) before
@@ -67,14 +67,16 @@ approaches and product boundaries.
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.1 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.2 `
   -PackageManagerPath pnpm
 ```
 
 The release gate runs the real COM and kernel registry-notification tests
 separately and verifies their names in the test result. It requires Microsoft
 Media Player to be installed and configured for every declared video format.
-Hosted CI alone is intentionally insufficient for a release.
+It also rejects a published Agent unless its PE subsystem is Windows GUI, which
+prevents a scheduled watchdog start from opening a console window. Hosted CI
+alone is intentionally insufficient for a release.
 
 ## Build A Windows Package
 

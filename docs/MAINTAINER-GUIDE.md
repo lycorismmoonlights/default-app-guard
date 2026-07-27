@@ -6,7 +6,7 @@ Run all of the following on Windows:
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.1 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.2 `
   -PackageManagerPath pnpm
 ```
 
