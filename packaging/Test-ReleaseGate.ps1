@@ -4,7 +4,8 @@ param(
     [string]$Version,
     [string]$OutputRoot,
     [string]$PackageManagerPath = "pnpm",
-    [string]$NodePath = "node"
+    [string]$NodePath = "node",
+    [switch]$RequireSigned
 )
 
 Set-StrictMode -Version Latest
@@ -193,6 +194,73 @@ if (-not (Test-Path -LiteralPath $checksumPath -PathType Leaf)) {
     throw "Release checksum was not produced: $checksumPath"
 }
 
+$signatureFileNames = @(
+    "DefaultAppGuard.Agent.exe",
+    "Install-DefaultAppGuard.ps1",
+    "Uninstall-DefaultAppGuard.ps1",
+    "Get-DefaultAppGuardDiagnostics.ps1",
+    "DefaultAppGuard.Package.psm1"
+)
+$signatureEvidence = @(
+    foreach ($fileName in $signatureFileNames) {
+        $signature = Get-AuthenticodeSignature -LiteralPath (
+            Join-Path $packageDirectory $fileName)
+        [pscustomobject]@{
+            path = $fileName
+            status = [string]$signature.Status
+            signerSubject = if ($null -ne $signature.SignerCertificate) {
+                $signature.SignerCertificate.Subject
+            } else {
+                $null
+            }
+            signerThumbprint = if ($null -ne $signature.SignerCertificate) {
+                $signature.SignerCertificate.Thumbprint
+            } else {
+                $null
+            }
+            timestamped = $null -ne $signature.TimeStamperCertificate
+        }
+    }
+)
+$notSignedCount = @(
+    $signatureEvidence |
+        Where-Object { $_.status -eq "NotSigned" }).Count
+$validSignatureCount = @(
+    $signatureEvidence |
+        Where-Object { $_.status -eq "Valid" }).Count
+$codeSigningStatus = if (
+    $notSignedCount -eq $signatureEvidence.Count) {
+    "unsigned"
+} elseif ($validSignatureCount -eq $signatureEvidence.Count) {
+    "valid"
+} else {
+    "mixed-or-invalid"
+}
+if ($codeSigningStatus -eq "mixed-or-invalid") {
+    $summary = $signatureEvidence |
+        ForEach-Object { "$($_.path)=$($_.status)" }
+    throw "Release contains mixed or invalid signatures: $($summary -join ', ')"
+}
+
+$signerThumbprints = @(
+    $signatureEvidence |
+        Where-Object {
+            -not [string]::IsNullOrWhiteSpace($_.signerThumbprint)
+        } |
+        Select-Object -ExpandProperty signerThumbprint -Unique
+)
+if ($codeSigningStatus -eq "valid" -and $signerThumbprints.Count -ne 1) {
+    throw "All signed release files must use the same signer certificate."
+}
+if ($RequireSigned -and $codeSigningStatus -ne "valid") {
+    throw "This release requires trusted Authenticode signatures."
+}
+if ($RequireSigned -and @(
+        $signatureEvidence |
+            Where-Object { -not $_.timestamped }).Count -gt 0) {
+    throw "This release requires timestamped Authenticode signatures."
+}
+
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [IO.Compression.ZipFile]::OpenRead($archivePath)
 try {
@@ -259,10 +327,29 @@ $evidenceFile = Join-Path $releaseRoot "release-gate.json"
         actualFileCount = $packageCheck.ActualFileCount
         passed = $packageCheck.Passed
     }
+    codeSigning = [ordered]@{
+        policy = if ($RequireSigned) {
+            "require-signed"
+        } else {
+            "allow-unsigned-alpha"
+        }
+        status = $codeSigningStatus
+        trustedOnReleaseMachine = $codeSigningStatus -eq "valid"
+        signerSubjects = @(
+            $signatureEvidence |
+                Where-Object {
+                    -not [string]::IsNullOrWhiteSpace($_.signerSubject)
+                } |
+                Select-Object -ExpandProperty signerSubject -Unique
+        )
+        files = $signatureEvidence
+        passed = $codeSigningStatus -ne "mixed-or-invalid" -and (
+            -not $RequireSigned -or $codeSigningStatus -eq "valid")
+    }
     archive = [IO.Path]::GetFileName($archivePath)
     sha256 = $archiveHash
 } |
-    ConvertTo-Json -Depth 5 |
+    ConvertTo-Json -Depth 7 |
     Set-Content -LiteralPath $evidenceFile -Encoding UTF8
 
 [pscustomobject]@{
@@ -272,4 +359,5 @@ $evidenceFile = Join-Path $releaseRoot "release-gate.json"
     ChecksumFile = $checksumPath
     EvidenceFile = $evidenceFile
     Sha256 = $archiveHash
+    CodeSigningStatus = $codeSigningStatus
 }

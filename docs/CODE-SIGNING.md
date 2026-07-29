@@ -61,3 +61,22 @@ The GitHub release workflow produces:
 An artifact attestation links an archive to its workflow and commit. It does
 not replace Windows Authenticode signing or prove that the software is free of
 vulnerabilities.
+
+## Release enforcement
+
+`packaging/Test-ReleaseGate.ps1` inspects the Authenticode status of:
+
+- `DefaultAppGuard.Agent.exe`;
+- `Install-DefaultAppGuard.ps1`;
+- `Uninstall-DefaultAppGuard.ps1`;
+- `Get-DefaultAppGuardDiagnostics.ps1`;
+- `DefaultAppGuard.Package.psm1`.
+
+The gate permits only two coherent states: every file is unsigned, or every
+file has a valid signature from the same certificate. Mixed and invalid states
+always fail. Passing `-RequireSigned` also requires a timestamp on every file;
+the signing procedure must use the RFC 3161 timestamp service described above.
+The GitHub Release workflow exposes the corresponding
+`unsigned-alpha` and `require-signed` policies and records the selected policy,
+per-file status, signer identity, and timestamp presence in
+`release-gate.json`.

@@ -1,8 +1,8 @@
 DefaultAppGuard Community
 环境配置要求与风险提示 / Environment Requirements and Risk Notice
 
-适用版本 / Applies to version: 0.1.3
-更新日期 / Updated: 2026-07-27
+适用版本 / Applies to version: 0.1.4
+更新日期 / Updated: 2026-07-29
 
 ============================================================
 中文
@@ -28,12 +28,85 @@ DefaultAppGuard Community
   SHA-256，并拒绝文件缺失、混入或损坏的包。
 - 升级采用暂存、替换、健康检查和失败回滚流程；只有新 Agent 通过
   主算法、进程身份和无控制台检查后才提交升级。
-- 当前 EXE 和 PowerShell 脚本未进行商业代码签名。
+- 当前 EXE、PowerShell 脚本和模块未使用受 Windows 信任的
+  Authenticode 发布者证书签名。
 - Windows SmartScreen、Smart App Control 或组织安全策略可能阻止未签名程序。
 - 不要为了安装本程序而永久关闭系统安全功能或绕过组织策略。
 - 建议在安装前查看 Install-DefaultAppGuard.ps1。
 
-3. 实际工作机制
+3. 代码签名、Windows 警告与安装安全判断
+
+3.1 本版本的签名状态
+
+- 适用本提示文本的 0.1.4 版本是“未签名 alpha 版本”。
+- DefaultAppGuard.Agent.exe、Install-DefaultAppGuard.ps1、
+  Uninstall-DefaultAppGuard.ps1、Get-DefaultAppGuardDiagnostics.ps1 和
+  DefaultAppGuard.Package.psm1 均没有受 Windows 信任的发布者签名。
+- 因此，Windows 可能显示“未知发布者”“Windows 已保护你的电脑”
+  “未进行数字签名”或类似提示。这些提示在本版本上可能是预期现象，
+  但它们也意味着 Windows 无法通过代码签名确认文件由谁发布。
+- 未出现警告不代表文件一定安全；出现“未知发布者”也不能单独证明文件
+  是恶意软件。必须同时核对下载来源、版本和 SHA-256。
+
+3.2 什么是代码签名
+
+- 代码签名可以理解为软件文件上的“数字身份证和防拆封标记”。有效签名
+  可以让 Windows 核对发布者身份，并检查文件在签名后是否被修改。
+- 代码签名不能保证程序没有漏洞、绝不会误报，也不能代替杀毒软件。
+- 本项目提供的 SHA-256 和包内清单主要用于检查文件是否与发布包一致；
+  它们不是发布者身份证，也不能代替 Authenticode 代码签名。
+- ZIP 文件名中包含版本号、GitHub 页面显示绿色标记，或者杀毒软件暂未
+  报警，都不等于文件已经获得代码签名。
+
+3.3 普通用户安装前检查清单
+
+只有下面各项都满足时，才考虑继续安装本未签名 alpha 版本：
+
+1) 下载页面必须是项目的官方 GitHub Releases：
+   https://github.com/lycorismmoonlights/default-app-guard/releases
+2) ZIP 文件名、页面版本和本文件顶部的“适用版本”必须一致。
+3) 同时下载对应的 .sha256 文件，并核对 ZIP 的 SHA-256。可以在 ZIP
+   所在文件夹打开 PowerShell，运行：
+
+   Get-FileHash .\DefaultAppGuard-0.1.4-win-x64.zip -Algorithm SHA256
+
+   输出的 64 位哈希必须与 .sha256 文件完全一致。任何一位不同都不要运行。
+4) 完整解压 ZIP 后再安装，不要从压缩包预览窗口直接运行脚本。
+5) 确认 Windows Defender 或其他安全软件没有报告木马、病毒、勒索软件
+   或隔离事件。此类恶意软件警报不同于单纯的“未知发布者”提示。
+6) 安装器正常情况下不需要管理员权限。如果它意外要求管理员账户、
+   关闭杀毒软件、关闭防火墙或提供密码，应立即取消。
+
+如果无法独立完成上述核对，建议不要绕过警告安装当前 alpha 版本，等待
+以后受信任签名的版本，或请可信且具备 Windows 安全经验的人协助检查。
+
+3.4 遇到 Windows 提示时怎么办
+
+- 仅显示 SmartScreen“Windows 已保护你的电脑”或“未知发布者”：
+  这与当前未签名状态相符，但不要立刻选择继续。先完成 3.3 的全部检查。
+- Smart App Control 直接阻止运行且没有继续选项：
+  不要关闭 Smart App Control。当前未签名版本可能无法在这台电脑上安装。
+- PowerShell 提示脚本“未进行数字签名”或执行策略禁止运行：
+  不要把整台电脑的执行策略永久改为 Unrestricted 或 Bypass。普通用户应
+  停止安装；组织管理的电脑应联系管理员。
+- Windows Defender 或其他安全软件明确报告恶意软件、文件被替换或隔离：
+  不要恢复、放行或继续运行。删除下载文件，并通过项目的 GitHub 安全报告
+  渠道提交版本、下载地址、SHA-256 和警报名称。
+- 系统要求输入管理员凭据，或提示来自公司、学校的策略限制：
+  取消安装，不要尝试绕过。DefaultAppGuard 不能覆盖组织安全策略。
+
+3.5 未来签名版本的判断方法
+
+- 只有发布说明明确写明“已签名”，并列出预期签名者名称时，才应把该版本
+  视为签名版本。不要把其他版本的签名状态套用到当前文件。
+- 对 EXE，可以打开“属性”并查看“数字签名”选项卡；签名应存在、状态有效，
+  且签名者名称应与该版本官方发布说明完全一致。
+- 对 PowerShell 脚本和模块，应以官方发布说明及 Windows 的有效
+  Authenticode 验证结果为准。
+- 即使签名有效，仍必须从官方发布页下载、核对版本，并保留 Windows
+  Defender。有效签名证明发布者身份和签名后的完整性，不代表零风险。
+
+4. 实际工作机制
 
 - 主查询算法使用 IApplicationAssociationRegistration.QueryCurrentDefault
   读取 Windows 当前实际生效的默认程序。
@@ -44,7 +117,7 @@ DefaultAppGuard Community
 - 程序不会直接改写 UserChoice，不会绕过 UCPD，也不会静默强制恢复默认程序。
 - 需要修复时，程序会打开 Windows 官方“默认应用”设置，由用户确认修改。
 
-4. 已知风险和限制
+5. 已知风险和限制
 
 - 本版本为 alpha 预发布版本，不提供“永久锁定”或不可绕过的保证。
 - 未签名发布物在部分电脑上可能无法运行，这是当前最大的推广限制。
@@ -61,7 +134,7 @@ DefaultAppGuard Community
 - 当前仅在上面列出的 Windows 版本上完成完整发布验证，其他 Windows 11 版本需要单独验证。
 - 软件按“现状”提供，不附带无故障、无数据损失或适用于特定用途的保证。
 
-5. 隐私与安全
+6. 隐私与安全
 
 - 当前版本不包含遥测、广告、云同步或主动外网请求。
 - 状态和配置默认保存在 %LOCALAPPDATA%\DefaultAppGuard 下。
@@ -70,7 +143,7 @@ DefaultAppGuard Community
 - 报告问题时不要公开令牌、完整注册表导出、个人路径或 runtime 目录中的原始文件。
 - 安全问题请使用 GitHub 私密漏洞报告，不要在公开 Issue 中发布利用细节。
 
-6. 卸载
+7. 卸载
 
 运行：
 
@@ -78,7 +151,7 @@ DefaultAppGuard Community
 
 使用 -KeepData 可以保留监控范围和最近状态。
 
-7. 许可
+8. 许可
 
 本项目使用 PolyForm Noncommercial License 1.0.0，仅授予许可条款允许的
 非商业使用、修改和再分发权利。商业使用未获授权。再分发时必须保留
@@ -113,14 +186,110 @@ English
 - Upgrades use staging, replacement, health verification, and rollback. The
   upgrade is committed only after the new Agent passes primary-algorithm,
   process-identity, and no-console checks.
-- The current EXE and PowerShell scripts are not commercially code-signed.
+- The current EXE, PowerShell scripts, and module do not carry an
+  Authenticode publisher signature trusted by Windows.
 - Windows SmartScreen, Smart App Control, or organization policy may block
   unsigned software.
 - Do not permanently disable Windows security controls or bypass organization
   policy to install this application.
 - Review Install-DefaultAppGuard.ps1 before running it.
 
-3. What the application actually does
+3. Code signing, Windows warnings, and safe installation decisions
+
+3.1 Signing status of this version
+
+- Version 0.1.4 covered by this notice is an unsigned alpha release.
+- DefaultAppGuard.Agent.exe, Install-DefaultAppGuard.ps1,
+  Uninstall-DefaultAppGuard.ps1, Get-DefaultAppGuardDiagnostics.ps1, and
+  DefaultAppGuard.Package.psm1 do not have a publisher signature trusted by
+  Windows.
+- Windows may therefore display "Unknown publisher", "Windows protected your
+  PC", "not digitally signed", or a similar warning. These messages may be
+  expected for this version, but they also mean Windows cannot use code signing
+  to confirm who published the files.
+- No warning does not prove that a file is safe. An "Unknown publisher" warning
+  alone also does not prove that a file is malicious. Check the download
+  source, version, and SHA-256 together.
+
+3.2 What code signing means
+
+- Code signing is similar to a digital identity and tamper-evident seal on a
+  software file. A valid signature lets Windows check the publisher identity
+  and whether the file changed after it was signed.
+- A signature does not guarantee that software has no bugs, will never trigger
+  a false positive, or can replace antivirus protection.
+- The project's SHA-256 file and per-file package manifest mainly check whether
+  files match the release. They are not a publisher identity and do not replace
+  Authenticode code signing.
+- A versioned ZIP name, a green indicator on a GitHub page, or the absence of
+  an antivirus alert does not mean the files are code-signed.
+
+3.3 Pre-installation checklist for non-technical users
+
+Consider installing this unsigned alpha only when every item below is true:
+
+1) The download page is the project's official GitHub Releases page:
+   https://github.com/lycorismmoonlights/default-app-guard/releases
+2) The ZIP name, release-page version, and "Applies to version" value at the
+   top of this file all match.
+3) Download the matching .sha256 file and verify the ZIP. Open PowerShell in
+   the folder containing the ZIP and run:
+
+   Get-FileHash .\DefaultAppGuard-0.1.4-win-x64.zip -Algorithm SHA256
+
+   The 64-character hash must match the .sha256 file exactly. Do not run the
+   package when even one character is different.
+4) Extract the complete ZIP before installation. Do not run scripts from an
+   archive preview window.
+5) Confirm that Windows Defender or another security product has not reported
+   a trojan, virus, ransomware, or quarantine event. A malware alert is
+   different from an "Unknown publisher" warning.
+6) The installer normally does not require administrator rights. Cancel if it
+   unexpectedly asks for an administrator account, antivirus or firewall
+   shutdown, or a password.
+
+If you cannot independently complete these checks, do not bypass warnings to
+install the current alpha. Wait for a future release with a trusted signature,
+or ask a trusted person with Windows security experience to inspect it.
+
+3.4 What to do when Windows shows a warning
+
+- SmartScreen shows only "Windows protected your PC" or "Unknown publisher":
+  this is consistent with the current unsigned status, but do not immediately
+  continue. Complete every check in section 3.3 first.
+- Smart App Control blocks the file and offers no continue option:
+  do not turn off Smart App Control. The current unsigned release may not be
+  installable on that computer.
+- PowerShell says the script is "not digitally signed" or execution policy
+  blocks it:
+  do not permanently change the computer-wide policy to Unrestricted or
+  Bypass. Non-technical users should stop; on a managed computer, contact the
+  administrator.
+- Windows Defender or another product explicitly reports malware, replacement,
+  or quarantine:
+  do not restore, allow, or run the file. Delete the download and use the
+  project's GitHub security-reporting channel to provide the version, download
+  URL, SHA-256, and alert name.
+- Windows requests administrator credentials or reports a company or school
+  policy:
+  cancel the installation and do not attempt a bypass. DefaultAppGuard cannot
+  override organization security policy.
+
+3.5 How to identify a future signed release
+
+- Treat a version as signed only when its release notes explicitly say
+  "signed" and name the expected signer. Do not apply the signing status of one
+  version to files from another version.
+- For an EXE, open Properties and inspect the Digital Signatures tab. The
+  signature must exist, be valid, and name the same signer stated in the
+  official release notes.
+- For PowerShell scripts and modules, rely on the official release notes and a
+  valid Windows Authenticode verification result.
+- Even with a valid signature, download only from the official release page,
+  confirm the version, and keep Windows Defender enabled. A valid signature
+  proves publisher identity and post-signing integrity, not zero risk.
+
+4. What the application actually does
 
 - The primary query algorithm uses
   IApplicationAssociationRegistration.QueryCurrentDefault to read the
@@ -133,7 +302,7 @@ English
 - It does not write UserChoice, bypass UCPD, or silently force a default app.
 - Repair opens the official Windows Default Apps surface for user approval.
 
-4. Known risks and limitations
+5. Known risks and limitations
 
 - This is an alpha prerelease. It does not provide an unbreakable hard lock.
 - Unsigned artifacts may be blocked on some computers. This is the largest
@@ -162,7 +331,7 @@ English
 - The software is provided "as is", without warranties of uninterrupted
   operation, no data loss, or fitness for a particular purpose.
 
-5. Privacy and security
+6. Privacy and security
 
 - The current version contains no telemetry, advertising, cloud sync, or
   proactive outbound network request.
@@ -175,7 +344,7 @@ English
 - Report security issues through GitHub private vulnerability reporting rather
   than publishing exploit details in a public issue.
 
-6. Uninstall
+7. Uninstall
 
 Run:
 
@@ -183,7 +352,7 @@ Run:
 
 Use -KeepData to retain the monitored scope and latest status.
 
-7. License
+8. License
 
 This project is licensed under the PolyForm Noncommercial License 1.0.0.
 Use, modification, and redistribution are allowed only as granted for permitted

@@ -36,6 +36,10 @@ must never run pull-request code from forks.
 8. Verifies the generated per-file package manifest, including the installer,
    uninstaller, diagnostics script, UI assets, and Agent executable.
 9. Writes a SHA-256 file and machine-readable release evidence.
+10. Verifies the Authenticode status of the Agent, all packaged PowerShell
+    scripts, and the package module. Mixed or invalid signatures always fail.
+    `-RequireSigned` additionally requires every file to have a valid,
+    timestamped signature from one certificate.
 
 The gate fails if the COM query, Media Player resolver, effective plan, real
 `RegNotifyChangeKeyValue` notification, re-arm behavior, or full 34-format
@@ -48,7 +52,11 @@ subsystem.
 2. Confirm the dedicated runner is online and its default associations are
    healthy.
 3. Run the `Release` workflow with the version declared in `package.json`.
+   Select `unsigned-alpha` only while the release is explicitly an unsigned
+   prerelease. Select `require-signed` for any release represented as signed.
 4. Review the attached ZIP, checksum, evidence JSON, and artifact attestation.
+   Confirm that `codeSigning.policy`, `codeSigning.status`, and every file
+   record match the selected workflow policy.
 5. Keep the result marked as a prerelease while the project remains alpha.
 
 The workflow creates the `v<version>` tag and GitHub prerelease only after the
