@@ -29,11 +29,19 @@ test("release metadata and risk notice stay version-aligned", async () => {
   assert.ok(notice.includes("English"));
   assert.ok(notice.includes("IApplicationAssociationRegistration.QueryCurrentDefault"));
   assert.ok(notice.includes("RegNotifyChangeKeyValue"));
+  assert.ok(notice.includes("未签名 alpha 版本"));
+  assert.ok(notice.includes("unsigned alpha release"));
+  assert.ok(notice.includes("Smart App Control"));
+  assert.ok(notice.includes("Get-FileHash"));
+  assert.match(notice, /do not replace\s+Authenticode code signing/);
+  assert.ok(notice.includes("不要把整台电脑的执行策略永久改为"));
+  assert.ok(notice.includes("do not permanently change the computer-wide policy"));
 });
 
 test("published package includes the bilingual risk notice", async () => {
   const publishScript = await read("packaging/Publish-Windows.ps1");
   const releaseGate = await read("packaging/Test-ReleaseGate.ps1");
+  const releaseWorkflow = await read(".github/workflows/release.yml");
 
   assert.ok(publishScript.includes('"ENVIRONMENT-AND-RISKS.txt"'));
   assert.ok(publishScript.includes("environmentAndRisks"));
@@ -47,6 +55,16 @@ test("published package includes the bilingual risk notice", async () => {
   assert.ok(releaseGate.includes("Get-DagPeSubsystem"));
   assert.ok(releaseGate.includes("$peSubsystem -ne 2"));
   assert.ok(releaseGate.includes("packageIntegrity = [ordered]@{"));
+  assert.ok(releaseGate.includes("[switch]$RequireSigned"));
+  assert.ok(releaseGate.includes('codeSigningStatus = if'));
+  assert.ok(releaseGate.includes('"mixed-or-invalid"'));
+  assert.ok(releaseGate.includes("Get-AuthenticodeSignature"));
+  assert.ok(releaseGate.includes("timestamped Authenticode signatures"));
+  assert.ok(releaseGate.includes("codeSigning = [ordered]@{"));
+  assert.ok(releaseWorkflow.includes("signing_policy:"));
+  assert.ok(releaseWorkflow.includes("unsigned-alpha"));
+  assert.ok(releaseWorkflow.includes("require-signed"));
+  assert.ok(releaseWorkflow.includes("signing_status="));
 });
 
 test("installer validates, stages, and can roll back an upgrade", async () => {

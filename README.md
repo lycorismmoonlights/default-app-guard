@@ -24,7 +24,7 @@ PowerShell.
 The current alpha is unsigned. Verify the checksum before installation:
 
 ```powershell
-Get-FileHash .\DefaultAppGuard-0.1.3-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DefaultAppGuard-0.1.4-win-x64.zip -Algorithm SHA256
 ```
 
 Read [ENVIRONMENT-AND-RISKS.txt](ENVIRONMENT-AND-RISKS.txt) before
@@ -33,7 +33,7 @@ privacy boundary, known limitations, and license notice in Chinese and English.
 The release gate requires this file to be reviewed and version-matched for every
 release.
 
-Version 0.1.3 packages contain a per-file SHA-256 manifest. The installer
+Version 0.1.4 packages contain a per-file SHA-256 manifest. The installer
 verifies it before stopping an existing Agent, stages the complete update, and
 restores the previous files and scheduled task if the new Agent fails its
 identity, primary-algorithm, or no-console health checks.
@@ -72,7 +72,7 @@ approaches and product boundaries.
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.3 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.4 `
   -PackageManagerPath pnpm
 ```
 
@@ -100,6 +100,9 @@ versioned bilingual environment and risk notice. See
 
 - The binary and PowerShell scripts are not code-signed.
 - The alpha has only been installation-tested on Windows 11 25H2, x64.
+- Release evidence records the Authenticode status of every executable,
+  installer, uninstaller, diagnostics script, and package module. A partially
+  signed or invalidly signed release is rejected.
 
 See [docs/RELEASE.md](docs/RELEASE.md) for the GitHub release gate and
 [docs/CODE-SIGNING.md](docs/CODE-SIGNING.md) for the SignPath Foundation and

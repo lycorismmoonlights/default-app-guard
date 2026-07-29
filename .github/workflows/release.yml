@@ -7,6 +7,14 @@ on:
         description: Version without the v prefix
         required: true
         type: string
+      signing_policy:
+        description: Code-signing requirement for this release
+        required: true
+        default: unsigned-alpha
+        type: choice
+        options:
+          - unsigned-alpha
+          - require-signed
 
 concurrency:
   group: release-${{ inputs.version }}
@@ -58,14 +66,19 @@ jobs:
         run: |
           $releaseRoot = Join-Path $env:RUNNER_TEMP (
             "DefaultAppGuard-release-{0}" -f '${{ inputs.version }}')
-          $result = ./packaging/Test-ReleaseGate.ps1 `
-            -Version '${{ inputs.version }}' `
-            -OutputRoot $releaseRoot `
-            -PackageManagerPath pnpm
+          $gateArguments = @{
+            Version = '${{ inputs.version }}'
+            OutputRoot = $releaseRoot
+            PackageManagerPath = 'pnpm'
+            RequireSigned = (
+              '${{ inputs.signing_policy }}' -eq 'require-signed')
+          }
+          $result = ./packaging/Test-ReleaseGate.ps1 @gateArguments
 
           "archive=$($result.Archive)" >> $env:GITHUB_OUTPUT
           "checksum=$($result.ChecksumFile)" >> $env:GITHUB_OUTPUT
           "evidence=$($result.EvidenceFile)" >> $env:GITHUB_OUTPUT
+          "signing_status=$($result.CodeSigningStatus)" >> $env:GITHUB_OUTPUT
 
       - name: Upload release-gate evidence
         uses: actions/upload-artifact@v7
@@ -89,6 +102,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $signingStatus = '${{ steps.gate.outputs.signing_status }}'
+          $trustNotice = if ($signingStatus -eq 'valid') {
+            'Authenticode status: valid on the release runner. See release-gate.json for signer and timestamp evidence.'
+          } else {
+            'Important: this alpha is unsigned. Verify the SHA-256 file and read ENVIRONMENT-AND-RISKS.txt before installation.'
+          }
           gh release create "v${{ inputs.version }}" `
             '${{ steps.gate.outputs.archive }}' `
             '${{ steps.gate.outputs.checksum }}' `
@@ -96,4 +115,5 @@ jobs:
             --target "$env:GITHUB_SHA" `
             --title "DefaultAppGuard v${{ inputs.version }} alpha" `
             --generate-notes `
+            --notes "$trustNotice" `
             --prerelease

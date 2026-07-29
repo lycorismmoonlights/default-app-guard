@@ -6,12 +6,26 @@ Run all of the following on Windows:
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.3 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.4 `
   -PackageManagerPath pnpm
 ```
 
 Do not accept a release based only on unit tests. The integration suite must
 exercise the real COM query and the real kernel registry notification.
+
+Unsigned alpha releases may omit `-RequireSigned`, but their evidence must
+report `codeSigning.status` as `unsigned`. Any release described as signed must
+run:
+
+```powershell
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.4 `
+  -PackageManagerPath pnpm `
+  -RequireSigned
+```
+
+That mode requires valid, timestamped Authenticode signatures on the Agent,
+installer, uninstaller, diagnostics script, and package module. All files must
+use the same signer certificate.
 
 ## Main-Algorithm Evidence
 
