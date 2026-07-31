@@ -90,14 +90,24 @@ jobs:
           if ((Get-DagPeSubsystem -Path $setupPath) -ne 2) {
             throw "Hosted Setup build does not use the Windows GUI subsystem."
           }
+          $setupStdout = Join-Path $env:RUNNER_TEMP "setup-verify.stdout.txt"
+          $setupStderr = Join-Path $env:RUNNER_TEMP "setup-verify.stderr.txt"
           $verification = Start-Process `
             -FilePath $setupPath `
             -ArgumentList @("--quiet", "--verify-only") `
             -WindowStyle Hidden `
+            -RedirectStandardOutput $setupStdout `
+            -RedirectStandardError $setupStderr `
             -Wait `
             -PassThru
           if ($verification.ExitCode -ne 0) {
-            throw "Hosted Setup package verification failed with exit code $($verification.ExitCode)."
+            $details = @(
+              Get-Content -LiteralPath $setupStdout -Raw -ErrorAction SilentlyContinue
+              Get-Content -LiteralPath $setupStderr -Raw -ErrorAction SilentlyContinue
+            ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+            throw (
+              "Hosted Setup package verification failed with exit code " +
+              "$($verification.ExitCode).`n$($details -join "`n")")
           }
 
       - name: Parse PowerShell scripts

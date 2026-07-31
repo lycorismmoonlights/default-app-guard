@@ -53,6 +53,7 @@ test("release metadata and risk notice stay version-aligned", async () => {
 test("published package includes the bilingual risk notice", async () => {
   const publishScript = await read("packaging/Publish-Windows.ps1");
   const releaseGate = await read("packaging/Test-ReleaseGate.ps1");
+  const ciWorkflow = await read(".github/workflows/ci.yml");
   const releaseWorkflow = await read(".github/workflows/release.yml");
 
   assert.ok(publishScript.includes('"ENVIRONMENT-AND-RISKS.txt"'));
@@ -90,6 +91,8 @@ test("published package includes the bilingual risk notice", async () => {
   assert.ok(releaseWorkflow.includes("signing_status="));
   assert.ok(releaseWorkflow.includes("Attest release SBOM"));
   assert.ok(releaseWorkflow.includes("sbom-path:"));
+  assert.ok(ciWorkflow.includes("RedirectStandardError"));
+  assert.ok(ciWorkflow.includes("setup-verify.stderr.txt"));
 });
 
 test("graphical setup verifies before its process-only script policy", async () => {
