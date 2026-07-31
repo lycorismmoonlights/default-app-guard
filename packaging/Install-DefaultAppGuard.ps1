@@ -346,7 +346,18 @@ if ($null -ne $existingTask) {
 $shortcutPath = Join-Path $env:APPDATA `
     "Microsoft\Windows\Start Menu\Programs\DefaultAppGuard.lnk"
 $shortcutBackupPath = $null
-$shortcutPreviouslyExisted = Test-Path -LiteralPath $shortcutPath
+$previousShortcutPath = if ($null -ne $previousInstallState -and
+    -not [string]::IsNullOrWhiteSpace(
+        [string]$previousInstallState.shortcutPath)) {
+    Get-NormalizedPath ([string]$previousInstallState.shortcutPath)
+} else {
+    $null
+}
+$shouldManageShortcut = -not $NoStartMenuShortcut -or
+    ($null -ne $previousShortcutPath -and
+        $previousShortcutPath -eq (Get-NormalizedPath $shortcutPath))
+$shortcutPreviouslyExisted = $shouldManageShortcut -and
+    (Test-Path -LiteralPath $shortcutPath)
 if ($shortcutPreviouslyExisted) {
     $shortcutBackupPath = Join-Path ([IO.Path]::GetTempPath()) (
         "DefaultAppGuard-shortcut-$transactionId.lnk")
@@ -415,7 +426,8 @@ try {
         -TimeoutSeconds $HealthTimeoutSeconds
 
     if ($NoStartMenuShortcut) {
-        if (Test-Path -LiteralPath $shortcutPath) {
+        if ($shouldManageShortcut -and
+            (Test-Path -LiteralPath $shortcutPath)) {
             Remove-Item -LiteralPath $shortcutPath -Force
         }
         $recordedShortcutPath = $null
@@ -487,14 +499,16 @@ try {
             }
         }
 
-        if ($shortcutPreviouslyExisted -and
-            $null -ne $shortcutBackupPath) {
-            Copy-Item `
-                -LiteralPath $shortcutBackupPath `
-                -Destination $shortcutPath `
-                -Force
-        } elseif (Test-Path -LiteralPath $shortcutPath) {
-            Remove-Item -LiteralPath $shortcutPath -Force
+        if ($shouldManageShortcut) {
+            if ($shortcutPreviouslyExisted -and
+                $null -ne $shortcutBackupPath) {
+                Copy-Item `
+                    -LiteralPath $shortcutBackupPath `
+                    -Destination $shortcutPath `
+                    -Force
+            } elseif (Test-Path -LiteralPath $shortcutPath) {
+                Remove-Item -LiteralPath $shortcutPath -Force
+            }
         }
 
         if (-not $dataPathExisted -and

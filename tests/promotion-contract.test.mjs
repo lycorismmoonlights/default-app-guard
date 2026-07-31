@@ -46,6 +46,9 @@ test("published package includes the bilingual risk notice", async () => {
   assert.ok(publishScript.includes('"ENVIRONMENT-AND-RISKS.txt"'));
   assert.ok(publishScript.includes("environmentAndRisks"));
   assert.ok(publishScript.includes('processMode = "background-no-console"'));
+  assert.ok(publishScript.includes("Get-PublishSigningCertificate"));
+  assert.ok(publishScript.includes("Set-AuthenticodeSignature"));
+  assert.ok(publishScript.includes("TimestampServer is required"));
   assert.ok(publishScript.includes("schemaVersion = 2"));
   assert.ok(publishScript.includes("sha256 = (Get-FileHash"));
   assert.ok(publishScript.includes('"DefaultAppGuard.Package.psm1"'));
@@ -60,11 +63,20 @@ test("published package includes the bilingual risk notice", async () => {
   assert.ok(releaseGate.includes('"mixed-or-invalid"'));
   assert.ok(releaseGate.includes("Get-AuthenticodeSignature"));
   assert.ok(releaseGate.includes("timestamped Authenticode signatures"));
+  assert.ok(releaseGate.includes("SigningCertificateThumbprint"));
   assert.ok(releaseGate.includes("codeSigning = [ordered]@{"));
+  assert.ok(releaseGate.includes("Test-ReleasePackageLifecycle.ps1"));
+  assert.ok(releaseGate.includes("exactReleasePackagePassed"));
+  assert.ok(releaseGate.includes('"tool", "run", "sbom-tool"'));
+  assert.ok(releaseGate.includes('"SPDX:2.2"'));
+  assert.ok(releaseGate.includes("TotalPackagesInManifest"));
+  assert.ok(releaseGate.includes("historicalArtifactsExcluded = $true"));
   assert.ok(releaseWorkflow.includes("signing_policy:"));
   assert.ok(releaseWorkflow.includes("unsigned-alpha"));
   assert.ok(releaseWorkflow.includes("require-signed"));
   assert.ok(releaseWorkflow.includes("signing_status="));
+  assert.ok(releaseWorkflow.includes("Attest release SBOM"));
+  assert.ok(releaseWorkflow.includes("sbom-path:"));
 });
 
 test("installer validates, stages, and can roll back an upgrade", async () => {
@@ -93,6 +105,7 @@ test("installer validates, stages, and can roll back an upgrade", async () => {
   assert.ok(installer.includes("Health endpoint is not owned by the installed Agent"));
   assert.ok(installer.includes("ProcessMode -ne \"background-no-console\""));
   assert.ok(installer.includes("$replacementBackupPath"));
+  assert.ok(installer.includes("$shouldManageShortcut"));
   assert.equal(installer.includes("[IO.File]::Replace($temporaryPath, $Path, $null)"), false);
 });
 
@@ -124,6 +137,7 @@ test("uninstaller verifies ownership before removing task or directories", async
 
   assert.ok(uninstaller.includes('product -ne "DefaultAppGuard Community"'));
   assert.ok(uninstaller.includes("data owned by another installation"));
+  assert.ok(uninstaller.includes("$null -ne $installState"));
   assert.ok(ownershipIndex >= 0);
   assert.ok(unregisterIndex > ownershipIndex);
 });

@@ -72,12 +72,28 @@ jobs:
             PackageManagerPath = 'pnpm'
             RequireSigned = (
               '${{ inputs.signing_policy }}' -eq 'require-signed')
+            SigningCertificateThumbprint = if (
+              '${{ inputs.signing_policy }}' -eq 'require-signed') {
+              '${{ vars.DAG_SIGNING_CERTIFICATE_THUMBPRINT }}'
+            } else {
+              $null
+            }
+            TimestampServer = if (
+              '${{ inputs.signing_policy }}' -eq 'require-signed') {
+              '${{ vars.DAG_TIMESTAMP_SERVER }}'
+            } else {
+              $null
+            }
           }
           $result = ./packaging/Test-ReleaseGate.ps1 @gateArguments
 
           "archive=$($result.Archive)" >> $env:GITHUB_OUTPUT
           "checksum=$($result.ChecksumFile)" >> $env:GITHUB_OUTPUT
           "evidence=$($result.EvidenceFile)" >> $env:GITHUB_OUTPUT
+          "evidence_directory=$($result.EvidenceDirectory)" >> $env:GITHUB_OUTPUT
+          "lifecycle_evidence=$($result.LifecycleEvidenceFile)" >> $env:GITHUB_OUTPUT
+          "sbom=$($result.SbomFile)" >> $env:GITHUB_OUTPUT
+          "sbom_checksum=$($result.SbomChecksumFile)" >> $env:GITHUB_OUTPUT
           "signing_status=$($result.CodeSigningStatus)" >> $env:GITHUB_OUTPUT
 
       - name: Upload release-gate evidence
@@ -88,6 +104,10 @@ jobs:
             ${{ steps.gate.outputs.archive }}
             ${{ steps.gate.outputs.checksum }}
             ${{ steps.gate.outputs.evidence }}
+            ${{ steps.gate.outputs.lifecycle_evidence }}
+            ${{ steps.gate.outputs.sbom }}
+            ${{ steps.gate.outputs.sbom_checksum }}
+            ${{ steps.gate.outputs.evidence_directory }}
           if-no-files-found: error
           retention-days: 30
 
@@ -96,6 +116,13 @@ jobs:
         uses: actions/attest@v4
         with:
           subject-path: ${{ steps.gate.outputs.archive }}
+
+      - name: Attest release SBOM
+        if: github.event.repository.visibility == 'public'
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ steps.gate.outputs.archive }}
+          sbom-path: ${{ steps.gate.outputs.sbom }}
 
       - name: Publish GitHub prerelease
         shell: pwsh
@@ -112,6 +139,9 @@ jobs:
             '${{ steps.gate.outputs.archive }}' `
             '${{ steps.gate.outputs.checksum }}' `
             '${{ steps.gate.outputs.evidence }}' `
+            '${{ steps.gate.outputs.lifecycle_evidence }}' `
+            '${{ steps.gate.outputs.sbom }}' `
+            '${{ steps.gate.outputs.sbom_checksum }}' `
             --target "$env:GITHUB_SHA" `
             --title "DefaultAppGuard v${{ inputs.version }} alpha" `
             --generate-notes `

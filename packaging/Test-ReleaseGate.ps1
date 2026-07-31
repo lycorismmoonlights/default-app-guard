@@ -5,6 +5,8 @@ param(
     [string]$OutputRoot,
     [string]$PackageManagerPath = "pnpm",
     [string]$NodePath = "node",
+    [string]$SigningCertificateThumbprint,
+    [string]$TimestampServer,
     [switch]$RequireSigned
 )
 
@@ -32,6 +34,16 @@ if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
 }
 if ($Version -notmatch '^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$') {
     throw "Version must be a semantic version without a v prefix."
+}
+if ($RequireSigned -and
+    [string]::IsNullOrWhiteSpace($SigningCertificateThumbprint)) {
+    throw (
+        "RequireSigned needs SigningCertificateThumbprint so the fresh " +
+        "release payload can be signed before its manifest is created.")
+}
+if (-not [string]::IsNullOrWhiteSpace($SigningCertificateThumbprint) -and
+    [string]::IsNullOrWhiteSpace($TimestampServer)) {
+    throw "TimestampServer is required when release signing is configured."
 }
 
 $projectRoot = [System.IO.Path]::GetFullPath(
@@ -78,9 +90,21 @@ $testProject = Join-Path $projectRoot (
     "native\DefaultAppGuard.Tests\DefaultAppGuard.Tests.csproj")
 $portableTrx = Join-Path $evidenceDirectory "portable-tests.trx"
 $mainTrx = Join-Path $evidenceDirectory "main-algorithm-tests.trx"
+$lifecycleEvidencePath = Join-Path $evidenceDirectory `
+    "package-lifecycle.json"
+$lifecycleWorkRoot = Join-Path $releaseRoot "package-lifecycle-work"
+$sbomWorkingRoot = Join-Path $evidenceDirectory "sbom-work"
+$sbomComponentRoot = Join-Path $releaseRoot "sbom-component-work"
+$sbomValidationPath = Join-Path $evidenceDirectory `
+    "sbom-validation.json"
+$sbomPath = Join-Path $releaseRoot `
+    "DefaultAppGuard-$Version.spdx.json"
+$sbomChecksumPath = "$sbomPath.sha256"
 
 Push-Location $projectRoot
 try {
+    Invoke-CheckedCommand $dotnetCommand @("tool", "restore")
+
     Invoke-CheckedCommand $dotnetCommand @(
         "test",
         $testProject,
@@ -163,6 +187,8 @@ try {
         -OutputDirectory $packageDirectory `
         -PackageManagerPath $packageManagerCommand `
         -NodePath $nodeCommand `
+        -SigningCertificateThumbprint $SigningCertificateThumbprint `
+        -TimestampServer $TimestampServer `
         -CreateArchive |
         ForEach-Object { Write-Host $_ }
 } finally {
@@ -261,6 +287,119 @@ if ($RequireSigned -and @(
     throw "This release requires timestamped Authenticode signatures."
 }
 
+$lifecycleResult = & (Join-Path $projectRoot `
+    "tests\Test-ReleasePackageLifecycle.ps1") `
+    -PackageDirectory $packageDirectory `
+    -Version $Version `
+    -WorkRoot $lifecycleWorkRoot `
+    -EvidencePath $lifecycleEvidencePath
+if (-not [bool]$lifecycleResult.Passed) {
+    throw "The exact release package lifecycle test did not pass."
+}
+$lifecycleEvidence = Get-Content `
+    -LiteralPath $lifecycleEvidencePath `
+    -Raw `
+    -Encoding UTF8 |
+    ConvertFrom-Json
+if (-not [bool]$lifecycleEvidence.passed -or
+    -not [bool]$lifecycleEvidence.mainAlgorithm.initialMonitorVerified -or
+    -not [bool]$lifecycleEvidence.mainAlgorithm.postRestartMonitorVerified) {
+    throw "The exact release package lacks primary-algorithm lifecycle evidence."
+}
+
+New-Item -ItemType Directory -Path $sbomWorkingRoot | Out-Null
+$sbomComponentFiles = @(
+    Get-Item -LiteralPath (Join-Path $projectRoot "package.json")
+    Get-Item -LiteralPath (Join-Path $projectRoot "pnpm-lock.yaml")
+    Get-Item -LiteralPath (Join-Path $projectRoot "pnpm-workspace.yaml")
+    Get-ChildItem `
+        -LiteralPath (Join-Path $projectRoot "native") `
+        -Filter "*.csproj" `
+        -Recurse `
+        -File
+    Get-ChildItem `
+        -LiteralPath (Join-Path $projectRoot "native") `
+        -Filter "project.assets.json" `
+        -Recurse `
+        -File
+)
+$projectAssetCount = @(
+    $sbomComponentFiles |
+        Where-Object { $_.Name -eq "project.assets.json" }).Count
+if ($projectAssetCount -eq 0) {
+    throw "No restored .NET dependency graph was available for the SBOM."
+}
+New-Item -ItemType Directory -Path $sbomComponentRoot | Out-Null
+foreach ($componentFile in $sbomComponentFiles) {
+    $relativePath = Get-DagRelativePackagePath `
+        -Root $projectRoot `
+        -Path $componentFile.FullName
+    $destination = Join-Path $sbomComponentRoot $relativePath
+    New-Item `
+        -ItemType Directory `
+        -Path (Split-Path -Parent $destination) `
+        -Force | Out-Null
+    Copy-Item -LiteralPath $componentFile.FullName -Destination $destination
+}
+
+try {
+    Invoke-CheckedCommand $dotnetCommand @(
+        "tool", "run", "sbom-tool", "--", "generate",
+        "-b", $packageDirectory,
+        "-bc", $sbomComponentRoot,
+        "-pn", "DefaultAppGuard Community",
+        "-pv", $Version,
+        "-ps", "Organization: DefaultAppGuard Community",
+        "-nsb", "https://github.com/lycorismmoonlights/default-app-guard",
+        "-m", $sbomWorkingRoot,
+        "-mi", "SPDX:2.2",
+        "-V", "Warning")
+    $generatedSbomPath = Join-Path $sbomWorkingRoot `
+        "_manifest\spdx_2.2\manifest.spdx.json"
+    if (-not (Test-Path -LiteralPath $generatedSbomPath -PathType Leaf)) {
+        throw "Microsoft SBOM Tool did not produce the expected SPDX document."
+    }
+    Invoke-CheckedCommand $dotnetCommand @(
+        "tool", "run", "sbom-tool", "--", "validate",
+        "-b", $packageDirectory,
+        "-m", (Join-Path $sbomWorkingRoot "_manifest"),
+        "-o", $sbomValidationPath,
+        "-mi", "SPDX:2.2",
+        "-n",
+        "-V", "Warning")
+    $sbomValidation = Get-Content `
+        -LiteralPath $sbomValidationPath `
+        -Raw `
+        -Encoding UTF8 |
+        ConvertFrom-Json
+    if ($sbomValidation.Result -ne "Success" -or
+        [int]$sbomValidation.ValidationErrors.Count -ne 0 -or
+        [int]$sbomValidation.Summary.ValidationTelemetery.FilesFailedCount -ne 0 -or
+        [int]$sbomValidation.Summary.ValidationTelemetery.TotalPackagesInManifest -le 0) {
+        throw "The generated SBOM did not pass package validation."
+    }
+    Copy-Item -LiteralPath $generatedSbomPath -Destination $sbomPath
+} finally {
+    if (Test-Path -LiteralPath $sbomComponentRoot) {
+        if (-not (Test-DagPathWithin `
+                -Path $sbomComponentRoot `
+                -Parent $releaseRoot)) {
+            throw "Refusing to clean an unsafe SBOM component directory."
+        }
+        Remove-Item -LiteralPath $sbomComponentRoot -Recurse -Force
+    }
+}
+$sbomHash = (Get-FileHash -LiteralPath $sbomPath `
+    -Algorithm SHA256).Hash
+"$sbomHash  $([IO.Path]::GetFileName($sbomPath))" |
+    Set-Content -LiteralPath $sbomChecksumPath -Encoding Ascii
+$toolManifest = Get-Content `
+    -LiteralPath (Join-Path $projectRoot ".config\dotnet-tools.json") `
+    -Raw |
+    ConvertFrom-Json
+$sbomToolVersion = [string]$toolManifest.tools.PSObject.Properties[
+    "microsoft.sbom.dotnettool"].Value.version
+
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [IO.Compression.ZipFile]::OpenRead($archivePath)
 try {
@@ -314,6 +453,11 @@ $evidenceFile = Join-Path $releaseRoot "release-gate.json"
         query = "IApplicationAssociationRegistration.QueryCurrentDefault"
         monitor = "RegNotifyChangeKeyValue"
         requiredTests = $requiredTests
+        exactReleasePackagePassed = [bool]$lifecycleEvidence.passed
+        installedMonitorBeforeRecovery =
+            [bool]$lifecycleEvidence.mainAlgorithm.initialMonitorVerified
+        installedMonitorAfterRecovery =
+            [bool]$lifecycleEvidence.mainAlgorithm.postRestartMonitorVerified
         passed = $true
     }
     process = [ordered]@{
@@ -326,6 +470,31 @@ $evidenceFile = Join-Path $releaseRoot "release-gate.json"
         declaredFileCount = $packageCheck.DeclaredFileCount
         actualFileCount = $packageCheck.ActualFileCount
         passed = $packageCheck.Passed
+    }
+    packageLifecycle = [ordered]@{
+        evidence = [IO.Path]::GetFileName($lifecycleEvidencePath)
+        transactionalRollback = [bool]$lifecycleEvidence.rollback.passed
+        automaticWatchdogRecovery =
+            [bool]$lifecycleEvidence.watchdog.AutomaticRestartVerified
+        diagnosticsHealthy =
+            [bool]$lifecycleEvidence.diagnostics.overallHealthy
+        uninstallClean = [bool]$lifecycleEvidence.uninstall.passed
+        passed = [bool]$lifecycleEvidence.passed
+    }
+    sbom = [ordered]@{
+        format = "SPDX-2.2"
+        tool = "Microsoft.Sbom.DotNetTool"
+        toolVersion = $sbomToolVersion
+        file = [IO.Path]::GetFileName($sbomPath)
+        sha256 = $sbomHash
+        filesValidated = [int](
+            $sbomValidation.Summary.ValidationTelemetery.FilesValidatedCount)
+        packages = [int](
+            $sbomValidation.Summary.ValidationTelemetery.TotalPackagesInManifest)
+        componentInputFiles = $sbomComponentFiles.Count
+        historicalArtifactsExcluded = $true
+        validationResult = [string]$sbomValidation.Result
+        passed = $sbomValidation.Result -eq "Success"
     }
     codeSigning = [ordered]@{
         policy = if ($RequireSigned) {
@@ -358,6 +527,11 @@ $evidenceFile = Join-Path $releaseRoot "release-gate.json"
     Archive = $archivePath
     ChecksumFile = $checksumPath
     EvidenceFile = $evidenceFile
+    EvidenceDirectory = $evidenceDirectory
+    LifecycleEvidenceFile = $lifecycleEvidencePath
+    SbomFile = $sbomPath
+    SbomChecksumFile = $sbomChecksumPath
+    SbomValidationFile = $sbomValidationPath
     Sha256 = $archiveHash
     CodeSigningStatus = $codeSigningStatus
 }

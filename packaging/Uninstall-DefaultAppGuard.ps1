@@ -139,14 +139,18 @@ foreach ($process in $processes) {
     }
 }
 
-$shortcutPath = if ($null -ne $installState -and
-    -not [string]::IsNullOrWhiteSpace($installState.shortcutPath)) {
-    [string]$installState.shortcutPath
+$shortcutPath = if ($null -ne $installState) {
+    if (-not [string]::IsNullOrWhiteSpace($installState.shortcutPath)) {
+        [string]$installState.shortcutPath
+    } else {
+        $null
+    }
 } else {
     Join-Path $env:APPDATA `
         "Microsoft\Windows\Start Menu\Programs\DefaultAppGuard.lnk"
 }
-if (Test-Path -LiteralPath $shortcutPath) {
+if (-not [string]::IsNullOrWhiteSpace($shortcutPath) -and
+    (Test-Path -LiteralPath $shortcutPath)) {
     Remove-Item -LiteralPath $shortcutPath -Force
 }
 

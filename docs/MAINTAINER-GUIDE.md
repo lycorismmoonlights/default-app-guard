@@ -6,7 +6,7 @@ Run all of the following on Windows:
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.4 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.5 `
   -PackageManagerPath pnpm
 ```
 
@@ -18,14 +18,21 @@ report `codeSigning.status` as `unsigned`. Any release described as signed must
 run:
 
 ```powershell
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.4 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.5 `
   -PackageManagerPath pnpm `
+  -SigningCertificateThumbprint $env:DAG_SIGNING_CERTIFICATE_THUMBPRINT `
+  -TimestampServer $env:DAG_TIMESTAMP_SERVER `
   -RequireSigned
 ```
 
 That mode requires valid, timestamped Authenticode signatures on the Agent,
 installer, uninstaller, diagnostics script, and package module. All files must
-use the same signer certificate.
+use the same signer certificate. Supply `-SigningCertificateThumbprint` and
+`-TimestampServer`; the certificate must be available in the current-user or
+local-machine Windows certificate store with an accessible private key and the
+Code Signing enhanced key usage. The release workflow reads those values from
+the `DAG_SIGNING_CERTIFICATE_THUMBPRINT` and `DAG_TIMESTAMP_SERVER` GitHub
+environment configuration variables.
 
 ## Main-Algorithm Evidence
 
@@ -41,6 +48,11 @@ The required signals are:
 - Registry evidence never replaces a failed COM result.
 
 ## Installation Test
+
+The release gate runs this lifecycle automatically against the exact package
+it is about to publish. The release runner must not have a pre-existing
+`DefaultAppGuard.Agent.exe` process because the product enforces one instance
+per signed-in user.
 
 Use an isolated directory outside the installation defaults, a test task name,
 and a non-production loopback port:
@@ -74,6 +86,11 @@ Verify:
    personal paths or raw runtime contents.
 9. Uninstallation leaves no task, process, install directory, data directory,
    or probe key.
+
+The lifecycle evidence is written to `package-lifecycle.json`. The gate also
+uses the pinned Microsoft SBOM Tool to generate an SPDX 2.2 document, requires
+at least one detected package, validates every packaged file hash, and records
+the result in `release-gate.json`.
 
 ## Packaging
 
