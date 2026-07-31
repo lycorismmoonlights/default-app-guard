@@ -5,11 +5,50 @@ param(
     [Alias("PnpmPath")]
     [string]$PackageManagerPath = "pnpm",
     [string]$NodePath = "node",
+    [string]$SigningCertificateThumbprint,
+    [string]$TimestampServer,
     [switch]$CreateArchive
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+function Get-PublishSigningCertificate {
+    param([Parameter(Mandatory)][string]$Thumbprint)
+
+    $normalizedThumbprint = $Thumbprint.Replace(" ", "").ToUpperInvariant()
+    if ($normalizedThumbprint -notmatch '^[0-9A-F]{40,64}$') {
+        throw "SigningCertificateThumbprint is not a valid certificate thumbprint."
+    }
+
+    $certificate = Get-ChildItem `
+        Cert:\CurrentUser\My, Cert:\LocalMachine\My `
+        -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.Thumbprint -eq $normalizedThumbprint -and
+            $_.HasPrivateKey
+        } |
+        Select-Object -First 1
+    if ($null -eq $certificate) {
+        throw "The signing certificate was not found with an accessible private key."
+    }
+    $codeSigningOid = "1.3.6.1.5.5.7.3.3"
+    $enhancedKeyUsages = @(
+        $certificate.Extensions |
+            Where-Object { $_.Oid.Value -eq "2.5.29.37" } |
+            ForEach-Object { $_.EnhancedKeyUsages } |
+            ForEach-Object { $_.Value })
+    if ($codeSigningOid -notin $enhancedKeyUsages) {
+        throw "The selected certificate is not valid for code signing."
+    }
+    $now = [DateTime]::UtcNow
+    if ($certificate.NotBefore.ToUniversalTime() -gt $now -or
+        $certificate.NotAfter.ToUniversalTime() -le $now) {
+        throw "The selected code-signing certificate is not currently valid."
+    }
+
+    return $certificate
+}
 
 $projectRoot = [System.IO.Path]::GetFullPath(
     (Join-Path $PSScriptRoot ".."))
@@ -100,6 +139,47 @@ try {
     Copy-Item `
         -LiteralPath $riskNoticePath `
         -Destination $outputPath
+
+    if (-not [string]::IsNullOrWhiteSpace(
+            $SigningCertificateThumbprint)) {
+        if ([string]::IsNullOrWhiteSpace($TimestampServer)) {
+            throw "TimestampServer is required for a signed package."
+        }
+        $timestampUri = $null
+        if (-not [Uri]::TryCreate(
+                $TimestampServer,
+                [UriKind]::Absolute,
+                [ref]$timestampUri) -or
+            $timestampUri.Scheme -notin @("http", "https")) {
+            throw "TimestampServer must be an absolute HTTP or HTTPS URI."
+        }
+
+        $certificate = Get-PublishSigningCertificate `
+            -Thumbprint $SigningCertificateThumbprint
+        $filesToSign = @(
+            "DefaultAppGuard.Agent.exe",
+            "Install-DefaultAppGuard.ps1",
+            "Uninstall-DefaultAppGuard.ps1",
+            "Get-DefaultAppGuardDiagnostics.ps1",
+            "DefaultAppGuard.Package.psm1"
+        )
+        foreach ($fileName in $filesToSign) {
+            $filePath = Join-Path $outputPath $fileName
+            $signature = Set-AuthenticodeSignature `
+                -LiteralPath $filePath `
+                -Certificate $certificate `
+                -HashAlgorithm SHA256 `
+                -IncludeChain NotRoot `
+                -TimestampServer $TimestampServer `
+                -Force
+            if ($signature.Status -ne "Valid" -or
+                $null -eq $signature.TimeStamperCertificate) {
+                throw (
+                    "Signing failed for $fileName. Status: " +
+                    [string]$signature.Status)
+            }
+        }
+    }
 } catch {
     Write-Error $_
     throw
@@ -174,4 +254,6 @@ if ($CreateArchive) {
     Archive = $archivePath
     ChecksumFile = $checksumPath
     Sha256 = $archiveHash
+    SigningRequested = -not [string]::IsNullOrWhiteSpace(
+        $SigningCertificateThumbprint)
 }

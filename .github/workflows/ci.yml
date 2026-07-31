@@ -35,6 +35,11 @@ jobs:
         with:
           dotnet-version: 9.0.x
 
+      - name: Restore pinned build tools
+        run: |
+          dotnet tool restore
+          dotnet tool run sbom-tool -- version
+
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 

@@ -1,8 +1,8 @@
 DefaultAppGuard Community
 环境配置要求与风险提示 / Environment Requirements and Risk Notice
 
-适用版本 / Applies to version: 0.1.4
-更新日期 / Updated: 2026-07-29
+适用版本 / Applies to version: 0.1.5
+更新日期 / Updated: 2026-08-01
 
 ============================================================
 中文
@@ -38,7 +38,7 @@ DefaultAppGuard Community
 
 3.1 本版本的签名状态
 
-- 适用本提示文本的 0.1.4 版本是“未签名 alpha 版本”。
+- 适用本提示文本的 0.1.5 版本是“未签名 alpha 版本”。
 - DefaultAppGuard.Agent.exe、Install-DefaultAppGuard.ps1、
   Uninstall-DefaultAppGuard.ps1、Get-DefaultAppGuardDiagnostics.ps1 和
   DefaultAppGuard.Package.psm1 均没有受 Windows 信任的发布者签名。
@@ -68,7 +68,7 @@ DefaultAppGuard Community
 3) 同时下载对应的 .sha256 文件，并核对 ZIP 的 SHA-256。可以在 ZIP
    所在文件夹打开 PowerShell，运行：
 
-   Get-FileHash .\DefaultAppGuard-0.1.4-win-x64.zip -Algorithm SHA256
+   Get-FileHash .\DefaultAppGuard-0.1.5-win-x64.zip -Algorithm SHA256
 
    输出的 64 位哈希必须与 .sha256 文件完全一致。任何一位不同都不要运行。
 4) 完整解压 ZIP 后再安装，不要从压缩包预览窗口直接运行脚本。
@@ -198,7 +198,7 @@ English
 
 3.1 Signing status of this version
 
-- Version 0.1.4 covered by this notice is an unsigned alpha release.
+- Version 0.1.5 covered by this notice is an unsigned alpha release.
 - DefaultAppGuard.Agent.exe, Install-DefaultAppGuard.ps1,
   Uninstall-DefaultAppGuard.ps1, Get-DefaultAppGuardDiagnostics.ps1, and
   DefaultAppGuard.Package.psm1 do not have a publisher signature trusted by
@@ -235,7 +235,7 @@ Consider installing this unsigned alpha only when every item below is true:
 3) Download the matching .sha256 file and verify the ZIP. Open PowerShell in
    the folder containing the ZIP and run:
 
-   Get-FileHash .\DefaultAppGuard-0.1.4-win-x64.zip -Algorithm SHA256
+   Get-FileHash .\DefaultAppGuard-0.1.5-win-x64.zip -Algorithm SHA256
 
    The 64-character hash must match the .sha256 file exactly. Do not run the
    package when even one character is different.
@@ -358,6 +358,41 @@ This project is licensed under the PolyForm Noncommercial License 1.0.0.
 Use, modification, and redistribution are allowed only as granted for permitted
 noncommercial purposes. Commercial use is not granted. Redistributions must
 retain LICENSE.md, NOTICE, and this notice file.
+
+============================================================
+发布证据补充 / Release evidence addendum
+============================================================
+
+中文：
+
+- 0.1.5 的发布附件新增 SPDX 2.2 软件物料清单（SBOM）及其 SHA-256。
+  SBOM 使用固定版本的 Microsoft SBOM Tool 生成，并在发布门禁中逐文件验证。
+- 发布门禁会安装即将发布的确切软件包，并验证真实 COM 查询、真实注册表通知、
+  失败升级回滚、计划任务自动恢复、无控制台运行、诊断健康和干净卸载。
+- 这些证据用于提高构建可追溯性和发现发布过程错误，不代表软件在所有电脑上
+  都不会出现兼容性问题，也不能代替 Windows Authenticode 发布者签名。
+- 项目已经具备使用 Windows 证书存储或兼容 HSM 进行发布签名的构建入口；但是
+  本提示对应的 0.1.5 仍是未签名 alpha。只有当 GitHub 发布说明明确写明“已签名”、
+  列出签名者，且 release-gate.json 显示所有受检文件签名有效并已加时间戳时，
+  才能把某个未来版本视为已签名版本。
+
+English:
+
+- Version 0.1.5 release assets add an SPDX 2.2 software bill of materials
+  (SBOM) and its SHA-256. The pinned Microsoft SBOM Tool generates it, and the
+  release gate validates every packaged file against it.
+- The release gate installs the exact package that will be published and
+  verifies the real COM query, real registry notification, failed-upgrade
+  rollback, automatic scheduled-task recovery, no-console operation, healthy
+  diagnostics, and clean uninstall.
+- This evidence improves build traceability and catches release-process
+  failures. It does not guarantee compatibility on every computer and does not
+  replace a trusted Windows Authenticode publisher signature.
+- The build now supports release signing through the Windows certificate store
+  or a compatible HSM. However, version 0.1.5 covered by this notice remains an
+  unsigned alpha. Treat a future version as signed only when its GitHub release
+  notes explicitly say so, name the signer, and release-gate.json reports valid,
+  timestamped signatures for every checked file.
 
 ============================================================
 Version maintenance rule / 版本维护规则
