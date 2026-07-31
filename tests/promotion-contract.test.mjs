@@ -106,11 +106,14 @@ test("graphical setup verifies before its process-only script policy", async () 
   assert.ok(verificationIndex >= 0);
   assert.ok(processStartIndex > verificationIndex);
   assert.ok(setup.includes('startInfo.ArgumentList.Add("Bypass")'));
+  assert.ok(setup.includes("DefaultAppGuard-Setup-verify-install"));
+  assert.ok(setup.includes("DefaultAppGuard-Setup-verify-data"));
   assert.equal(setup.includes("Set-ExecutionPolicy"), false);
   assert.ok(verifier.includes("SHA256.HashData(stream)"));
   assert.ok(verifier.includes('issues.Add("package-file-undeclared")'));
   assert.ok(verifier.includes('issues.Add("package-path-escape")'));
   assert.ok(lifecycle.includes("PSExecutionPolicyPreference = \"Restricted\""));
+  assert.ok(lifecycle.includes("$env:LOCALAPPDATA = $null"));
   assert.ok(lifecycle.includes("Native Setup did not reject"));
   assert.ok(lifecycle.includes("tampered-script-executed.txt"));
 });

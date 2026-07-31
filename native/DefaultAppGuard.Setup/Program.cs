@@ -237,6 +237,16 @@ internal static class Program
         if (options.VerifyOnly)
         {
             startInfo.ArgumentList.Add("-VerifyOnly");
+            AddVerifyOnlyDirectoryDefault(
+                startInfo,
+                options.InstallerArguments,
+                "-InstallDirectory",
+                "DefaultAppGuard-Setup-verify-install");
+            AddVerifyOnlyDirectoryDefault(
+                startInfo,
+                options.InstallerArguments,
+                "-DataDirectory",
+                "DefaultAppGuard-Setup-verify-data");
         }
 
         foreach (var argument in options.InstallerArguments)
@@ -255,6 +265,23 @@ internal static class Program
             process.ExitCode,
             outputTask.Result,
             errorTask.Result);
+    }
+
+    private static void AddVerifyOnlyDirectoryDefault(
+        ProcessStartInfo startInfo,
+        IReadOnlyList<string> installerArguments,
+        string option,
+        string directoryName)
+    {
+        if (installerArguments.Contains(option, StringComparer.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        startInfo.ArgumentList.Add(option);
+        startInfo.ArgumentList.Add(Path.Combine(
+            Path.GetTempPath(),
+            directoryName));
     }
 
     private static string BuildFailureMessage(InstallerResult result)

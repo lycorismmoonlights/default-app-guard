@@ -159,14 +159,20 @@ Assert-True (Test-Path -LiteralPath $setupExecutable -PathType Leaf) `
     "The release package is missing the graphical setup launcher."
 Assert-True ((Get-DagPeSubsystem -Path $setupExecutable) -eq 2) `
     "The graphical setup launcher must use the Windows GUI subsystem."
-$setupVerification = Start-Process `
-    -FilePath $setupExecutable `
-    -ArgumentList @("--quiet", "--verify-only") `
-    -WindowStyle Hidden `
-    -Wait `
-    -PassThru
+$originalLocalAppData = $env:LOCALAPPDATA
+try {
+    $env:LOCALAPPDATA = $null
+    $setupVerification = Start-Process `
+        -FilePath $setupExecutable `
+        -ArgumentList @("--quiet", "--verify-only") `
+        -WindowStyle Hidden `
+        -Wait `
+        -PassThru
+} finally {
+    $env:LOCALAPPDATA = $originalLocalAppData
+}
 Assert-True ($setupVerification.ExitCode -eq 0) `
-    "The graphical setup launcher did not verify the exact release package."
+    "The graphical setup launcher depends on a user-profile environment to verify the package."
 $preexistingAgents = @(
     Get-CimInstance Win32_Process -Filter `
         "Name='DefaultAppGuard.Agent.exe'")
