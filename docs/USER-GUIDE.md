@@ -50,6 +50,13 @@ window. The watchdog task may check or restart it in the background, but it
 should not open Windows Terminal. If an Agent terminal remains visible, verify
 that version 0.1.2 or later is installed.
 
+The watchdog uses Task Scheduler's `IgnoreNew` policy. While the Agent is
+already running, Windows can record a rejected duplicate start as
+`0x800710E0`; this is expected only when diagnostics report the task as
+`Running`, `scheduledTask.configurationHealthy` is `true`, and the main
+algorithm is healthy. The bilingual risk notice explains how to distinguish
+this state from a real startup failure.
+
 The scripts and executables are not yet code-signed. Windows may display a
 warning for files downloaded from the internet.
 
@@ -78,8 +85,10 @@ Generate a constrained support report:
 
 The command writes a timestamped JSON report in the current directory. It
 checks package integrity, Agent and Setup signature status, the scheduled task,
-standard uninstall registration, Agent process identity, loopback listener,
-console children, readiness, and the current main-algorithm audit. The report
+including its exact action, current-user privilege, triggers, single-instance
+and restart settings, standard uninstall registration, Agent process identity,
+loopback listener, console children, readiness, and the current main-algorithm
+audit. The report
 does not include personal paths, registry exports, raw runtime file contents,
 or tokens. Review it before attaching it to an issue.
 

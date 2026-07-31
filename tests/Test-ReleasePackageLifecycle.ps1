@@ -215,6 +215,7 @@ $diagnosticsReport = $null
 $downloadPolicyProbe = $null
 $nativeTamperProbe = $null
 $uninstallRegistrationVerified = $false
+$taskConfigurationVerified = $false
 
 try {
     New-Item -ItemType Directory -Path $workPath | Out-Null
@@ -434,16 +435,86 @@ try {
         -Deadline ([DateTime]::UtcNow.AddSeconds(20))
     $task = Get-ScheduledTask -TaskName $taskName
     $taskInfo = Get-ScheduledTaskInfo -TaskName $taskName
-    $repeatingTriggers = @(
-        $task.Triggers |
+    $taskActions = @($task.Actions)
+    $expectedTaskArguments = @(
+        "--url `"$agentUrl`""
+        "--state `"$(Join-Path $dataPath "runtime\agent-status.json")`""
+        "--config `"$(Join-Path $dataPath "runtime\guard-configuration.json")`""
+    ) -join " "
+    Assert-True ($taskActions.Count -eq 1) `
+        "The installed watchdog task has an unexpected action count."
+    Assert-True ((Get-NormalizedPath $taskActions[0].Execute) -eq
+        $installedExecutable) `
+        "The installed watchdog executable does not match the package."
+    Assert-True ((Get-NormalizedPath $taskActions[0].WorkingDirectory) -eq
+        $installPath) `
+        "The installed watchdog working directory does not match the package."
+    Assert-True ([string]$taskActions[0].Arguments -eq
+        $expectedTaskArguments) `
+        "The installed watchdog arguments do not match the package."
+
+    $principalUserId = [string]$task.Principal.UserId
+    $principalSid = if ($principalUserId.StartsWith(
+        "S-1-",
+        [StringComparison]::OrdinalIgnoreCase)) {
+        [Security.Principal.SecurityIdentifier]::new(
+            $principalUserId).Value
+    } else {
+        [Security.Principal.NTAccount]::new($principalUserId).
+            Translate([Security.Principal.SecurityIdentifier]).Value
+    }
+    Assert-True ($principalSid -eq
+        [Security.Principal.WindowsIdentity]::GetCurrent().User.Value) `
+        "The installed watchdog does not run as the current user."
+    Assert-True ([string]$task.Principal.RunLevel -eq "Limited") `
+        "The installed watchdog unexpectedly requests elevation."
+    Assert-True ([string]$task.Principal.LogonType -eq "Interactive") `
+        "The installed watchdog does not use the interactive user token."
+
+    Assert-True ([string]$task.Settings.MultipleInstances -eq "IgnoreNew") `
+        "The installed watchdog does not reject duplicate instances."
+    Assert-True ([bool]$task.Settings.StartWhenAvailable) `
+        "The installed watchdog does not recover a missed scheduled start."
+    Assert-True ([int]$task.Settings.RestartCount -eq 3) `
+        "The installed watchdog restart count is unexpected."
+    Assert-True ([string]$task.Settings.RestartInterval -eq "PT1M") `
+        "The installed watchdog restart interval is unexpected."
+    Assert-True ([string]$task.Settings.ExecutionTimeLimit -eq "PT0S") `
+        "The installed watchdog has a finite execution limit."
+    Assert-True (-not [bool]$task.Settings.DisallowStartIfOnBatteries) `
+        "The installed watchdog is disabled on battery power."
+    Assert-True (-not [bool]$task.Settings.StopIfGoingOnBatteries) `
+        "The installed watchdog stops when battery power begins."
+
+    $allTriggers = @($task.Triggers)
+    $logonTriggers = @(
+        $allTriggers |
             Where-Object {
-                -not [string]::IsNullOrWhiteSpace(
-                    [string]$_.Repetition.Interval)
+                $_.CimClass.CimClassName -eq "MSFT_TaskLogonTrigger"
             })
+    $repeatingTriggers = @(
+        $allTriggers |
+            Where-Object {
+                $_.CimClass.CimClassName -eq "MSFT_TaskTimeTrigger"
+            })
+    Assert-True ($allTriggers.Count -eq 2) `
+        "The installed watchdog task has unexpected triggers."
+    Assert-True ($logonTriggers.Count -eq 1 -and
+        [bool]$logonTriggers[0].Enabled) `
+        "The installed watchdog logon trigger is missing or disabled."
     Assert-True ($repeatingTriggers.Count -eq 1) `
         "The installed watchdog repetition trigger is missing."
+    Assert-True ([bool]$repeatingTriggers[0].Enabled) `
+        "The installed watchdog repetition trigger is disabled."
+    Assert-True ([string]$repeatingTriggers[0].Repetition.Interval -eq
+        [Xml.XmlConvert]::ToString(
+            [TimeSpan]::FromMinutes($WatchdogIntervalMinutes))) `
+        "The installed watchdog repetition interval is unexpected."
     Assert-True ([bool]$task.Settings.Enabled) `
         "The installed watchdog task is disabled."
+    Assert-True ([string]$task.State -eq "Running") `
+        "The installed watchdog task is not running."
+    $taskConfigurationVerified = $true
 
     Stop-Process -Id $beforeWatchdog.ProcessId -Force
     Wait-Process -Id $beforeWatchdog.ProcessId -Timeout 10 `
@@ -456,6 +527,7 @@ try {
         -Deadline ([DateTime]::UtcNow.AddSeconds(
             $WatchdogTimeoutSeconds))
     $watchdogResult = [pscustomobject]@{
+        TaskConfigurationVerified = $taskConfigurationVerified
         RepetitionInterval = [string]$repeatingTriggers[0].Repetition.Interval
         ScheduledNextRun = $taskInfo.NextRunTime.ToUniversalTime().ToString("O")
         PreviousProcessId = $beforeWatchdog.ProcessId
@@ -498,6 +570,8 @@ try {
         "Diagnostics did not report every declared extension."
     Assert-True ([bool]$diagnosticsReport.uninstallRegistration.healthy) `
         "Diagnostics rejected the standard uninstall registration."
+    Assert-True ([bool]$diagnosticsReport.scheduledTask.configurationHealthy) `
+        "Diagnostics rejected the installed watchdog configuration."
 
     $candidateManifestHash = (Get-FileHash `
         -LiteralPath (Join-Path $packagePath "package-manifest.json") `

@@ -46,6 +46,8 @@ test("release metadata and risk notice stay version-aligned", async () => {
   assert.ok(notice.includes("do not permanently change the computer-wide policy"));
   assert.ok(notice.includes("已安装的应用"));
   assert.ok(notice.includes("Windows Installed apps list"));
+  assert.ok(notice.includes("0x800710E0"));
+  assert.ok(notice.includes("scheduledTask.configurationHealthy"));
 });
 
 test("published package includes the bilingual risk notice", async () => {
@@ -77,6 +79,7 @@ test("published package includes the bilingual risk notice", async () => {
   assert.ok(releaseGate.includes("codeSigning = [ordered]@{"));
   assert.ok(releaseGate.includes("Test-ReleasePackageLifecycle.ps1"));
   assert.ok(releaseGate.includes("exactReleasePackagePassed"));
+  assert.ok(releaseGate.includes("watchdogConfigurationVerified"));
   assert.ok(releaseGate.includes('"tool", "run", "sbom-tool"'));
   assert.ok(releaseGate.includes('"SPDX:2.2"'));
   assert.ok(releaseGate.includes("TotalPackagesInManifest"));
@@ -193,6 +196,13 @@ test("diagnostics are packaged, redacted, and inspect the primary algorithm", as
   assert.ok(diagnostics.includes("uninstallRegistration"));
   assert.ok(diagnostics.includes("uninstall-registration-missing"));
   assert.ok(diagnostics.includes("quiet-uninstall-missing"));
+  assert.ok(diagnostics.includes("task-principal-mismatch"));
+  assert.ok(diagnostics.includes("task-settings-mismatch"));
+  assert.ok(diagnostics.includes("task-triggers-mismatch"));
+  assert.ok(diagnostics.includes("configurationHealthy"));
+  assert.ok(
+    diagnostics.includes('"expected-ignore-new-while-running"'),
+  );
 });
 
 test("uninstaller verifies ownership before removing task or directories", async () => {

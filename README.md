@@ -54,8 +54,9 @@ uninstall registration as one transaction.
 Release assets also include a Microsoft SBOM Tool-generated SPDX 2.2 software
 bill of materials and checksum. The release gate validates the SBOM against
 the exact package, then installs that package in isolation and verifies the
-real monitor, transactional rollback, automatic watchdog recovery, diagnostics,
-and clean uninstall before publication.
+real monitor, transactional rollback, the watchdog's exact arguments,
+current-user privilege, triggers, single-instance and restart settings,
+automatic recovery, diagnostics, and clean uninstall before publication.
 
 See [docs/USER-GUIDE.md](docs/USER-GUIDE.md) for installation, use,
 diagnostics, and uninstallation.

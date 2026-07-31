@@ -315,6 +315,7 @@ if (-not [bool]$lifecycleEvidence.passed -or
     -not [bool]$lifecycleEvidence.rollback.lateStagePassed -or
     -not [bool]$lifecycleEvidence.rollback.installStateRestored -or
     -not [bool]$lifecycleEvidence.rollback.uninstallEntryRestored -or
+    -not [bool]$lifecycleEvidence.watchdog.TaskConfigurationVerified -or
     -not [bool]$lifecycleEvidence.uninstall.registrationRemoved) {
     throw "The exact release package lacks primary-algorithm lifecycle evidence."
 }
@@ -491,6 +492,8 @@ $evidenceFile = Join-Path $releaseRoot "release-gate.json"
         lateStageRollback = [bool]$lifecycleEvidence.rollback.lateStagePassed
         automaticWatchdogRecovery =
             [bool]$lifecycleEvidence.watchdog.AutomaticRestartVerified
+        watchdogConfigurationVerified =
+            [bool]$lifecycleEvidence.watchdog.TaskConfigurationVerified
         diagnosticsHealthy =
             [bool]$lifecycleEvidence.diagnostics.overallHealthy
         uninstallRegistered =

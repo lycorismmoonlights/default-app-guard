@@ -231,22 +231,135 @@ $uninstallRegistrationHealthy =
     $uninstallCommandHidden -and
     $quietUninstallPresent
 
+$agentUrl = "http://127.0.0.1:51873"
+if ($null -ne $installState -and
+    -not [string]::IsNullOrWhiteSpace($installState.agentUrl)) {
+    $agentUrl = [string]$installState.agentUrl
+}
+$expectedWatchdogIntervalMinutes = 5
+if ($null -ne $installState -and
+    $null -ne $installState.watchdogIntervalMinutes) {
+    try {
+        $recordedWatchdogInterval = [int]$installState.watchdogIntervalMinutes
+        if ($recordedWatchdogInterval -lt 1 -or
+            $recordedWatchdogInterval -gt 60) {
+            throw "Recorded watchdog interval is outside the supported range."
+        }
+        $expectedWatchdogIntervalMinutes = $recordedWatchdogInterval
+    } catch {
+        $issues.Add("install-state-watchdog-invalid")
+    }
+}
+$runtimePath = Join-Path $dataPath "runtime"
+$expectedTaskArguments = @(
+    "--url `"$agentUrl`""
+    "--state `"$(Join-Path $runtimePath "agent-status.json")`""
+    "--config `"$(Join-Path $runtimePath "guard-configuration.json")`""
+) -join " "
+$expectedWatchdogInterval = [Xml.XmlConvert]::ToString(
+    [TimeSpan]::FromMinutes($expectedWatchdogIntervalMinutes))
+
 $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 $taskInfo = $null
 $taskActionMatches = $false
+$taskExecutableMatches = $false
+$taskWorkingDirectoryMatches = $false
+$taskArgumentsMatch = $false
+$taskPrincipalMatches = $false
+$taskSettingsMatch = $false
+$taskTriggersMatch = $false
+$taskConfigurationHealthy = $false
 $taskEnabled = $false
 $taskState = "Missing"
 $taskLastResult = $null
+$taskLastResultDisposition = "unavailable"
 $triggerSummaries = @()
 if ($null -ne $task) {
     $taskInfo = Get-ScheduledTaskInfo -TaskName $TaskName
+    $taskActions = @($task.Actions)
+    if ($taskActions.Count -eq 1) {
+        $taskExecutableMatches =
+            -not [string]::IsNullOrWhiteSpace($taskActions[0].Execute) -and
+            (Get-NormalizedPath $taskActions[0].Execute) -eq $executablePath
+        $taskWorkingDirectoryMatches =
+            -not [string]::IsNullOrWhiteSpace(
+                $taskActions[0].WorkingDirectory) -and
+            (Get-NormalizedPath $taskActions[0].WorkingDirectory) -eq
+                $installPath
+        $taskArgumentsMatch =
+            [string]$taskActions[0].Arguments -eq $expectedTaskArguments
+    }
     $taskActionMatches =
-        (Get-NormalizedPath $task.Actions[0].Execute) -eq $executablePath
+        $taskExecutableMatches -and
+        $taskWorkingDirectoryMatches -and
+        $taskArgumentsMatch
+
+    try {
+        $principalUserId = [string]$task.Principal.UserId
+        $principalSid = if ($principalUserId.StartsWith(
+            "S-1-",
+            [StringComparison]::OrdinalIgnoreCase)) {
+            [Security.Principal.SecurityIdentifier]::new(
+                $principalUserId).Value
+        } else {
+            [Security.Principal.NTAccount]::new($principalUserId).
+                Translate([Security.Principal.SecurityIdentifier]).Value
+        }
+        $taskPrincipalMatches =
+            $principalSid -eq (
+                [Security.Principal.WindowsIdentity]::GetCurrent().User.Value) -and
+            [string]$task.Principal.RunLevel -eq "Limited" -and
+            [string]$task.Principal.LogonType -eq "Interactive"
+    } catch {
+        $taskPrincipalMatches = $false
+    }
+
+    $taskSettingsMatch =
+        [string]$task.Settings.MultipleInstances -eq "IgnoreNew" -and
+        [bool]$task.Settings.StartWhenAvailable -and
+        [int]$task.Settings.RestartCount -eq 3 -and
+        [string]$task.Settings.RestartInterval -eq "PT1M" -and
+        [string]$task.Settings.ExecutionTimeLimit -eq "PT0S" -and
+        -not [bool]$task.Settings.DisallowStartIfOnBatteries -and
+        -not [bool]$task.Settings.StopIfGoingOnBatteries
+
+    $taskTriggers = @($task.Triggers)
+    $logonTriggers = @(
+        $taskTriggers |
+            Where-Object {
+                $_.CimClass.CimClassName -eq "MSFT_TaskLogonTrigger"
+            })
+    $watchdogTriggers = @(
+        $taskTriggers |
+            Where-Object {
+                $_.CimClass.CimClassName -eq "MSFT_TaskTimeTrigger"
+            })
+    $taskTriggersMatch =
+        $taskTriggers.Count -eq 2 -and
+        $logonTriggers.Count -eq 1 -and
+        [bool]$logonTriggers[0].Enabled -and
+        $watchdogTriggers.Count -eq 1 -and
+        [bool]$watchdogTriggers[0].Enabled -and
+        [string]$watchdogTriggers[0].Repetition.Interval -eq
+            $expectedWatchdogInterval
+
     $taskEnabled = [bool]$task.Settings.Enabled
     $taskState = [string]$task.State
     $taskLastResult = $taskInfo.LastTaskResult
+    $taskLastResultDisposition = if (
+        $taskState -eq "Running" -and
+        [int64]$taskLastResult -eq 2147946720 -and
+        [string]$task.Settings.MultipleInstances -eq "IgnoreNew") {
+        "expected-ignore-new-while-running"
+    } elseif ($taskState -eq "Running") {
+        "running"
+    } elseif ([int64]$taskLastResult -eq 0) {
+        "success"
+    } else {
+        "nonzero"
+    }
     $triggerSummaries = @(
-        $task.Triggers |
+        $taskTriggers |
             ForEach-Object {
                 [ordered]@{
                     type = $_.CimClass.CimClassName
@@ -254,8 +367,27 @@ if ($null -ne $task) {
                     repetitionInterval = [string]$_.Repetition.Interval
                 }
             })
+    $taskConfigurationHealthy =
+        $taskEnabled -and
+        $taskState -eq "Running" -and
+        $taskActionMatches -and
+        $taskPrincipalMatches -and
+        $taskSettingsMatch -and
+        $taskTriggersMatch
     if (-not $taskActionMatches) {
         $issues.Add("task-action-mismatch")
+    }
+    if (-not $taskPrincipalMatches) {
+        $issues.Add("task-principal-mismatch")
+    }
+    if (-not $taskSettingsMatch) {
+        $issues.Add("task-settings-mismatch")
+    }
+    if (-not $taskTriggersMatch) {
+        $issues.Add("task-triggers-mismatch")
+    }
+    if (-not $taskEnabled -or $taskState -ne "Running") {
+        $issues.Add("scheduled-task-not-running")
     }
 } else {
     $issues.Add("scheduled-task-missing")
@@ -290,11 +422,6 @@ if ($consoleChildCount -ne 0) {
     $issues.Add("agent-console-child")
 }
 
-$agentUrl = "http://127.0.0.1:51873"
-if ($null -ne $installState -and
-    -not [string]::IsNullOrWhiteSpace($installState.agentUrl)) {
-    $agentUrl = [string]$installState.agentUrl
-}
 $health = $null
 $status = $null
 $readiness = $null
@@ -463,7 +590,17 @@ $report = [ordered]@{
         enabled = $taskEnabled
         state = $taskState
         actionMatchesInstall = $taskActionMatches
+        action = [ordered]@{
+            executableMatches = $taskExecutableMatches
+            workingDirectoryMatches = $taskWorkingDirectoryMatches
+            argumentsMatch = $taskArgumentsMatch
+        }
+        principalMatchesCurrentLimitedUser = $taskPrincipalMatches
+        settingsMatch = $taskSettingsMatch
+        triggersMatch = $taskTriggersMatch
+        configurationHealthy = $taskConfigurationHealthy
         lastResult = $taskLastResult
+        lastResultDisposition = $taskLastResultDisposition
         triggers = $triggerSummaries
     }
     uninstallRegistration = [ordered]@{
