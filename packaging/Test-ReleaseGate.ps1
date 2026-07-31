@@ -200,6 +200,8 @@ $archivePath = "$packageDirectory.zip"
 $checksumPath = "$archivePath.sha256"
 $publishedExecutable = Join-Path $packageDirectory `
     "DefaultAppGuard.Agent.exe"
+$publishedSetup = Join-Path $packageDirectory `
+    "DefaultAppGuard.Setup.exe"
 $packageCheck = Test-DagPackageIntegrity -PackageRoot $packageDirectory
 if (-not $packageCheck.Passed) {
     throw "Published package integrity failed: $(
@@ -213,6 +215,10 @@ $peSubsystem = Get-DagPeSubsystem $publishedExecutable
 if ($peSubsystem -ne 2) {
     throw "Published Agent must use the Windows GUI PE subsystem. Actual: $peSubsystem"
 }
+$setupPeSubsystem = Get-DagPeSubsystem $publishedSetup
+if ($setupPeSubsystem -ne 2) {
+    throw "Published Setup must use the Windows GUI PE subsystem. Actual: $setupPeSubsystem"
+}
 if (-not (Test-Path -LiteralPath $archivePath -PathType Leaf)) {
     throw "Release archive was not produced: $archivePath"
 }
@@ -222,6 +228,7 @@ if (-not (Test-Path -LiteralPath $checksumPath -PathType Leaf)) {
 
 $signatureFileNames = @(
     "DefaultAppGuard.Agent.exe",
+    "DefaultAppGuard.Setup.exe",
     "Install-DefaultAppGuard.ps1",
     "Uninstall-DefaultAppGuard.ps1",
     "Get-DefaultAppGuardDiagnostics.ps1",
@@ -408,6 +415,7 @@ try {
             ForEach-Object { $_.FullName.Replace("\", "/") })
     $requiredPackageEntries = @(
         "DefaultAppGuard.Agent.exe",
+        "DefaultAppGuard.Setup.exe",
         "Install-DefaultAppGuard.ps1",
         "Uninstall-DefaultAppGuard.ps1",
         "Get-DefaultAppGuardDiagnostics.ps1",
@@ -462,7 +470,8 @@ $evidenceFile = Join-Path $releaseRoot "release-gate.json"
     }
     process = [ordered]@{
         mode = "background-no-console"
-        peSubsystem = $peSubsystem
+        agentPeSubsystem = $peSubsystem
+        setupPeSubsystem = $setupPeSubsystem
         passed = $true
     }
     packageIntegrity = [ordered]@{

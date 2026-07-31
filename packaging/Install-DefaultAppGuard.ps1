@@ -10,7 +10,9 @@ param(
     [int]$WatchdogIntervalMinutes = 5,
     [ValidateRange(5, 120)]
     [int]$HealthTimeoutSeconds = 20,
-    [switch]$NoStartMenuShortcut
+    [switch]$NoStartMenuShortcut,
+    [switch]$VerifyOnly,
+    [string]$ResultPath
 )
 
 Set-StrictMode -Version Latest
@@ -145,7 +147,7 @@ function New-AgentScheduledTask {
             "Monitors the current user's Windows default video applications.")
 }
 
-function Wait-AgentHealthy {
+function Wait-AgentReady {
     param(
         [Parameter(Mandatory)][string]$Url,
         [Parameter(Mandatory)][string]$ExecutablePath,
@@ -208,8 +210,37 @@ function Wait-AgentHealthy {
                 continue
             }
 
+            $readiness = Invoke-RestMethod `
+                -Uri "$Url/api/readiness" `
+                -TimeoutSec 1
+            if (-not [bool]$readiness.Ready -or
+                $readiness.Code -ne "ready") {
+                $lastFailure = (
+                    "Agent readiness check failed: " +
+                    [string]$readiness.Code)
+                continue
+            }
+            if ($readiness.Query -ne $health.Query -or
+                $readiness.Monitor -ne $health.Monitor) {
+                $lastFailure = "Readiness reported another algorithm."
+                continue
+            }
+            if ([string]::IsNullOrWhiteSpace(
+                    [string]$readiness.TargetProgId) -or
+                [string]::IsNullOrWhiteSpace(
+                    [string]$readiness.TargetPackageId)) {
+                $lastFailure = "Readiness did not resolve Microsoft Media Player."
+                continue
+            }
+            if ([int]$readiness.AuditedExtensionCount -le 0 -or
+                [int]$readiness.PrimarySnapshotCount -le 0) {
+                $lastFailure = "Readiness did not produce primary query evidence."
+                continue
+            }
+
             return [pscustomobject]@{
                 Health = $health
+                Readiness = $readiness
                 ProcessId = $processId
             }
         } catch {
@@ -217,7 +248,7 @@ function Wait-AgentHealthy {
         }
     } until ([DateTime]::UtcNow -ge $deadline)
 
-    throw "Agent did not become healthy: $lastFailure"
+    throw "Agent did not become ready: $lastFailure"
 }
 
 function Write-JsonAtomically {
@@ -264,6 +295,14 @@ if ([string]::IsNullOrWhiteSpace($TaskName)) {
 $sourceDirectory = Get-NormalizedPath $PSScriptRoot
 $installPath = Assert-SafeDirectoryPath $InstallDirectory
 $dataPath = Assert-SafeDirectoryPath $DataDirectory
+$resultFile = $null
+if (-not [string]::IsNullOrWhiteSpace($ResultPath)) {
+    $resultFile = [IO.Path]::GetFullPath($ResultPath)
+    if ((Test-IsPathWithin -Path $resultFile -Parent $installPath) -or
+        (Test-IsPathWithin -Path $resultFile -Parent $dataPath)) {
+        throw "ResultPath must be outside the managed installation directories."
+    }
+}
 if ($installPath -eq $dataPath -or
     (Test-IsPathWithin -Path $installPath -Parent $dataPath) -or
     (Test-IsPathWithin -Path $dataPath -Parent $installPath)) {
@@ -282,6 +321,14 @@ if ($agentUri.Scheme -ne "http" -or
 $AgentUrl = $AgentUrl.TrimEnd("/")
 
 $manifest = Assert-DagPackageIntegrity -PackageRoot $sourceDirectory
+if ($VerifyOnly) {
+    [pscustomobject]@{
+        PackageVerified = $true
+        Version = [string]$manifest.version
+        PackagePayloadFileCount = @($manifest.payload).Count
+    }
+    return
+}
 $installParent = Split-Path -Parent $installPath
 $installLeaf = Split-Path -Leaf $installPath
 $transactionId = [Guid]::NewGuid().ToString("N")
@@ -390,6 +437,7 @@ try {
 
 $swapCompleted = $false
 $transactionSucceeded = $false
+$installationResult = $null
 try {
     New-Item -ItemType Directory -Path $dataPath -Force | Out-Null
     New-Item -ItemType Directory -Path $runtimePath -Force | Out-Null
@@ -419,7 +467,7 @@ try {
         -Force | Out-Null
     Start-ScheduledTask -TaskName $TaskName
 
-    $agent = Wait-AgentHealthy `
+    $agent = Wait-AgentReady `
         -Url $AgentUrl `
         -ExecutablePath $installedExecutable `
         -ExpectedVersion ([string]$manifest.version) `
@@ -468,6 +516,39 @@ try {
         updatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
     }
     Write-JsonAtomically -Value $installState -Path $installStatePath
+
+    $installationResult = [pscustomobject]@{
+        Installed = $true
+        TransactionalUpgrade = $true
+        InstallDirectory = $installPath
+        DataDirectory = $dataPath
+        TaskName = $TaskName
+        AgentUrl = $AgentUrl
+        Version = $agent.Health.Version
+        ProcessId = $agent.ProcessId
+        ProcessMode = $agent.Health.ProcessMode
+        MainQuery = $agent.Health.Query
+        MainMonitor = $agent.Health.Monitor
+        Ready = $agent.Readiness.Ready
+        ReadinessCode = $agent.Readiness.Code
+        TargetProgId = $agent.Readiness.TargetProgId
+        TargetPackageId = $agent.Readiness.TargetPackageId
+        AuditedExtensionCount = $agent.Readiness.AuditedExtensionCount
+        PrimarySnapshotCount = $agent.Readiness.PrimarySnapshotCount
+        FailedReadCount = $agent.Readiness.FailedReadCount
+        HealthyCount = $agent.Readiness.HealthyCount
+        DriftCount = $agent.Readiness.DriftCount
+        PackageIntegrityVerified = $true
+        PackagePayloadFileCount = @($manifest.payload).Count
+        WatchdogIntervalMinutes = $WatchdogIntervalMinutes
+    }
+    if ($null -ne $resultFile) {
+        New-Item `
+            -ItemType Directory `
+            -Path (Split-Path -Parent $resultFile) `
+            -Force | Out-Null
+        Write-JsonAtomically -Value $installationResult -Path $resultFile
+    }
     $transactionSucceeded = $true
 } catch {
     $installFailure = $_.Exception.Message
@@ -546,19 +627,4 @@ if ($transactionSucceeded -and
     }
 }
 
-[pscustomobject]@{
-    Installed = $true
-    TransactionalUpgrade = $true
-    InstallDirectory = $installPath
-    DataDirectory = $dataPath
-    TaskName = $TaskName
-    AgentUrl = $AgentUrl
-    Version = $agent.Health.Version
-    ProcessId = $agent.ProcessId
-    ProcessMode = $agent.Health.ProcessMode
-    MainQuery = $agent.Health.Query
-    MainMonitor = $agent.Health.Monitor
-    PackageIntegrityVerified = $true
-    PackagePayloadFileCount = @($manifest.payload).Count
-    WatchdogIntervalMinutes = $WatchdogIntervalMinutes
-}
+$installationResult

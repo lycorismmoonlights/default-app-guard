@@ -154,6 +154,19 @@ Assert-True $packageCheck.Passed `
     "The release package failed integrity validation."
 Assert-True ($packageCheck.Manifest.version -eq $Version) `
     "The release package version does not match the requested version."
+$setupExecutable = Join-Path $packagePath "DefaultAppGuard.Setup.exe"
+Assert-True (Test-Path -LiteralPath $setupExecutable -PathType Leaf) `
+    "The release package is missing the graphical setup launcher."
+Assert-True ((Get-DagPeSubsystem -Path $setupExecutable) -eq 2) `
+    "The graphical setup launcher must use the Windows GUI subsystem."
+$setupVerification = Start-Process `
+    -FilePath $setupExecutable `
+    -ArgumentList @("--quiet", "--verify-only") `
+    -WindowStyle Hidden `
+    -Wait `
+    -PassThru
+Assert-True ($setupVerification.ExitCode -eq 0) `
+    "The graphical setup launcher did not verify the exact release package."
 $preexistingAgents = @(
     Get-CimInstance Win32_Process -Filter `
         "Name='DefaultAppGuard.Agent.exe'")
@@ -177,6 +190,7 @@ $installedExecutable = Join-Path $installPath `
     "DefaultAppGuard.Agent.exe"
 $installerPath = Join-Path $packagePath `
     "Install-DefaultAppGuard.ps1"
+$setupInstallResultPath = Join-Path $workPath "setup-install-result.json"
 $originalAppData = $env:APPDATA
 $isolatedAppData = Join-Path $workPath "profile\AppData\Roaming"
 $shortcutPath = Join-Path $isolatedAppData `
@@ -192,9 +206,76 @@ $watchdogResult = $null
 $secondMonitor = $null
 $diagnosticsResult = $null
 $diagnosticsReport = $null
+$downloadPolicyProbe = $null
+$nativeTamperProbe = $null
 
 try {
     New-Item -ItemType Directory -Path $workPath | Out-Null
+    $downloadedPackagePath = Join-Path $workPath "downloaded-package"
+    New-Item -ItemType Directory -Path $downloadedPackagePath | Out-Null
+    Copy-Item `
+        -Path (Join-Path $packagePath "*") `
+        -Destination $downloadedPackagePath `
+        -Recurse
+    $zoneIdentifier = "[ZoneTransfer]`r`nZoneId=3"
+    foreach ($fileName in @(
+            "Install-DefaultAppGuard.ps1",
+            "DefaultAppGuard.Package.psm1")) {
+        Set-Content `
+            -LiteralPath (Join-Path $downloadedPackagePath $fileName) `
+            -Stream "Zone.Identifier" `
+            -Value $zoneIdentifier `
+            -NoNewline
+    }
+    $originalPolicyPreference = $env:PSExecutionPolicyPreference
+    try {
+        $env:PSExecutionPolicyPreference = "Restricted"
+        $downloadPolicyProbe = Start-Process `
+            -FilePath (Join-Path $downloadedPackagePath `
+                "DefaultAppGuard.Setup.exe") `
+            -ArgumentList @("--quiet", "--verify-only") `
+            -WindowStyle Hidden `
+            -Wait `
+            -PassThru
+    } finally {
+        $env:PSExecutionPolicyPreference = $originalPolicyPreference
+    }
+    Assert-True ($downloadPolicyProbe.ExitCode -eq 0) `
+        "Setup could not verify a downloaded package under a restricted process policy."
+    $tamperMarkerPath = Join-Path $workPath "tampered-script-executed.txt"
+    $tamperedInstallerPath = Join-Path $downloadedPackagePath `
+        "Install-DefaultAppGuard.ps1"
+    $tamperedInstaller = Get-Content `
+        -LiteralPath $tamperedInstallerPath `
+        -Raw `
+        -Encoding UTF8
+    $escapedMarkerPath = $tamperMarkerPath.Replace("'", "''")
+    ("Set-Content -LiteralPath '$escapedMarkerPath' -Value 'executed'`r`n" +
+        $tamperedInstaller) |
+        Set-Content `
+            -LiteralPath $tamperedInstallerPath `
+            -Encoding UTF8
+    $nativeTamperProbe = Start-Process `
+        -FilePath (Join-Path $downloadedPackagePath `
+            "DefaultAppGuard.Setup.exe") `
+        -ArgumentList @("--quiet", "--verify-only") `
+        -WindowStyle Hidden `
+        -Wait `
+        -PassThru
+    Assert-True ($nativeTamperProbe.ExitCode -eq 5) `
+        "Native Setup did not reject a package with a modified installer."
+    Assert-True (-not (Test-Path -LiteralPath $tamperMarkerPath)) `
+        "Setup executed a modified installer before native integrity verification."
+    if (-not (Test-PathWithin `
+            -Path $downloadedPackagePath `
+            -Parent $workPath)) {
+        throw "Refusing to clean an unsafe policy-probe package path."
+    }
+    Remove-Item `
+        -LiteralPath $downloadedPackagePath `
+        -Recurse `
+        -Force
+
     New-Item `
         -ItemType Directory `
         -Path (Split-Path -Parent $shortcutPath) `
@@ -204,14 +285,41 @@ try {
     $shortcutHashBefore = Get-OptionalFileHash -Path $shortcutPath
     $env:APPDATA = $isolatedAppData
 
-    $installResult = & $installerPath `
-        -InstallDirectory $installPath `
-        -DataDirectory $dataPath `
-        -TaskName $taskName `
-        -AgentUrl $agentUrl `
-        -WatchdogIntervalMinutes $WatchdogIntervalMinutes `
-        -HealthTimeoutSeconds 30 `
-        -NoStartMenuShortcut
+    $setupInstallArguments = @(
+        "--quiet"
+        "--install-directory"
+        ('"{0}"' -f $installPath)
+        "--data-directory"
+        ('"{0}"' -f $dataPath)
+        "--task-name"
+        ('"{0}"' -f $taskName)
+        "--agent-url"
+        $agentUrl
+        "--watchdog-minutes"
+        [string]$WatchdogIntervalMinutes
+        "--health-timeout-seconds"
+        "30"
+        "--no-start-menu-shortcut"
+        "--result-path"
+        ('"{0}"' -f $setupInstallResultPath)
+    ) -join " "
+    $setupInstall = Start-Process `
+        -FilePath $setupExecutable `
+        -ArgumentList $setupInstallArguments `
+        -WindowStyle Hidden `
+        -Wait `
+        -PassThru
+    Assert-True ($setupInstall.ExitCode -eq 0) `
+        "The graphical Setup launcher failed to install the release package."
+    Assert-True (Test-Path `
+        -LiteralPath $setupInstallResultPath `
+        -PathType Leaf) `
+        "The graphical Setup launcher did not produce installation evidence."
+    $installResult = Get-Content `
+        -LiteralPath $setupInstallResultPath `
+        -Raw `
+        -Encoding UTF8 |
+        ConvertFrom-Json
     $installed = $true
 
     Assert-True ([bool]$installResult.Installed) `
@@ -229,6 +337,18 @@ try {
     Assert-True ($installResult.ProcessMode -eq
         "background-no-console") `
         "The installed candidate did not use hidden background mode."
+    Assert-True ([bool]$installResult.Ready) `
+        "The installed candidate did not pass the readiness gate."
+    Assert-True ($installResult.ReadinessCode -eq "ready") `
+        "The installed candidate reported an unexpected readiness code."
+    Assert-True ([int]$installResult.AuditedExtensionCount -eq
+        $ExpectedExtensionCount) `
+        "The readiness gate did not audit every declared extension."
+    Assert-True ([int]$installResult.PrimarySnapshotCount -eq
+        $ExpectedExtensionCount) `
+        "The readiness gate did not obtain primary COM evidence for every extension."
+    Assert-True ([int]$installResult.FailedReadCount -eq 0) `
+        "The readiness gate reported failed primary association reads."
     Assert-True ((Get-OptionalFileHash -Path $shortcutPath) -eq
         $shortcutHashBefore) `
         "An isolated no-shortcut install changed the user's shortcut."
@@ -385,10 +505,17 @@ try {
                     "DefaultAppGuard.Agent.exe") `
                 -Algorithm SHA256).Hash
             declaredFileCount = $packageCheck.DeclaredFileCount
+            setupVerifierPassed = $setupVerification.ExitCode -eq 0
+            downloadPolicyProbePassed = $downloadPolicyProbe.ExitCode -eq 0
+            nativeTamperRejected = (
+                $nativeTamperProbe.ExitCode -eq 5 -and
+                -not (Test-Path -LiteralPath $tamperMarkerPath))
+            setupPeSubsystem = Get-DagPeSubsystem -Path $setupExecutable
             exactManifestInstalled = $candidateManifestHash -eq
                 $installedManifestHash
         }
         install = [ordered]@{
+            graphicalSetupUsed = $setupInstall.ExitCode -eq 0
             transactional = [bool]$installResult.TransactionalUpgrade
             integrityVerified = [bool]$installResult.PackageIntegrityVerified
             processMode = $installResult.ProcessMode
@@ -397,6 +524,10 @@ try {
             query = $installResult.MainQuery
             monitor = $installResult.MainMonitor
             expectedExtensionCount = $ExpectedExtensionCount
+            readinessCode = $installResult.ReadinessCode
+            auditedExtensionCount = $installResult.AuditedExtensionCount
+            primarySnapshotCount = $installResult.PrimarySnapshotCount
+            failedReadCount = $installResult.FailedReadCount
             initialMonitorVerified = [bool]$firstMonitor.InstalledMonitorVerified
             postRestartMonitorVerified = [bool]$secondMonitor.InstalledMonitorVerified
         }

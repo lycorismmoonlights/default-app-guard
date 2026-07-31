@@ -16,9 +16,16 @@ installation.
 ## Install
 
 1. Extract the complete package to a temporary folder.
-2. Review `Install-DefaultAppGuard.ps1`.
-3. Open PowerShell in that folder.
-4. Run:
+2. Read `ENVIRONMENT-AND-RISKS.txt`.
+3. Double-click `DefaultAppGuard.Setup.exe`.
+4. Review the bilingual confirmation and select **OK** to install or upgrade.
+
+Setup does not request administrator elevation or open a terminal. It first
+checks the complete package in native code, then uses a process-only
+`ExecutionPolicy Bypass` for its hidden PowerShell child. This temporary value
+ends with Setup, does not change the current-user or computer policy, and does
+not override company or school Group Policy. Advanced users may review and run
+the same transactional installer directly:
 
 ```powershell
 .\Install-DefaultAppGuard.ps1
@@ -30,8 +37,10 @@ task, starts the Agent, and creates a Start menu shortcut.
 
 Before changing an existing installation, the installer verifies every package
 file against `package-manifest.json` and prepares a complete staging directory.
-An upgrade is committed only after the new Agent reports the primary algorithms,
-the expected version and PID, and the no-console process mode. A failed upgrade
+An upgrade is committed only after the new Agent reports the expected version
+and PID, no-console process mode, a resolved Microsoft Media Player target, and
+real primary COM-query evidence for every protected format. Existing association drift is
+reported to the user but does not make installation fail. A failed upgrade
 restores the previous files and scheduled task.
 
 The Agent is a long-running background process compiled without a console
@@ -39,8 +48,8 @@ window. The watchdog task may check or restart it in the background, but it
 should not open Windows Terminal. If an Agent terminal remains visible, verify
 that version 0.1.2 or later is installed.
 
-The scripts and binary are not yet code-signed. Windows may display a warning
-for files downloaded from the internet.
+The scripts and executables are not yet code-signed. Windows may display a
+warning for files downloaded from the internet.
 
 Do not permanently disable Windows security controls or bypass organization
 policy to install the application.
@@ -66,9 +75,9 @@ Generate a constrained support report:
 ```
 
 The command writes a timestamped JSON report in the current directory. It
-checks package integrity, version and signature status, the scheduled task,
-Agent process identity, loopback listener, console children, and the current
-main-algorithm audit. The report does not include personal paths, registry
+checks package integrity, Agent and Setup signature status, the scheduled task,
+Agent process identity, loopback listener, console children, readiness, and the
+current main-algorithm audit. The report does not include personal paths, registry
 exports, raw runtime file contents, or tokens. Review it before attaching it
 to an issue.
 

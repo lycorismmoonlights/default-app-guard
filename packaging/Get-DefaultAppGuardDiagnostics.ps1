@@ -90,6 +90,7 @@ $executableSha256 = $null
 $peSubsystem = $null
 $signatureStatus = "Missing"
 $signerSubject = $null
+$signatureTimestamped = $false
 if ($executableExists) {
     $fileVersion = (Get-Item -LiteralPath $executablePath).VersionInfo.FileVersion
     $executableSha256 = (Get-FileHash `
@@ -101,11 +102,47 @@ if ($executableExists) {
     if ($null -ne $signature.SignerCertificate) {
         $signerSubject = $signature.SignerCertificate.Subject
     }
+    $signatureTimestamped = $null -ne $signature.TimeStamperCertificate
     if ($peSubsystem -ne 2) {
         $issues.Add("agent-console-subsystem")
     }
 } else {
     $issues.Add("agent-executable-missing")
+}
+
+$setupPath = Join-Path $installPath "DefaultAppGuard.Setup.exe"
+$setupExists = Test-Path -LiteralPath $setupPath -PathType Leaf
+$setupFileVersion = $null
+$setupSha256 = $null
+$setupPeSubsystem = $null
+$setupSignatureStatus = "Missing"
+$setupSignerSubject = $null
+$setupSignatureTimestamped = $false
+if ($setupExists) {
+    $setupFileVersion = (Get-Item -LiteralPath $setupPath).VersionInfo.FileVersion
+    $setupSha256 = (Get-FileHash `
+        -LiteralPath $setupPath `
+        -Algorithm SHA256).Hash
+    $setupPeSubsystem = Get-DagPeSubsystem -Path $setupPath
+    $setupSignature = Get-AuthenticodeSignature -LiteralPath $setupPath
+    $setupSignatureStatus = [string]$setupSignature.Status
+    if ($null -ne $setupSignature.SignerCertificate) {
+        $setupSignerSubject = $setupSignature.SignerCertificate.Subject
+    }
+    $setupSignatureTimestamped =
+        $null -ne $setupSignature.TimeStamperCertificate
+    if ($setupPeSubsystem -ne 2) {
+        $issues.Add("setup-console-subsystem")
+    }
+} else {
+    $issues.Add("setup-executable-missing")
+}
+if ($signatureStatus -ne $setupSignatureStatus) {
+    $issues.Add("release-signature-state-mismatch")
+}
+if ($signatureStatus -eq "Valid" -and
+    $signerSubject -ne $setupSignerSubject) {
+    $issues.Add("release-signer-mismatch")
 }
 
 $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
@@ -174,7 +211,9 @@ if ($null -ne $installState -and
 }
 $health = $null
 $status = $null
+$readiness = $null
 $apiReachable = $false
+$readinessReady = $false
 try {
     $agentUri = [Uri]$agentUrl
     if (-not $agentUri.IsLoopback -or
@@ -190,6 +229,20 @@ try {
     $apiReachable = $health.Service -eq "DefaultAppGuard.Agent"
 } catch {
     $issues.Add("agent-api-unreachable")
+}
+if ($apiReachable) {
+    try {
+        $readiness = Invoke-RestMethod `
+            -Uri "$($agentUrl.TrimEnd('/'))/api/readiness" `
+            -TimeoutSec 2
+        $readinessReady = [bool]$readiness.Ready -and
+            $readiness.Code -eq "ready"
+        if (-not $readinessReady) {
+            $issues.Add("agent-not-ready")
+        }
+    } catch {
+        $issues.Add("agent-not-ready")
+    }
 }
 
 $apiProcessMatches = $false
@@ -234,7 +287,8 @@ $queryAlgorithm = $null
 $monitorAlgorithm = $null
 $processMode = $null
 $hasRuntimeError = $false
-if ($apiReachable -and $null -ne $status) {
+if ($apiReachable -and $null -ne $status -and
+    $null -ne $status.audit) {
     $auditHealthy = [bool]$status.audit.healthy
     $healthyCount = [int]$status.audit.healthyCount
     $driftCount = [int]$status.audit.driftCount
@@ -254,6 +308,8 @@ if ($apiReachable -and $null -ne $status) {
     if ($processMode -ne "background-no-console") {
         $issues.Add("agent-process-mode")
     }
+} elseif ($apiReachable) {
+    $issues.Add("association-audit-unavailable")
 }
 
 $operatingSystem = Get-CimInstance Win32_OperatingSystem
@@ -300,6 +356,21 @@ $report = [ordered]@{
         }
         signatureStatus = $signatureStatus
         signerSubject = $signerSubject
+        signatureTimestamped = $signatureTimestamped
+        setup = [ordered]@{
+            present = $setupExists
+            fileVersion = $setupFileVersion
+            sha256 = $setupSha256
+            peSubsystem = $setupPeSubsystem
+            processMode = if ($setupPeSubsystem -eq 2) {
+                "graphical-no-console"
+            } else {
+                "unexpected"
+            }
+            signatureStatus = $setupSignatureStatus
+            signerSubject = $setupSignerSubject
+            signatureTimestamped = $setupSignatureTimestamped
+        }
     }
     scheduledTask = [ordered]@{
         present = $null -ne $task
@@ -319,6 +390,32 @@ $report = [ordered]@{
     }
     mainAlgorithm = [ordered]@{
         apiReachable = $apiReachable
+        ready = $readinessReady
+        readinessCode = if ($null -ne $readiness) {
+            $readiness.Code
+        } else {
+            $null
+        }
+        targetProgId = if ($null -ne $readiness) {
+            $readiness.TargetProgId
+        } else {
+            $null
+        }
+        targetPackageId = if ($null -ne $readiness) {
+            $readiness.TargetPackageId
+        } else {
+            $null
+        }
+        primarySnapshotCount = if ($null -ne $readiness) {
+            $readiness.PrimarySnapshotCount
+        } else {
+            0
+        }
+        failedReadCount = if ($null -ne $readiness) {
+            $readiness.FailedReadCount
+        } else {
+            0
+        }
         query = $queryAlgorithm
         monitor = $monitorAlgorithm
         auditHealthy = $auditHealthy
@@ -341,6 +438,7 @@ $report["overallHealthy"] =
     $consoleChildCount -eq 0 -and
     $loopbackOnly -and
     $apiProcessMatches -and
+    $readinessReady -and
     $auditHealthy -and
     $driftCount -eq 0
 

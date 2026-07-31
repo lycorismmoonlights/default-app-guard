@@ -1,7 +1,7 @@
 DefaultAppGuard Community
 环境配置要求与风险提示 / Environment Requirements and Risk Notice
 
-适用版本 / Applies to version: 0.1.5
+适用版本 / Applies to version: 0.1.6
 更新日期 / Updated: 2026-08-01
 
 ============================================================
@@ -22,12 +22,19 @@ DefaultAppGuard Community
 
 2. 安装前必须了解
 
-- 必须完整解压 ZIP，不能只从压缩包内直接运行脚本。
+- 必须完整解压 ZIP，不能只从压缩包内直接运行安装程序或脚本。
 - 请用随发布包提供的 SHA-256 文件核对下载文件。
 - 安装器会根据 package-manifest.json 再次校验每个包内文件的大小和
   SHA-256，并拒绝文件缺失、混入或损坏的包。
-- 升级采用暂存、替换、健康检查和失败回滚流程；只有新 Agent 通过
-  主算法、进程身份和无控制台检查后才提交升级。
+- 普通用户应双击 DefaultAppGuard.Setup.exe。它使用当前用户权限且不显示终端。
+  启动脚本前，Setup 的原生代码会独立核对清单、文件集合、长度和 SHA-256。
+  对核验通过的包，Setup 只为自己的隐藏 PowerShell 子进程临时使用
+  ExecutionPolicy Bypass，以便从网页下载并解压的完整包可以运行。该设置随
+  子进程退出而消失，不会写入或修改当前用户、整台电脑或注册表中的执行策略，
+  也不能覆盖公司或学校下发的组策略。事务安装器随后会再次核验同一包。
+- 升级采用暂存、替换、就绪检查和失败回滚流程；只有新 Agent 解析到
+  Microsoft Media Player、为每个受保护格式取得主 COM 查询证据，并通过进程身份和无控制台检查后
+  才提交升级。已有默认应用漂移会被报告，但不会被误判为安装器故障。
 - 当前 EXE、PowerShell 脚本和模块未使用受 Windows 信任的
   Authenticode 发布者证书签名。
 - Windows SmartScreen、Smart App Control 或组织安全策略可能阻止未签名程序。
@@ -38,8 +45,8 @@ DefaultAppGuard Community
 
 3.1 本版本的签名状态
 
-- 适用本提示文本的 0.1.5 版本是“未签名 alpha 版本”。
-- DefaultAppGuard.Agent.exe、Install-DefaultAppGuard.ps1、
+- 适用本提示文本的 0.1.6 版本是“未签名 alpha 版本”。
+- DefaultAppGuard.Agent.exe、DefaultAppGuard.Setup.exe、Install-DefaultAppGuard.ps1、
   Uninstall-DefaultAppGuard.ps1、Get-DefaultAppGuardDiagnostics.ps1 和
   DefaultAppGuard.Package.psm1 均没有受 Windows 信任的发布者签名。
 - 因此，Windows 可能显示“未知发布者”“Windows 已保护你的电脑”
@@ -68,7 +75,7 @@ DefaultAppGuard Community
 3) 同时下载对应的 .sha256 文件，并核对 ZIP 的 SHA-256。可以在 ZIP
    所在文件夹打开 PowerShell，运行：
 
-   Get-FileHash .\DefaultAppGuard-0.1.5-win-x64.zip -Algorithm SHA256
+   Get-FileHash .\DefaultAppGuard-0.1.6-win-x64.zip -Algorithm SHA256
 
    输出的 64 位哈希必须与 .sha256 文件完全一致。任何一位不同都不要运行。
 4) 完整解压 ZIP 后再安装，不要从压缩包预览窗口直接运行脚本。
@@ -86,9 +93,10 @@ DefaultAppGuard Community
   这与当前未签名状态相符，但不要立刻选择继续。先完成 3.3 的全部检查。
 - Smart App Control 直接阻止运行且没有继续选项：
   不要关闭 Smart App Control。当前未签名版本可能无法在这台电脑上安装。
-- PowerShell 提示脚本“未进行数字签名”或执行策略禁止运行：
-  不要把整台电脑的执行策略永久改为 Unrestricted 或 Bypass。普通用户应
-  停止安装；组织管理的电脑应联系管理员。
+- 直接运行脚本时，PowerShell 提示“未进行数字签名”或执行策略禁止运行：
+  不要把整台电脑的执行策略永久改为 Unrestricted 或 Bypass；请改用包内
+  Setup。若通过 Setup 仍被策略阻止，通常表示组策略或安全产品优先级更高，
+  应停止安装；组织管理的电脑应联系管理员。
 - Windows Defender 或其他安全软件明确报告恶意软件、文件被替换或隔离：
   不要恢复、放行或继续运行。删除下载文件，并通过项目的 GitHub 安全报告
   渠道提交版本、下载地址、SHA-256 和警报名称。
@@ -178,14 +186,24 @@ English
 
 2. Before installation
 
-- Extract the complete ZIP before running any script.
+- Extract the complete ZIP before running Setup or any script.
 - Verify the download against the SHA-256 file supplied with the release.
 - The installer additionally validates the size and SHA-256 of every packaged
   file against package-manifest.json and rejects missing, mixed, or damaged
   payloads.
-- Upgrades use staging, replacement, health verification, and rollback. The
-  upgrade is committed only after the new Agent passes primary-algorithm,
-  process-identity, and no-console checks.
+- Non-technical users should double-click DefaultAppGuard.Setup.exe. It runs
+  with current-user rights and no terminal. Before starting any script, native
+  Setup code independently verifies the manifest, file set, lengths, and
+  SHA-256 hashes. For a verified package, Setup uses ExecutionPolicy Bypass
+  only in its hidden PowerShell child so a complete web-downloaded package can
+  run. The value disappears with that child and does not write or change the
+  current-user, computer, or registry policy. It cannot override company or
+  school Group Policy. The transactional installer verifies the package again.
+- Upgrades use staging, replacement, readiness verification, and rollback. The
+  upgrade is committed only after the new Agent resolves Microsoft Media
+  Player, produces primary COM-query evidence for every protected format, and passes process-identity and
+  no-console checks. Existing association drift is reported but is not treated
+  as a setup failure.
 - The current EXE, PowerShell scripts, and module do not carry an
   Authenticode publisher signature trusted by Windows.
 - Windows SmartScreen, Smart App Control, or organization policy may block
@@ -198,8 +216,8 @@ English
 
 3.1 Signing status of this version
 
-- Version 0.1.5 covered by this notice is an unsigned alpha release.
-- DefaultAppGuard.Agent.exe, Install-DefaultAppGuard.ps1,
+- Version 0.1.6 covered by this notice is an unsigned alpha release.
+- DefaultAppGuard.Agent.exe, DefaultAppGuard.Setup.exe, Install-DefaultAppGuard.ps1,
   Uninstall-DefaultAppGuard.ps1, Get-DefaultAppGuardDiagnostics.ps1, and
   DefaultAppGuard.Package.psm1 do not have a publisher signature trusted by
   Windows.
@@ -235,7 +253,7 @@ Consider installing this unsigned alpha only when every item below is true:
 3) Download the matching .sha256 file and verify the ZIP. Open PowerShell in
    the folder containing the ZIP and run:
 
-   Get-FileHash .\DefaultAppGuard-0.1.5-win-x64.zip -Algorithm SHA256
+   Get-FileHash .\DefaultAppGuard-0.1.6-win-x64.zip -Algorithm SHA256
 
    The 64-character hash must match the .sha256 file exactly. Do not run the
    package when even one character is different.
@@ -260,11 +278,12 @@ or ask a trusted person with Windows security experience to inspect it.
 - Smart App Control blocks the file and offers no continue option:
   do not turn off Smart App Control. The current unsigned release may not be
   installable on that computer.
-- PowerShell says the script is "not digitally signed" or execution policy
-  blocks it:
+- When a script is run directly, PowerShell says it is "not digitally signed"
+  or execution policy blocks it:
   do not permanently change the computer-wide policy to Unrestricted or
-  Bypass. Non-technical users should stop; on a managed computer, contact the
-  administrator.
+  Bypass; use Setup from the package instead. If Setup is still blocked, a
+  higher-priority Group Policy or security product is probably enforcing the
+  rule. Stop; on a managed computer, contact the administrator.
 - Windows Defender or another product explicitly reports malware, replacement,
   or quarantine:
   do not restore, allow, or run the file. Delete the download and use the
@@ -365,31 +384,33 @@ retain LICENSE.md, NOTICE, and this notice file.
 
 中文：
 
-- 0.1.5 的发布附件新增 SPDX 2.2 软件物料清单（SBOM）及其 SHA-256。
+- 0.1.6 的发布附件包含 SPDX 2.2 软件物料清单（SBOM）及其 SHA-256。
   SBOM 使用固定版本的 Microsoft SBOM Tool 生成，并在发布门禁中逐文件验证。
-- 发布门禁会安装即将发布的确切软件包，并验证真实 COM 查询、真实注册表通知、
+- 发布门禁会先运行无控制台图形安装器的确切包验证，再安装即将发布的软件包，
+  并验证就绪端点、34 项主 COM 查询证据、真实注册表通知、
   失败升级回滚、计划任务自动恢复、无控制台运行、诊断健康和干净卸载。
 - 这些证据用于提高构建可追溯性和发现发布过程错误，不代表软件在所有电脑上
   都不会出现兼容性问题，也不能代替 Windows Authenticode 发布者签名。
 - 项目已经具备使用 Windows 证书存储或兼容 HSM 进行发布签名的构建入口；但是
-  本提示对应的 0.1.5 仍是未签名 alpha。只有当 GitHub 发布说明明确写明“已签名”、
+  本提示对应的 0.1.6 仍是未签名 alpha。只有当 GitHub 发布说明明确写明“已签名”、
   列出签名者，且 release-gate.json 显示所有受检文件签名有效并已加时间戳时，
   才能把某个未来版本视为已签名版本。
 
 English:
 
-- Version 0.1.5 release assets add an SPDX 2.2 software bill of materials
+- Version 0.1.6 release assets include an SPDX 2.2 software bill of materials
   (SBOM) and its SHA-256. The pinned Microsoft SBOM Tool generates it, and the
   release gate validates every packaged file against it.
-- The release gate installs the exact package that will be published and
-  verifies the real COM query, real registry notification, failed-upgrade
+- The release gate first runs the graphical no-console Setup verifier, then
+  installs the exact package and verifies readiness, primary COM evidence for
+  all 34 formats, real registry notification, failed-upgrade
   rollback, automatic scheduled-task recovery, no-console operation, healthy
   diagnostics, and clean uninstall.
 - This evidence improves build traceability and catches release-process
   failures. It does not guarantee compatibility on every computer and does not
   replace a trusted Windows Authenticode publisher signature.
 - The build now supports release signing through the Windows certificate store
-  or a compatible HSM. However, version 0.1.5 covered by this notice remains an
+  or a compatible HSM. However, version 0.1.6 covered by this notice remains an
   unsigned alpha. Treat a future version as signed only when its GitHub release
   notes explicitly say so, name the signer, and release-gate.json reports valid,
   timestamped signatures for every checked file.

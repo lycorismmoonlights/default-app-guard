@@ -10,11 +10,11 @@ on:
       signing_policy:
         description: Code-signing requirement for this release
         required: true
-        default: unsigned-alpha
+        default: require-signed
         type: choice
         options:
-          - unsigned-alpha
           - require-signed
+          - unsigned-alpha
 
 concurrency:
   group: release-${{ inputs.version }}
@@ -39,21 +39,23 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
         with:
           version: 11.9.0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: pnpm
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           dotnet-version: 9.0.x
 
@@ -63,24 +65,28 @@ jobs:
       - name: Run release gate
         id: gate
         shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          SIGNING_POLICY: ${{ inputs.signing_policy }}
+          SIGNING_CERTIFICATE_THUMBPRINT: ${{ vars.DAG_SIGNING_CERTIFICATE_THUMBPRINT }}
+          TIMESTAMP_SERVER: ${{ vars.DAG_TIMESTAMP_SERVER }}
         run: |
           $releaseRoot = Join-Path $env:RUNNER_TEMP (
-            "DefaultAppGuard-release-{0}" -f '${{ inputs.version }}')
+            "DefaultAppGuard-release-{0}" -f $env:RELEASE_VERSION)
           $gateArguments = @{
-            Version = '${{ inputs.version }}'
+            Version = $env:RELEASE_VERSION
             OutputRoot = $releaseRoot
             PackageManagerPath = 'pnpm'
-            RequireSigned = (
-              '${{ inputs.signing_policy }}' -eq 'require-signed')
+            RequireSigned = $env:SIGNING_POLICY -eq 'require-signed'
             SigningCertificateThumbprint = if (
-              '${{ inputs.signing_policy }}' -eq 'require-signed') {
-              '${{ vars.DAG_SIGNING_CERTIFICATE_THUMBPRINT }}'
+              $env:SIGNING_POLICY -eq 'require-signed') {
+              $env:SIGNING_CERTIFICATE_THUMBPRINT
             } else {
               $null
             }
             TimestampServer = if (
-              '${{ inputs.signing_policy }}' -eq 'require-signed') {
-              '${{ vars.DAG_TIMESTAMP_SERVER }}'
+              $env:SIGNING_POLICY -eq 'require-signed') {
+              $env:TIMESTAMP_SERVER
             } else {
               $null
             }
@@ -97,7 +103,7 @@ jobs:
           "signing_status=$($result.CodeSigningStatus)" >> $env:GITHUB_OUTPUT
 
       - name: Upload release-gate evidence
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: release-gate-${{ inputs.version }}
           path: |
@@ -113,13 +119,13 @@ jobs:
 
       - name: Attest release archive
         if: github.event.repository.visibility == 'public'
-        uses: actions/attest@v4
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
         with:
           subject-path: ${{ steps.gate.outputs.archive }}
 
       - name: Attest release SBOM
         if: github.event.repository.visibility == 'public'
-        uses: actions/attest@v4
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
         with:
           subject-path: ${{ steps.gate.outputs.archive }}
           sbom-path: ${{ steps.gate.outputs.sbom }}
@@ -128,22 +134,30 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          SIGNING_STATUS: ${{ steps.gate.outputs.signing_status }}
+          ARCHIVE_PATH: ${{ steps.gate.outputs.archive }}
+          CHECKSUM_PATH: ${{ steps.gate.outputs.checksum }}
+          EVIDENCE_PATH: ${{ steps.gate.outputs.evidence }}
+          LIFECYCLE_EVIDENCE_PATH: ${{ steps.gate.outputs.lifecycle_evidence }}
+          SBOM_PATH: ${{ steps.gate.outputs.sbom }}
+          SBOM_CHECKSUM_PATH: ${{ steps.gate.outputs.sbom_checksum }}
         run: |
-          $signingStatus = '${{ steps.gate.outputs.signing_status }}'
+          $signingStatus = $env:SIGNING_STATUS
           $trustNotice = if ($signingStatus -eq 'valid') {
             'Authenticode status: valid on the release runner. See release-gate.json for signer and timestamp evidence.'
           } else {
             'Important: this alpha is unsigned. Verify the SHA-256 file and read ENVIRONMENT-AND-RISKS.txt before installation.'
           }
-          gh release create "v${{ inputs.version }}" `
-            '${{ steps.gate.outputs.archive }}' `
-            '${{ steps.gate.outputs.checksum }}' `
-            '${{ steps.gate.outputs.evidence }}' `
-            '${{ steps.gate.outputs.lifecycle_evidence }}' `
-            '${{ steps.gate.outputs.sbom }}' `
-            '${{ steps.gate.outputs.sbom_checksum }}' `
+          gh release create "v$env:RELEASE_VERSION" `
+            $env:ARCHIVE_PATH `
+            $env:CHECKSUM_PATH `
+            $env:EVIDENCE_PATH `
+            $env:LIFECYCLE_EVIDENCE_PATH `
+            $env:SBOM_PATH `
+            $env:SBOM_CHECKSUM_PATH `
             --target "$env:GITHUB_SHA" `
-            --title "DefaultAppGuard v${{ inputs.version }} alpha" `
+            --title "DefaultAppGuard v$env:RELEASE_VERSION alpha" `
             --generate-notes `
             --notes "$trustNotice" `
             --prerelease

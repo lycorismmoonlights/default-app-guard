@@ -13,13 +13,21 @@ test("release metadata and risk notice stay version-aligned", async () => {
   const project = await read(
     "native/DefaultAppGuard.Agent/DefaultAppGuard.Agent.csproj",
   );
+  const setupProject = await read(
+    "native/DefaultAppGuard.Setup/DefaultAppGuard.Setup.csproj",
+  );
   const notice = await read("ENVIRONMENT-AND-RISKS.txt");
 
   assert.match(
     project,
     new RegExp(`<Version>${packageMetadata.version.replaceAll(".", "\\.")}</Version>`),
   );
+  assert.match(
+    setupProject,
+    new RegExp(`<Version>${packageMetadata.version.replaceAll(".", "\\.")}</Version>`),
+  );
   assert.ok(project.includes("<OutputType>WinExe</OutputType>"));
+  assert.ok(setupProject.includes("<OutputType>WinExe</OutputType>"));
   assert.ok(
     notice.includes(
       `适用版本 / Applies to version: ${packageMetadata.version}`,
@@ -77,6 +85,55 @@ test("published package includes the bilingual risk notice", async () => {
   assert.ok(releaseWorkflow.includes("signing_status="));
   assert.ok(releaseWorkflow.includes("Attest release SBOM"));
   assert.ok(releaseWorkflow.includes("sbom-path:"));
+});
+
+test("graphical setup verifies before its process-only script policy", async () => {
+  const setup = await read("native/DefaultAppGuard.Setup/Program.cs");
+  const verifier = await read(
+    "native/DefaultAppGuard.Setup/PackageIntegrityVerifier.cs",
+  );
+  const lifecycle = await read("tests/Test-ReleasePackageLifecycle.ps1");
+
+  const verificationIndex = setup.indexOf(
+    "PackageIntegrityVerifier.Verify(packageDirectory)",
+  );
+  const processStartIndex = setup.indexOf("Process.Start(startInfo)");
+  assert.ok(verificationIndex >= 0);
+  assert.ok(processStartIndex > verificationIndex);
+  assert.ok(setup.includes('startInfo.ArgumentList.Add("Bypass")'));
+  assert.equal(setup.includes("Set-ExecutionPolicy"), false);
+  assert.ok(verifier.includes("SHA256.HashData(stream)"));
+  assert.ok(verifier.includes('issues.Add("package-file-undeclared")'));
+  assert.ok(verifier.includes('issues.Add("package-path-escape")'));
+  assert.ok(lifecycle.includes("PSExecutionPolicyPreference = \"Restricted\""));
+  assert.ok(lifecycle.includes("Native Setup did not reject"));
+  assert.ok(lifecycle.includes("tampered-script-executed.txt"));
+});
+
+test("GitHub Actions use immutable action revisions", async () => {
+  const workflows = [
+    await read(".github/workflows/ci.yml"),
+    await read(".github/workflows/release.yml"),
+  ];
+
+  for (const workflow of workflows) {
+    const actions = [...workflow.matchAll(/^\s*uses:\s*([^\s#]+)/gm)].map(
+      (match) => match[1],
+    );
+    assert.ok(actions.length > 0);
+    for (const action of actions) {
+      assert.match(action, /@[0-9a-f]{40}$/);
+    }
+    assert.ok(workflow.includes("persist-credentials: false"));
+  }
+
+  const releaseWorkflow = workflows[1];
+  assert.match(releaseWorkflow, /default:\s*require-signed/);
+  assert.ok(releaseWorkflow.includes("SIGNING_STATUS:"));
+  assert.equal(
+    releaseWorkflow.includes("$signingStatus = '${{ steps.gate.outputs"),
+    false,
+  );
 });
 
 test("installer validates, stages, and can roll back an upgrade", async () => {

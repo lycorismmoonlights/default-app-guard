@@ -6,7 +6,7 @@ Run all of the following on Windows:
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.5 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.6 `
   -PackageManagerPath pnpm
 ```
 
@@ -18,7 +18,7 @@ report `codeSigning.status` as `unsigned`. Any release described as signed must
 run:
 
 ```powershell
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.5 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.6 `
   -PackageManagerPath pnpm `
   -SigningCertificateThumbprint $env:DAG_SIGNING_CERTIFICATE_THUMBPRINT `
   -TimestampServer $env:DAG_TIMESTAMP_SERVER `
@@ -26,7 +26,7 @@ run:
 ```
 
 That mode requires valid, timestamped Authenticode signatures on the Agent,
-installer, uninstaller, diagnostics script, and package module. All files must
+graphical Setup launcher, installer, uninstaller, diagnostics script, and package module. All files must
 use the same signer certificate. Supply `-SigningCertificateThumbprint` and
 `-TimestampServer`; the certificate must be available in the current-user or
 local-machine Windows certificate store with an accessible private key and the
@@ -46,6 +46,8 @@ The required signals are:
 - Re-arming receives a second real write.
 - The post-notification audit checks each protected extension individually.
 - Registry evidence never replaces a failed COM result.
+- `/api/readiness` resolves Microsoft Media Player and reports evidence from
+  the primary COM query before an install transaction can commit.
 
 ## Installation Test
 
