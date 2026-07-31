@@ -59,6 +59,7 @@ test("published package includes the bilingual risk notice", async () => {
   assert.ok(publishScript.includes('"ENVIRONMENT-AND-RISKS.txt"'));
   assert.ok(publishScript.includes("environmentAndRisks"));
   assert.ok(publishScript.includes('processMode = "background-no-console"'));
+  assert.ok(publishScript.includes("Test-DagPackageIntegrity"));
   assert.ok(publishScript.includes("Get-PublishSigningCertificate"));
   assert.ok(publishScript.includes("Set-AuthenticodeSignature"));
   assert.ok(publishScript.includes("TimestampServer is required"));
@@ -209,6 +210,10 @@ test("diagnostics are packaged, redacted, and inspect the primary algorithm", as
   assert.ok(
     diagnostics.includes('"expected-ignore-new-while-running"'),
   );
+  const packageModule = await read("packaging/DefaultAppGuard.Package.psm1");
+  assert.ok(packageModule.includes("InvalidEntryDetails"));
+  assert.ok(packageModule.includes("$entryStage"));
+  assert.ok(packageModule.includes("Exception.GetType().Name"));
 });
 
 test("uninstaller verifies ownership before removing task or directories", async () => {
