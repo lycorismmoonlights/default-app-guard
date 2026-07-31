@@ -6,7 +6,7 @@ Run all of the following on Windows:
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.6 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.7 `
   -PackageManagerPath pnpm
 ```
 
@@ -18,7 +18,7 @@ report `codeSigning.status` as `unsigned`. Any release described as signed must
 run:
 
 ```powershell
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.6 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.7 `
   -PackageManagerPath pnpm `
   -SigningCertificateThumbprint $env:DAG_SIGNING_CERTIFICATE_THUMBPRINT `
   -TimestampServer $env:DAG_TIMESTAMP_SERVER `
@@ -82,11 +82,15 @@ Verify:
 5. The exact probe key is removed.
 6. Killing the installed process produces a different PID after the watchdog
    trigger and a fresh 34-format startup audit.
-7. A deliberately failed upgrade restores the previous package version, task
-   definition, process, and healthy audit.
-8. `Get-DefaultAppGuardDiagnostics.ps1` reports no issues and does not include
+7. Deliberately failed upgrades before and after readiness restore the previous
+   package version, task definition, exact install-state file, uninstall entry,
+   process, and healthy audit.
+8. The current-user Installed apps entry is complete, and its exact hidden
+   uninstall command removes the entry, task, process, install directory, and
+   data directory.
+9. `Get-DefaultAppGuardDiagnostics.ps1` reports no issues and does not include
    personal paths or raw runtime contents.
-9. Uninstallation leaves no task, process, install directory, data directory,
+10. Uninstallation leaves no task, process, install directory, data directory,
    or probe key.
 
 The lifecycle evidence is written to `package-lifecycle.json`. The gate also

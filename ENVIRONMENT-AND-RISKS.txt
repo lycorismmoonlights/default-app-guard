@@ -1,7 +1,7 @@
 DefaultAppGuard Community
 环境配置要求与风险提示 / Environment Requirements and Risk Notice
 
-适用版本 / Applies to version: 0.1.6
+适用版本 / Applies to version: 0.1.7
 更新日期 / Updated: 2026-08-01
 
 ============================================================
@@ -16,6 +16,8 @@ DefaultAppGuard Community
 - 账户：需要可交互登录的普通 Windows 用户账户。
 - 安装方式：按用户安装到 %LOCALAPPDATA%，通常不需要管理员权限。
 - 运行方式：登录任务“DefaultAppGuard Agent”会启动后台 Agent。
+- 卸载入口：安装成功后会在当前用户的 Windows“已安装的应用”中注册
+  DefaultAppGuard Community，不会写入全局机器安装列表。
 - 进程模式：Agent 使用无控制台的 Windows 后台子系统，不应弹出或常驻终端窗口。
 - 本地端口：Agent 仅监听 127.0.0.1:51873。
 - 运行时：发布包是自包含的，不需要单独安装 Node.js 或 .NET。
@@ -32,6 +34,10 @@ DefaultAppGuard Community
   ExecutionPolicy Bypass，以便从网页下载并解压的完整包可以运行。该设置随
   子进程退出而消失，不会写入或修改当前用户、整台电脑或注册表中的执行策略，
   也不能覆盖公司或学校下发的组策略。事务安装器随后会再次核验同一包。
+- 安装成功后可从 Windows“设置 > 应用 > 已安装的应用”卸载。注册的卸载命令
+  使用当前用户权限、隐藏窗口和仅对子进程有效的 ExecutionPolicy Bypass；它不
+  永久修改执行策略。卸载器会先核对产品名、安装路径、清单和安装状态，不会删除
+  不属于本安装的注册键、计划任务或目录。
 - 升级采用暂存、替换、就绪检查和失败回滚流程；只有新 Agent 解析到
   Microsoft Media Player、为每个受保护格式取得主 COM 查询证据，并通过进程身份和无控制台检查后
   才提交升级。已有默认应用漂移会被报告，但不会被误判为安装器故障。
@@ -45,7 +51,7 @@ DefaultAppGuard Community
 
 3.1 本版本的签名状态
 
-- 适用本提示文本的 0.1.6 版本是“未签名 alpha 版本”。
+- 适用本提示文本的 0.1.7 版本是“未签名 alpha 版本”。
 - DefaultAppGuard.Agent.exe、DefaultAppGuard.Setup.exe、Install-DefaultAppGuard.ps1、
   Uninstall-DefaultAppGuard.ps1、Get-DefaultAppGuardDiagnostics.ps1 和
   DefaultAppGuard.Package.psm1 均没有受 Windows 信任的发布者签名。
@@ -75,7 +81,7 @@ DefaultAppGuard Community
 3) 同时下载对应的 .sha256 文件，并核对 ZIP 的 SHA-256。可以在 ZIP
    所在文件夹打开 PowerShell，运行：
 
-   Get-FileHash .\DefaultAppGuard-0.1.6-win-x64.zip -Algorithm SHA256
+   Get-FileHash .\DefaultAppGuard-0.1.7-win-x64.zip -Algorithm SHA256
 
    输出的 64 位哈希必须与 .sha256 文件完全一致。任何一位不同都不要运行。
 4) 完整解压 ZIP 后再安装，不要从压缩包预览窗口直接运行脚本。
@@ -178,6 +184,8 @@ English
 - Installation: per-user under %LOCALAPPDATA%; administrator rights are
   normally not required.
 - Startup: the "DefaultAppGuard Agent" logon task starts the background Agent.
+- Uninstall entry: successful setup registers DefaultAppGuard Community in the
+  current user's Windows Installed apps list, not the machine-wide list.
 - Process mode: the Agent uses the no-console Windows GUI subsystem and should
   not open or keep a terminal window visible.
 - Local port: the Agent listens only on 127.0.0.1:51873.
@@ -199,6 +207,11 @@ English
   run. The value disappears with that child and does not write or change the
   current-user, computer, or registry policy. It cannot override company or
   school Group Policy. The transactional installer verifies the package again.
+- After successful installation, uninstall from **Settings > Apps > Installed
+  apps**. The registered command runs with current-user rights, a hidden window,
+  and process-only ExecutionPolicy Bypass; it does not persistently change
+  policy. The uninstaller verifies product name, install location, manifest,
+  and install state before removing its registry key, task, or directories.
 - Upgrades use staging, replacement, readiness verification, and rollback. The
   upgrade is committed only after the new Agent resolves Microsoft Media
   Player, produces primary COM-query evidence for every protected format, and passes process-identity and
@@ -216,7 +229,7 @@ English
 
 3.1 Signing status of this version
 
-- Version 0.1.6 covered by this notice is an unsigned alpha release.
+- Version 0.1.7 covered by this notice is an unsigned alpha release.
 - DefaultAppGuard.Agent.exe, DefaultAppGuard.Setup.exe, Install-DefaultAppGuard.ps1,
   Uninstall-DefaultAppGuard.ps1, Get-DefaultAppGuardDiagnostics.ps1, and
   DefaultAppGuard.Package.psm1 do not have a publisher signature trusted by
@@ -253,7 +266,7 @@ Consider installing this unsigned alpha only when every item below is true:
 3) Download the matching .sha256 file and verify the ZIP. Open PowerShell in
    the folder containing the ZIP and run:
 
-   Get-FileHash .\DefaultAppGuard-0.1.6-win-x64.zip -Algorithm SHA256
+   Get-FileHash .\DefaultAppGuard-0.1.7-win-x64.zip -Algorithm SHA256
 
    The 64-character hash must match the .sha256 file exactly. Do not run the
    package when even one character is different.
@@ -384,7 +397,7 @@ retain LICENSE.md, NOTICE, and this notice file.
 
 中文：
 
-- 0.1.6 的发布附件包含 SPDX 2.2 软件物料清单（SBOM）及其 SHA-256。
+- 0.1.7 的发布附件包含 SPDX 2.2 软件物料清单（SBOM）及其 SHA-256。
   SBOM 使用固定版本的 Microsoft SBOM Tool 生成，并在发布门禁中逐文件验证。
 - 发布门禁会先运行无控制台图形安装器的确切包验证，再安装即将发布的软件包，
   并验证就绪端点、34 项主 COM 查询证据、真实注册表通知、
@@ -392,13 +405,13 @@ retain LICENSE.md, NOTICE, and this notice file.
 - 这些证据用于提高构建可追溯性和发现发布过程错误，不代表软件在所有电脑上
   都不会出现兼容性问题，也不能代替 Windows Authenticode 发布者签名。
 - 项目已经具备使用 Windows 证书存储或兼容 HSM 进行发布签名的构建入口；但是
-  本提示对应的 0.1.6 仍是未签名 alpha。只有当 GitHub 发布说明明确写明“已签名”、
+  本提示对应的 0.1.7 仍是未签名 alpha。只有当 GitHub 发布说明明确写明“已签名”、
   列出签名者，且 release-gate.json 显示所有受检文件签名有效并已加时间戳时，
   才能把某个未来版本视为已签名版本。
 
 English:
 
-- Version 0.1.6 release assets include an SPDX 2.2 software bill of materials
+- Version 0.1.7 release assets include an SPDX 2.2 software bill of materials
   (SBOM) and its SHA-256. The pinned Microsoft SBOM Tool generates it, and the
   release gate validates every packaged file against it.
 - The release gate first runs the graphical no-console Setup verifier, then
@@ -410,7 +423,7 @@ English:
   failures. It does not guarantee compatibility on every computer and does not
   replace a trusted Windows Authenticode publisher signature.
 - The build now supports release signing through the Windows certificate store
-  or a compatible HSM. However, version 0.1.6 covered by this notice remains an
+  or a compatible HSM. However, version 0.1.7 covered by this notice remains an
   unsigned alpha. Treat a future version as signed only when its GitHub release
   notes explicitly say so, name the signer, and release-gate.json reports valid,
   timestamped signatures for every checked file.

@@ -310,7 +310,12 @@ $lifecycleEvidence = Get-Content `
     ConvertFrom-Json
 if (-not [bool]$lifecycleEvidence.passed -or
     -not [bool]$lifecycleEvidence.mainAlgorithm.initialMonitorVerified -or
-    -not [bool]$lifecycleEvidence.mainAlgorithm.postRestartMonitorVerified) {
+    -not [bool]$lifecycleEvidence.mainAlgorithm.postRestartMonitorVerified -or
+    -not [bool]$lifecycleEvidence.install.uninstallRegistrationVerified -or
+    -not [bool]$lifecycleEvidence.rollback.lateStagePassed -or
+    -not [bool]$lifecycleEvidence.rollback.installStateRestored -or
+    -not [bool]$lifecycleEvidence.rollback.uninstallEntryRestored -or
+    -not [bool]$lifecycleEvidence.uninstall.registrationRemoved) {
     throw "The exact release package lacks primary-algorithm lifecycle evidence."
 }
 
@@ -483,11 +488,16 @@ $evidenceFile = Join-Path $releaseRoot "release-gate.json"
     packageLifecycle = [ordered]@{
         evidence = [IO.Path]::GetFileName($lifecycleEvidencePath)
         transactionalRollback = [bool]$lifecycleEvidence.rollback.passed
+        lateStageRollback = [bool]$lifecycleEvidence.rollback.lateStagePassed
         automaticWatchdogRecovery =
             [bool]$lifecycleEvidence.watchdog.AutomaticRestartVerified
         diagnosticsHealthy =
             [bool]$lifecycleEvidence.diagnostics.overallHealthy
+        uninstallRegistered =
+            [bool]$lifecycleEvidence.install.uninstallRegistrationVerified
         uninstallClean = [bool]$lifecycleEvidence.uninstall.passed
+        uninstallRegistrationRemoved =
+            [bool]$lifecycleEvidence.uninstall.registrationRemoved
         passed = [bool]$lifecycleEvidence.passed
     }
     sbom = [ordered]@{

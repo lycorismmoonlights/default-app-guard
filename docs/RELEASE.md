@@ -45,7 +45,9 @@ DefaultAppGuard Agent running while the exact-package lifecycle gate executes.
    isolated location, requires the readiness endpoint to report primary COM
    evidence for every declared format, and verifies the kernel notification before and after an automatic watchdog
    restart, a deliberately failed transactional upgrade and rollback,
-   diagnostics, clean uninstall, and no shortcut ownership violation.
+   diagnostics, Windows Installed apps registration, execution of the exact
+   registered hidden uninstall command, clean removal, and no shortcut
+   ownership violation.
 10. Generates an SPDX 2.2 SBOM with the pinned Microsoft SBOM Tool and validates
     all package file hashes and detected dependencies. Component detection uses
     a clean staging set of lock files, project files, and restored dependency
@@ -73,7 +75,9 @@ subsystem.
    Confirm that `codeSigning.policy`, `codeSigning.status`, and every file
    record match the selected workflow policy. Review the SPDX SBOM, its
    checksum, `packageLifecycle`, and `sbom.validationResult` as well.
-5. Keep the result marked as a prerelease while the project remains alpha.
+5. Confirm lifecycle evidence reports both early and late-stage rollback,
+   including exact install-state and uninstall-entry restoration.
+6. Keep the result marked as a prerelease while the project remains alpha.
 
 The workflow creates the `v<version>` tag and GitHub prerelease only after the
 main-algorithm gate succeeds.

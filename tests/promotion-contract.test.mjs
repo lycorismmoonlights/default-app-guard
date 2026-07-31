@@ -44,6 +44,8 @@ test("release metadata and risk notice stay version-aligned", async () => {
   assert.match(notice, /do not replace\s+Authenticode code signing/);
   assert.ok(notice.includes("不要把整台电脑的执行策略永久改为"));
   assert.ok(notice.includes("do not permanently change the computer-wide policy"));
+  assert.ok(notice.includes("已安装的应用"));
+  assert.ok(notice.includes("Windows Installed apps list"));
 });
 
 test("published package includes the bilingual risk notice", async () => {
@@ -163,6 +165,11 @@ test("installer validates, stages, and can roll back an upgrade", async () => {
   assert.ok(installer.includes("ProcessMode -ne \"background-no-console\""));
   assert.ok(installer.includes("$replacementBackupPath"));
   assert.ok(installer.includes("$shouldManageShortcut"));
+  assert.ok(installer.includes("Set-UninstallRegistryEntry"));
+  assert.ok(installer.includes("Restore-UninstallRegistrySnapshot"));
+  assert.ok(installer.includes("$installStateBackupPath"));
+  assert.ok(installer.includes("QuietUninstallString"));
+  assert.ok(installer.includes("-WindowStyle Hidden"));
   assert.equal(installer.includes("[IO.File]::Replace($temporaryPath, $Path, $null)"), false);
 });
 
@@ -183,6 +190,9 @@ test("diagnostics are packaged, redacted, and inspect the primary algorithm", as
   assert.ok(diagnostics.includes('RegNotifyChangeKeyValue'));
   assert.ok(diagnostics.includes("consoleChildCount"));
   assert.ok(diagnostics.includes("loopbackOnly"));
+  assert.ok(diagnostics.includes("uninstallRegistration"));
+  assert.ok(diagnostics.includes("uninstall-registration-missing"));
+  assert.ok(diagnostics.includes("quiet-uninstall-missing"));
 });
 
 test("uninstaller verifies ownership before removing task or directories", async () => {
@@ -191,12 +201,21 @@ test("uninstaller verifies ownership before removing task or directories", async
     "Refusing to remove a scheduled task owned by another installation.",
   );
   const unregisterIndex = uninstaller.indexOf("Unregister-ScheduledTask");
+  const removeRegistrationIndex = uninstaller.lastIndexOf(
+    "DeleteSubKeyTree",
+  );
+  const removeInstallIndex = uninstaller.indexOf(
+    "Remove-DirectoryWithRetry $verifiedInstall",
+  );
 
   assert.ok(uninstaller.includes('product -ne "DefaultAppGuard Community"'));
   assert.ok(uninstaller.includes("data owned by another installation"));
   assert.ok(uninstaller.includes("$null -ne $installState"));
   assert.ok(ownershipIndex >= 0);
   assert.ok(unregisterIndex > ownershipIndex);
+  assert.ok(removeInstallIndex > unregisterIndex);
+  assert.ok(removeRegistrationIndex > removeInstallIndex);
+  assert.ok(uninstaller.includes("UninstallRegistrationRemoved"));
 });
 
 test("production UI exposes only implemented product capabilities", async () => {

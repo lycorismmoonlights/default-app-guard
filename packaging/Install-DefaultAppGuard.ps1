@@ -10,6 +10,8 @@ param(
     [int]$WatchdogIntervalMinutes = 5,
     [ValidateRange(5, 120)]
     [int]$HealthTimeoutSeconds = 20,
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._ -]{0,79}$')]
+    [string]$UninstallRegistryKeyName = "DefaultAppGuard Community",
     [switch]$NoStartMenuShortcut,
     [switch]$VerifyOnly,
     [string]$ResultPath
@@ -288,8 +290,192 @@ function Write-JsonAtomically {
     }
 }
 
+function Get-UninstallRegistrySnapshot {
+    param([Parameter(Mandatory)][string]$SubKeyPath)
+
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($SubKeyPath)
+    if ($null -eq $key) {
+        return $null
+    }
+
+    try {
+        if ($key.SubKeyCount -ne 0) {
+            throw "Refusing to replace an uninstall key containing subkeys."
+        }
+
+        $values = @(
+            foreach ($name in $key.GetValueNames()) {
+                [pscustomobject]@{
+                    Name = $name
+                    Kind = [int]$key.GetValueKind($name)
+                    Value = $key.GetValue(
+                        $name,
+                        $null,
+                        [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+                }
+            }
+        )
+        return [pscustomobject]@{
+            Values = $values
+        }
+    } finally {
+        $key.Dispose()
+    }
+}
+
+function Get-UninstallSnapshotValue {
+    param(
+        $Snapshot,
+        [Parameter(Mandatory)][string]$Name
+    )
+
+    if ($null -eq $Snapshot) {
+        return $null
+    }
+    $entry = @($Snapshot.Values) |
+        Where-Object { $_.Name -eq $Name } |
+        Select-Object -First 1
+    if ($null -eq $entry) {
+        return $null
+    }
+    return $entry.Value
+}
+
+function Restore-UninstallRegistrySnapshot {
+    param(
+        [Parameter(Mandatory)][string]$SubKeyPath,
+        $Snapshot
+    )
+
+    [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree(
+        $SubKeyPath,
+        $false)
+    if ($null -eq $Snapshot) {
+        return
+    }
+
+    $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($SubKeyPath)
+    if ($null -eq $key) {
+        throw "Could not restore the previous uninstall registry key."
+    }
+    try {
+        foreach ($entry in @($Snapshot.Values)) {
+            $key.SetValue(
+                [string]$entry.Name,
+                $entry.Value,
+                [Microsoft.Win32.RegistryValueKind]([int]$entry.Kind))
+        }
+    } finally {
+        $key.Dispose()
+    }
+}
+
+function ConvertTo-WindowsCommandArgument {
+    param([Parameter(Mandatory)][string]$Value)
+
+    if ($Value.Contains('"') -or
+        $Value.Contains("`r") -or
+        $Value.Contains("`n")) {
+        throw "An uninstall command argument contains an unsupported character."
+    }
+    return '"' + $Value + '"'
+}
+
+function Set-UninstallRegistryEntry {
+    param(
+        [Parameter(Mandatory)][string]$SubKeyPath,
+        [Parameter(Mandatory)][string]$Version,
+        [Parameter(Mandatory)][string]$InstallDirectory,
+        [Parameter(Mandatory)][string]$DataDirectory,
+        [Parameter(Mandatory)][string]$TaskName,
+        [Parameter(Mandatory)][string]$RegistryKeyName
+    )
+
+    $uninstallerPath = Join-Path $InstallDirectory `
+        "Uninstall-DefaultAppGuard.ps1"
+    $setupPath = Join-Path $InstallDirectory "DefaultAppGuard.Setup.exe"
+    if (-not (Test-Path -LiteralPath $uninstallerPath -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $setupPath -PathType Leaf)) {
+        throw "Installed uninstall components are missing."
+    }
+
+    $powerShellPath = Join-Path $env:SystemRoot `
+        "System32\WindowsPowerShell\v1.0\powershell.exe"
+    if (-not (Test-Path -LiteralPath $powerShellPath -PathType Leaf)) {
+        throw "Windows PowerShell is unavailable for uninstallation."
+    }
+
+    $commandParts = @(
+        (ConvertTo-WindowsCommandArgument $powerShellPath)
+        "-NoLogo"
+        "-NoProfile"
+        "-NonInteractive"
+        "-ExecutionPolicy Bypass"
+        "-WindowStyle Hidden"
+        "-File"
+        (ConvertTo-WindowsCommandArgument $uninstallerPath)
+        "-InstallDirectory"
+        (ConvertTo-WindowsCommandArgument $InstallDirectory)
+        "-DataDirectory"
+        (ConvertTo-WindowsCommandArgument $DataDirectory)
+        "-TaskName"
+        (ConvertTo-WindowsCommandArgument $TaskName)
+        "-UninstallRegistryKeyName"
+        (ConvertTo-WindowsCommandArgument $RegistryKeyName)
+    )
+    $uninstallCommand = $commandParts -join " "
+    $versionCore = $Version.Split("-")[0]
+    $parsedVersion = [Version]$versionCore
+    $sizeBytes = [long](
+        Get-ChildItem -LiteralPath $InstallDirectory -Recurse -File |
+            Measure-Object -Property Length -Sum).Sum
+    $estimatedSize = [int][Math]::Min(
+        [int]::MaxValue,
+        [Math]::Max(1, [Math]::Ceiling($sizeBytes / 1KB)))
+
+    [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree(
+        $SubKeyPath,
+        $false)
+    $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($SubKeyPath)
+    if ($null -eq $key) {
+        throw "Could not create the uninstall registry entry."
+    }
+    try {
+        $stringKind = [Microsoft.Win32.RegistryValueKind]::String
+        $dwordKind = [Microsoft.Win32.RegistryValueKind]::DWord
+        $key.SetValue("DisplayName", "DefaultAppGuard Community", $stringKind)
+        $key.SetValue("DisplayVersion", $Version, $stringKind)
+        $key.SetValue("Publisher", "DefaultAppGuard Community", $stringKind)
+        $key.SetValue("InstallLocation", $InstallDirectory, $stringKind)
+        $key.SetValue("DisplayIcon", "$setupPath,0", $stringKind)
+        $key.SetValue("UninstallString", $uninstallCommand, $stringKind)
+        $key.SetValue("QuietUninstallString", $uninstallCommand, $stringKind)
+        $key.SetValue("NoModify", 1, $dwordKind)
+        $key.SetValue("NoRepair", 1, $dwordKind)
+        $key.SetValue("EstimatedSize", $estimatedSize, $dwordKind)
+        $key.SetValue("InstallDate", (Get-Date -Format "yyyyMMdd"), $stringKind)
+        $key.SetValue("VersionMajor", $parsedVersion.Major, $dwordKind)
+        $key.SetValue("VersionMinor", $parsedVersion.Minor, $dwordKind)
+        $key.SetValue(
+            "URLInfoAbout",
+            "https://github.com/lycorismmoonlights/default-app-guard",
+            $stringKind)
+        $key.SetValue(
+            "Comments",
+            "Monitors Windows default video application associations.",
+            $stringKind)
+    } finally {
+        $key.Dispose()
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($TaskName)) {
     throw "TaskName cannot be empty."
+}
+if ($TaskName.Contains('"') -or
+    $TaskName.Contains("`r") -or
+    $TaskName.Contains("`n")) {
+    throw "TaskName contains an unsupported command-line character."
 }
 
 $sourceDirectory = Get-NormalizedPath $PSScriptRoot
@@ -342,6 +528,7 @@ $runtimePath = Join-Path $dataPath "runtime"
 $statePath = Join-Path $runtimePath "agent-status.json"
 $configurationPath = Join-Path $runtimePath "guard-configuration.json"
 $installStatePath = Join-Path $dataPath "install-state.json"
+$installStateBackupPath = $null
 $previousInstallState = $null
 if (Test-Path -LiteralPath $installStatePath -PathType Leaf) {
     try {
@@ -390,6 +577,27 @@ if ($null -ne $existingTask) {
     $existingTaskEnabled = [bool]$existingTask.Settings.Enabled
 }
 
+$uninstallSubKeyPath = (
+    "Software\Microsoft\Windows\CurrentVersion\Uninstall\" +
+    $UninstallRegistryKeyName)
+$uninstallRegistrySnapshot = Get-UninstallRegistrySnapshot `
+    -SubKeyPath $uninstallSubKeyPath
+if ($null -ne $uninstallRegistrySnapshot) {
+    $registeredName = [string](Get-UninstallSnapshotValue `
+        -Snapshot $uninstallRegistrySnapshot `
+        -Name "DisplayName")
+    $registeredLocation = [string](Get-UninstallSnapshotValue `
+        -Snapshot $uninstallRegistrySnapshot `
+        -Name "InstallLocation")
+    if ($registeredName -ne "DefaultAppGuard Community") {
+        throw "Refusing to replace an uninstall entry owned by another product."
+    }
+    if ([string]::IsNullOrWhiteSpace($registeredLocation) -or
+        (Get-NormalizedPath $registeredLocation) -ne $installPath) {
+        throw "Refusing to replace an uninstall entry owned by another installation."
+    }
+}
+
 $shortcutPath = Join-Path $env:APPDATA `
     "Microsoft\Windows\Start Menu\Programs\DefaultAppGuard.lnk"
 $shortcutBackupPath = $null
@@ -419,6 +627,13 @@ try {
     Get-ChildItem -LiteralPath $sourceDirectory -Force |
         Copy-Item -Destination $stagingPath -Recurse -Force
     [void](Assert-DagPackageIntegrity -PackageRoot $stagingPath)
+    if (Test-Path -LiteralPath $installStatePath -PathType Leaf) {
+        $installStateBackupPath = Join-Path ([IO.Path]::GetTempPath()) (
+            "DefaultAppGuard-install-state-$transactionId.json")
+        Copy-Item `
+            -LiteralPath $installStatePath `
+            -Destination $installStateBackupPath
+    }
     if ($shortcutPreviouslyExisted) {
         Copy-Item `
             -LiteralPath $shortcutPath `
@@ -431,6 +646,10 @@ try {
     if ($null -ne $shortcutBackupPath -and
         (Test-Path -LiteralPath $shortcutBackupPath)) {
         Remove-Item -LiteralPath $shortcutBackupPath -Force
+    }
+    if ($null -ne $installStateBackupPath -and
+        (Test-Path -LiteralPath $installStateBackupPath)) {
+        Remove-Item -LiteralPath $installStateBackupPath -Force
     }
     throw
 }
@@ -506,6 +725,7 @@ try {
         agentUrl = $AgentUrl
         shortcutPath = $recordedShortcutPath
         watchdogIntervalMinutes = $WatchdogIntervalMinutes
+        uninstallRegistryKeyName = $UninstallRegistryKeyName
         packageManifestSha256 = (
             Get-FileHash `
                 -LiteralPath (
@@ -516,6 +736,14 @@ try {
         updatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
     }
     Write-JsonAtomically -Value $installState -Path $installStatePath
+
+    Set-UninstallRegistryEntry `
+        -SubKeyPath $uninstallSubKeyPath `
+        -Version ([string]$manifest.version) `
+        -InstallDirectory $installPath `
+        -DataDirectory $dataPath `
+        -TaskName $TaskName `
+        -RegistryKeyName $UninstallRegistryKeyName
 
     $installationResult = [pscustomobject]@{
         Installed = $true
@@ -541,6 +769,8 @@ try {
         PackageIntegrityVerified = $true
         PackagePayloadFileCount = @($manifest.payload).Count
         WatchdogIntervalMinutes = $WatchdogIntervalMinutes
+        UninstallRegistryKeyName = $UninstallRegistryKeyName
+        UninstallRegistered = $true
     }
     if ($null -ne $resultFile) {
         New-Item `
@@ -592,7 +822,21 @@ try {
             }
         }
 
-        if (-not $dataPathExisted -and
+        Restore-UninstallRegistrySnapshot `
+            -SubKeyPath $uninstallSubKeyPath `
+            -Snapshot $uninstallRegistrySnapshot
+
+        if ($dataPathExisted) {
+            if ($null -ne $installStateBackupPath -and
+                (Test-Path -LiteralPath $installStateBackupPath -PathType Leaf)) {
+                Copy-Item `
+                    -LiteralPath $installStateBackupPath `
+                    -Destination $installStatePath `
+                    -Force
+            } elseif (Test-Path -LiteralPath $installStatePath -PathType Leaf) {
+                Remove-Item -LiteralPath $installStatePath -Force
+            }
+        } elseif (
             (Test-Path -LiteralPath $dataPath -PathType Container)) {
             Remove-DirectoryWithRetry -Path $dataPath
         }
@@ -615,6 +859,10 @@ try {
     if ($null -ne $shortcutBackupPath -and
         (Test-Path -LiteralPath $shortcutBackupPath)) {
         Remove-Item -LiteralPath $shortcutBackupPath -Force
+    }
+    if ($null -ne $installStateBackupPath -and
+        (Test-Path -LiteralPath $installStateBackupPath)) {
+        Remove-Item -LiteralPath $installStateBackupPath -Force
     }
 }
 

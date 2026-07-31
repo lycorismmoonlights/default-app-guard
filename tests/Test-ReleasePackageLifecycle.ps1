@@ -179,6 +179,12 @@ if ($preexistingAgents.Count -ne 0) {
 $installPath = Join-Path $workPath "install"
 $dataPath = Join-Path $workPath "data"
 $taskName = "DefaultAppGuard Release Lifecycle $([Guid]::NewGuid().ToString('N'))"
+$uninstallRegistryKeyName = (
+    "DefaultAppGuard Release Lifecycle " +
+    [Guid]::NewGuid().ToString("N"))
+$uninstallSubKeyPath = (
+    "Software\Microsoft\Windows\CurrentVersion\Uninstall\" +
+    $uninstallRegistryKeyName)
 $agentPort = Get-AvailableLoopbackPort
 $blockedPort = Get-AvailableLoopbackPort
 while ($blockedPort -eq $agentPort) {
@@ -208,6 +214,7 @@ $diagnosticsResult = $null
 $diagnosticsReport = $null
 $downloadPolicyProbe = $null
 $nativeTamperProbe = $null
+$uninstallRegistrationVerified = $false
 
 try {
     New-Item -ItemType Directory -Path $workPath | Out-Null
@@ -299,6 +306,8 @@ try {
         [string]$WatchdogIntervalMinutes
         "--health-timeout-seconds"
         "30"
+        "--uninstall-registry-key-name"
+        ('"{0}"' -f $uninstallRegistryKeyName)
         "--no-start-menu-shortcut"
         "--result-path"
         ('"{0}"' -f $setupInstallResultPath)
@@ -349,6 +358,38 @@ try {
         "The readiness gate did not obtain primary COM evidence for every extension."
     Assert-True ([int]$installResult.FailedReadCount -eq 0) `
         "The readiness gate reported failed primary association reads."
+    Assert-True ([bool]$installResult.UninstallRegistered) `
+        "The candidate installer did not register standard uninstallation."
+    Assert-True ($installResult.UninstallRegistryKeyName -eq
+        $uninstallRegistryKeyName) `
+        "The candidate installer registered another uninstall key."
+
+    $uninstallKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
+        $uninstallSubKeyPath)
+    Assert-True ($null -ne $uninstallKey) `
+        "The standard per-user uninstall registry entry is missing."
+    try {
+        $registeredName = [string]$uninstallKey.GetValue("DisplayName")
+        $registeredVersion = [string]$uninstallKey.GetValue("DisplayVersion")
+        $registeredLocation = [string]$uninstallKey.GetValue("InstallLocation")
+        $uninstallCommand = [string]$uninstallKey.GetValue("UninstallString")
+        $quietUninstallCommand = [string]$uninstallKey.GetValue(
+            "QuietUninstallString")
+        $uninstallRegistrationVerified =
+            $registeredName -eq "DefaultAppGuard Community" -and
+            $registeredVersion -eq $Version -and
+            (Get-NormalizedPath $registeredLocation) -eq $installPath -and
+            $uninstallCommand -eq $quietUninstallCommand -and
+            $uninstallCommand.Contains("-ExecutionPolicy Bypass") -and
+            $uninstallCommand.Contains("-WindowStyle Hidden") -and
+            $uninstallCommand.Contains($uninstallRegistryKeyName) -and
+            [int]$uninstallKey.GetValue("NoModify", 0) -eq 1 -and
+            [int]$uninstallKey.GetValue("NoRepair", 0) -eq 1
+    } finally {
+        $uninstallKey.Dispose()
+    }
+    Assert-True $uninstallRegistrationVerified `
+        "The standard per-user uninstall metadata is incomplete or unsafe."
     Assert-True ((Get-OptionalFileHash -Path $shortcutPath) -eq
         $shortcutHashBefore) `
         "An isolated no-shortcut install changed the user's shortcut."
@@ -377,11 +418,14 @@ try {
         -InstallDirectory $installPath `
         -DataDirectory $dataPath `
         -TaskName $taskName `
+        -UninstallRegistryKeyName $uninstallRegistryKeyName `
         -ExistingAgentUrl $agentUrl `
         -BlockedAgentUrl $blockedAgentUrl `
         -ExpectedPreviousVersion $Version
     Assert-True ([bool]$rollbackResult.RollbackVerified) `
         "The packaged transactional rollback test failed."
+    Assert-True ([bool]$rollbackResult.LateRollbackVerified) `
+        "The packaged late-stage transactional rollback test failed."
 
     $beforeWatchdog = Wait-AgentHealthy `
         -AgentUrl $agentUrl `
@@ -434,6 +478,7 @@ try {
         -InstallDirectory $installPath `
         -DataDirectory $dataPath `
         -TaskName $taskName `
+        -UninstallRegistryKeyName $uninstallRegistryKeyName `
         -OutputPath $diagnosticsPath
     Assert-True ([bool]$diagnosticsResult.OverallHealthy) `
         "Packaged diagnostics reported an unhealthy installation."
@@ -451,6 +496,8 @@ try {
     Assert-True ([int]$diagnosticsReport.mainAlgorithm.extensionCount -eq
         $ExpectedExtensionCount) `
         "Diagnostics did not report every declared extension."
+    Assert-True ([bool]$diagnosticsReport.uninstallRegistration.healthy) `
+        "Diagnostics rejected the standard uninstall registration."
 
     $candidateManifestHash = (Get-FileHash `
         -LiteralPath (Join-Path $packagePath "package-manifest.json") `
@@ -461,14 +508,20 @@ try {
     Assert-True ($candidateManifestHash -eq $installedManifestHash) `
         "The installed package manifest differs from the release candidate."
 
-    $uninstallerPath = Join-Path $installPath `
-        "Uninstall-DefaultAppGuard.ps1"
-    $uninstallResult = & $uninstallerPath `
-        -InstallDirectory $installPath `
-        -DataDirectory $dataPath `
-        -TaskName $taskName
-    $uninstalled = [bool]$uninstallResult.Uninstalled
-    Assert-True $uninstalled "The packaged uninstaller did not report success."
+    if ($uninstallCommand -notmatch '^"([^"]+)"\s+(.+)$') {
+        throw "The registered uninstall command could not be parsed safely."
+    }
+    $registeredUninstallerExecutable = $Matches[1]
+    $registeredUninstallerArguments = $Matches[2]
+    $uninstallProcess = Start-Process `
+        -FilePath $registeredUninstallerExecutable `
+        -ArgumentList $registeredUninstallerArguments `
+        -WindowStyle Hidden `
+        -Wait `
+        -PassThru
+    $uninstalled = $uninstallProcess.ExitCode -eq 0
+    Assert-True $uninstalled `
+        "The registered standard uninstall command did not complete successfully."
     Assert-True (-not (Test-Path -LiteralPath $installPath)) `
         "The package install directory remained after uninstall."
     Assert-True (-not (Test-Path -LiteralPath $dataPath)) `
@@ -480,6 +533,15 @@ try {
     Assert-True (@(Get-AgentProcesses `
         -ExecutablePath $installedExecutable).Count -eq 0) `
         "The packaged Agent remained after uninstall."
+    $remainingUninstallKey =
+        [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
+            $uninstallSubKeyPath)
+    $uninstallRegistrationRemoved = $null -eq $remainingUninstallKey
+    if ($null -ne $remainingUninstallKey) {
+        $remainingUninstallKey.Dispose()
+    }
+    Assert-True $uninstallRegistrationRemoved `
+        "The standard uninstall registry entry remained after uninstall."
     Assert-True ((Get-OptionalFileHash -Path $shortcutPath) -eq
         $shortcutHashBefore) `
         "The isolated package lifecycle changed the user's shortcut."
@@ -519,6 +581,7 @@ try {
             transactional = [bool]$installResult.TransactionalUpgrade
             integrityVerified = [bool]$installResult.PackageIntegrityVerified
             processMode = $installResult.ProcessMode
+            uninstallRegistrationVerified = $uninstallRegistrationVerified
         }
         mainAlgorithm = [ordered]@{
             query = $installResult.MainQuery
@@ -533,6 +596,9 @@ try {
         }
         rollback = [ordered]@{
             passed = [bool]$rollbackResult.RollbackVerified
+            lateStagePassed = [bool]$rollbackResult.LateRollbackVerified
+            installStateRestored = [bool]$rollbackResult.InstallStateRestored
+            uninstallEntryRestored = [bool]$rollbackResult.UninstallEntryRestored
             restoredVersion = $rollbackResult.RestoredVersion
             transactionResidueCount = $rollbackResult.TransactionResidueCount
         }
@@ -545,6 +611,8 @@ try {
         }
         uninstall = [ordered]@{
             passed = $uninstalled
+            registeredCommandUsed = $true
+            registrationRemoved = $uninstallRegistrationRemoved
             taskRemoved = $true
             processRemoved = $true
             directoriesRemoved = $true
@@ -581,7 +649,8 @@ try {
             & (Join-Path $installPath "Uninstall-DefaultAppGuard.ps1") `
                 -InstallDirectory $installPath `
                 -DataDirectory $dataPath `
-                -TaskName $taskName |
+                -TaskName $taskName `
+                -UninstallRegistryKeyName $uninstallRegistryKeyName |
                 Out-Null
         } catch {
             Write-Warning "Lifecycle cleanup uninstaller failed: $($_.Exception.Message)"
@@ -602,6 +671,26 @@ try {
         -ExecutablePath $installedExecutable) {
         Stop-Process -Id $process.ProcessId -Force `
             -ErrorAction SilentlyContinue
+    }
+
+    $cleanupUninstallKey =
+        [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
+            $uninstallSubKeyPath)
+    if ($null -ne $cleanupUninstallKey) {
+        try {
+            $cleanupName = [string]$cleanupUninstallKey.GetValue("DisplayName")
+            $cleanupLocation = [string]$cleanupUninstallKey.GetValue(
+                "InstallLocation")
+        } finally {
+            $cleanupUninstallKey.Dispose()
+        }
+        if ($cleanupName -eq "DefaultAppGuard Community" -and
+            -not [string]::IsNullOrWhiteSpace($cleanupLocation) -and
+            (Get-NormalizedPath $cleanupLocation) -eq $installPath) {
+            [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree(
+                $uninstallSubKeyPath,
+                $false)
+        }
     }
 
     $env:APPDATA = $originalAppData

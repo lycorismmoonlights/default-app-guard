@@ -5,6 +5,8 @@ param(
     [string]$DataDirectory = (
         Join-Path $env:LOCALAPPDATA "DefaultAppGuard"),
     [string]$TaskName = "DefaultAppGuard Agent",
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._ -]{0,79}$')]
+    [string]$UninstallRegistryKeyName = "DefaultAppGuard Community",
     [switch]$KeepData
 )
 
@@ -101,6 +103,15 @@ if (Test-Path -LiteralPath $dataPath -PathType Container) {
             [string]$installState.taskName -ne $TaskName) {
             throw "Refusing to remove data owned by another installation."
         }
+        $uninstallKeyProperty =
+            $installState.PSObject.Properties["uninstallRegistryKeyName"]
+        if ($null -ne $uninstallKeyProperty -and
+            -not [string]::IsNullOrWhiteSpace(
+                [string]$uninstallKeyProperty.Value) -and
+            [string]$uninstallKeyProperty.Value -ne
+                $UninstallRegistryKeyName) {
+            throw "Refusing to remove an uninstall entry owned by another installation."
+        }
     } elseif (-not $KeepData) {
         throw "Refusing to remove data without install-state.json."
     }
@@ -109,6 +120,27 @@ if (Test-Path -LiteralPath $dataPath -PathType Container) {
         $verifiedData = Assert-RemovableDirectory `
             -Path $dataPath `
             -Marker "install-state.json"
+    }
+}
+
+$uninstallSubKeyPath = (
+    "Software\Microsoft\Windows\CurrentVersion\Uninstall\" +
+    $UninstallRegistryKeyName)
+$uninstallEntryPresent = $false
+$uninstallKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
+    $uninstallSubKeyPath)
+if ($null -ne $uninstallKey) {
+    try {
+        $registeredName = [string]$uninstallKey.GetValue("DisplayName")
+        $registeredLocation = [string]$uninstallKey.GetValue("InstallLocation")
+        if ($registeredName -ne "DefaultAppGuard Community" -or
+            [string]::IsNullOrWhiteSpace($registeredLocation) -or
+            (Get-NormalizedPath $registeredLocation) -ne $installPath) {
+            throw "Refusing to remove an uninstall entry owned by another product."
+        }
+        $uninstallEntryPresent = $true
+    } finally {
+        $uninstallKey.Dispose()
     }
 }
 
@@ -154,16 +186,23 @@ if (-not [string]::IsNullOrWhiteSpace($shortcutPath) -and
     Remove-Item -LiteralPath $shortcutPath -Force
 }
 
+if (-not $KeepData -and $null -ne $verifiedData) {
+    Remove-DirectoryWithRetry $verifiedData
+}
+
 if ($null -ne $verifiedInstall) {
     Remove-DirectoryWithRetry $verifiedInstall
 }
 
-if (-not $KeepData -and $null -ne $verifiedData) {
-    Remove-DirectoryWithRetry $verifiedData
+if ($uninstallEntryPresent) {
+    [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree(
+        $uninstallSubKeyPath,
+        $false)
 }
 
 [pscustomobject]@{
     Uninstalled = $true
     TaskRemoved = $null -ne $task
     DataKept = [bool]$KeepData
+    UninstallRegistrationRemoved = $uninstallEntryPresent
 }

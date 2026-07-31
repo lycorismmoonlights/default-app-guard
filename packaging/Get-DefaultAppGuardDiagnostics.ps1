@@ -5,6 +5,8 @@ param(
     [string]$DataDirectory = (
         Join-Path $env:LOCALAPPDATA "DefaultAppGuard"),
     [string]$TaskName = "DefaultAppGuard Agent",
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._ -]{0,79}$')]
+    [string]$UninstallRegistryKeyName = "DefaultAppGuard Community",
     [string]$OutputPath = (
         Join-Path (Get-Location) (
             "DefaultAppGuard-diagnostics-{0}.json" -f (
@@ -144,6 +146,90 @@ if ($signatureStatus -eq "Valid" -and
     $signerSubject -ne $setupSignerSubject) {
     $issues.Add("release-signer-mismatch")
 }
+
+$recordedUninstallKeyProperty = if ($null -ne $installState) {
+    $installState.PSObject.Properties["uninstallRegistryKeyName"]
+} else {
+    $null
+}
+$recordedUninstallKeyName = if (
+    $null -ne $recordedUninstallKeyProperty -and
+    -not [string]::IsNullOrWhiteSpace(
+        [string]$recordedUninstallKeyProperty.Value)) {
+    [string]$recordedUninstallKeyProperty.Value
+} else {
+    $UninstallRegistryKeyName
+}
+$uninstallKeyNameMatches =
+    $recordedUninstallKeyName -eq $UninstallRegistryKeyName
+if (-not $uninstallKeyNameMatches) {
+    $issues.Add("uninstall-registration-key-mismatch")
+}
+$uninstallSubKeyPath = (
+    "Software\Microsoft\Windows\CurrentVersion\Uninstall\" +
+    $UninstallRegistryKeyName)
+$uninstallEntryPresent = $false
+$uninstallMetadataMatches = $false
+$uninstallCommandHidden = $false
+$quietUninstallPresent = $false
+$uninstallKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
+    $uninstallSubKeyPath)
+if ($null -eq $uninstallKey) {
+    $issues.Add("uninstall-registration-missing")
+} else {
+    try {
+        $uninstallEntryPresent = $true
+        $registeredName = [string]$uninstallKey.GetValue("DisplayName")
+        $registeredVersion = [string]$uninstallKey.GetValue("DisplayVersion")
+        $registeredLocation = [string]$uninstallKey.GetValue("InstallLocation")
+        $uninstallString = [string]$uninstallKey.GetValue("UninstallString")
+        $quietUninstallString = [string]$uninstallKey.GetValue(
+            "QuietUninstallString")
+        $noModify = [int]$uninstallKey.GetValue("NoModify", 0)
+        $noRepair = [int]$uninstallKey.GetValue("NoRepair", 0)
+        $manifestVersion = if ($null -ne $manifest) {
+            [string]$manifest.version
+        } else {
+            $null
+        }
+        $locationMatches =
+            -not [string]::IsNullOrWhiteSpace($registeredLocation) -and
+            (Get-NormalizedPath $registeredLocation) -eq $installPath
+        $uninstallMetadataMatches =
+            $registeredName -eq "DefaultAppGuard Community" -and
+            $registeredVersion -eq $manifestVersion -and
+            $locationMatches -and
+            $noModify -eq 1 -and
+            $noRepair -eq 1
+        $expectedUninstaller = Join-Path $installPath `
+            "Uninstall-DefaultAppGuard.ps1"
+        $uninstallCommandHidden =
+            $uninstallString.Contains($expectedUninstaller) -and
+            $uninstallString.Contains("-ExecutionPolicy Bypass") -and
+            $uninstallString.Contains("-WindowStyle Hidden") -and
+            $uninstallString.Contains($UninstallRegistryKeyName)
+        $quietUninstallPresent =
+            -not [string]::IsNullOrWhiteSpace($quietUninstallString) -and
+            $quietUninstallString -eq $uninstallString
+        if (-not $uninstallMetadataMatches) {
+            $issues.Add("uninstall-registration-metadata-mismatch")
+        }
+        if (-not $uninstallCommandHidden) {
+            $issues.Add("uninstall-command-mismatch")
+        }
+        if (-not $quietUninstallPresent) {
+            $issues.Add("quiet-uninstall-missing")
+        }
+    } finally {
+        $uninstallKey.Dispose()
+    }
+}
+$uninstallRegistrationHealthy =
+    $uninstallEntryPresent -and
+    $uninstallKeyNameMatches -and
+    $uninstallMetadataMatches -and
+    $uninstallCommandHidden -and
+    $quietUninstallPresent
 
 $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 $taskInfo = $null
@@ -380,6 +466,14 @@ $report = [ordered]@{
         lastResult = $taskLastResult
         triggers = $triggerSummaries
     }
+    uninstallRegistration = [ordered]@{
+        present = $uninstallEntryPresent
+        keyMatchesInstallState = $uninstallKeyNameMatches
+        metadataMatches = $uninstallMetadataMatches
+        hiddenCommandMatches = $uninstallCommandHidden
+        quietCommandPresent = $quietUninstallPresent
+        healthy = $uninstallRegistrationHealthy
+    }
     process = [ordered]@{
         count = $agentProcesses.Count
         processIds = @($agentProcesses | ForEach-Object ProcessId)
@@ -434,6 +528,7 @@ $report["overallHealthy"] =
     $manifestMatchesInstallState -and
     $taskActionMatches -and
     $taskEnabled -and
+    $uninstallRegistrationHealthy -and
     $agentProcesses.Count -eq 1 -and
     $consoleChildCount -eq 0 -and
     $loopbackOnly -and

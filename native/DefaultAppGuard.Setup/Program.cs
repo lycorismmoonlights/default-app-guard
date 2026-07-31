@@ -397,6 +397,9 @@ internal sealed record SetupOptions(
                 case "--health-timeout-seconds":
                     AddValue(args, ref index, option, "-HealthTimeoutSeconds", installerArguments);
                     break;
+                case "--uninstall-registry-key-name":
+                    AddValue(args, ref index, option, "-UninstallRegistryKeyName", installerArguments);
+                    break;
                 case "--result-path":
                     AddValue(args, ref index, option, "-ResultPath", installerArguments);
                     break;

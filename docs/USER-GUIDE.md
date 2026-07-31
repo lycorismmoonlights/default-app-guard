@@ -33,7 +33,8 @@ the same transactional installer directly:
 
 The default installation is per-user and does not request administrator
 privileges. It installs below `%LOCALAPPDATA%`, registers a current-user logon
-task, starts the Agent, and creates a Start menu shortcut.
+task, starts the Agent, creates a Start menu shortcut, and adds
+**DefaultAppGuard Community** to Windows **Settings > Apps > Installed apps**.
 
 Before changing an existing installation, the installer verifies every package
 file against `package-manifest.json` and prepares a complete staging directory.
@@ -41,7 +42,8 @@ An upgrade is committed only after the new Agent reports the expected version
 and PID, no-console process mode, a resolved Microsoft Media Player target, and
 real primary COM-query evidence for every protected format. Existing association drift is
 reported to the user but does not make installation fail. A failed upgrade
-restores the previous files and scheduled task.
+restores the previous files, scheduled task, install-state file, shortcut, and
+standard uninstall registration.
 
 The Agent is a long-running background process compiled without a console
 window. The watchdog task may check or restart it in the background, but it
@@ -76,10 +78,10 @@ Generate a constrained support report:
 
 The command writes a timestamped JSON report in the current directory. It
 checks package integrity, Agent and Setup signature status, the scheduled task,
-Agent process identity, loopback listener, console children, readiness, and the
-current main-algorithm audit. The report does not include personal paths, registry
-exports, raw runtime file contents, or tokens. Review it before attaching it
-to an issue.
+standard uninstall registration, Agent process identity, loopback listener,
+console children, readiness, and the current main-algorithm audit. The report
+does not include personal paths, registry exports, raw runtime file contents,
+or tokens. Review it before attaching it to an issue.
 
 The default runtime files are:
 
@@ -93,7 +95,11 @@ The scheduled task is named `DefaultAppGuard Agent`.
 
 ## Uninstall
 
-Run the uninstaller from the installation directory:
+Open **Settings > Apps > Installed apps**, find **DefaultAppGuard Community**,
+open its menu, and select **Uninstall**. Windows launches the registered
+current-user uninstaller in the background, so no terminal should appear.
+
+Advanced users can run the same uninstaller directly:
 
 ```powershell
 & "$env:LOCALAPPDATA\Programs\DefaultAppGuard\Uninstall-DefaultAppGuard.ps1"

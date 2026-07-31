@@ -25,7 +25,7 @@ source review and advanced operation.
 The current alpha is unsigned. Verify the checksum before installation:
 
 ```powershell
-Get-FileHash .\DefaultAppGuard-0.1.6-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DefaultAppGuard-0.1.7-win-x64.zip -Algorithm SHA256
 ```
 
 Read [ENVIRONMENT-AND-RISKS.txt](ENVIRONMENT-AND-RISKS.txt) before
@@ -34,7 +34,7 @@ privacy boundary, known limitations, and license notice in Chinese and English.
 The release gate requires this file to be reviewed and version-matched for every
 release.
 
-Version 0.1.6 packages contain a per-file SHA-256 manifest. The graphical Setup
+Version 0.1.7 packages contain a per-file SHA-256 manifest. The graphical Setup
 launcher runs without a console or administrator elevation. Before starting
 PowerShell, native Setup code independently verifies the package manifest,
 file set, lengths, and SHA-256 hashes. Setup uses `ExecutionPolicy Bypass` only
@@ -46,6 +46,10 @@ and restores the previous files and scheduled task if the new Agent fails its
 identity, primary-algorithm readiness, or no-console checks. Readiness requires
 Microsoft Media Player target resolution and primary COM-query evidence for
 every protected format; association drift itself does not block installation.
+Successful installation also creates a current-user entry in Windows
+**Installed apps** with a hidden, ownership-checked uninstall command. A late
+failure restores the previous package, task, install state, shortcut, and
+uninstall registration as one transaction.
 
 Release assets also include a Microsoft SBOM Tool-generated SPDX 2.2 software
 bill of materials and checksum. The release gate validates the SBOM against
@@ -88,7 +92,7 @@ approaches and product boundaries.
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.6 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.7 `
   -PackageManagerPath pnpm
 ```
 
@@ -124,7 +128,7 @@ versioned bilingual environment and risk notice. See
   signed or invalidly signed release is rejected.
 - The `require-signed` path can sign the fresh payload with a code-signing
   certificate available through the Windows certificate store or an attached
-  HSM before the package manifest is generated. Version 0.1.6 remains an
+  HSM before the package manifest is generated. Version 0.1.7 remains an
   unsigned alpha unless its release notes explicitly state otherwise.
 
 See [docs/RELEASE.md](docs/RELEASE.md) for the GitHub release gate and
