@@ -37,6 +37,30 @@ function Get-DagRelativePackagePath {
     return $normalizedPath.Substring($normalizedRoot.Length + 1)
 }
 
+function Get-DagFileFingerprint {
+    param([Parameter(Mandatory)][string]$Path)
+
+    $stream = [IO.File]::Open(
+        $Path,
+        [IO.FileMode]::Open,
+        [IO.FileAccess]::Read,
+        [IO.FileShare]::Read)
+    try {
+        $sha256 = [Security.Cryptography.SHA256]::Create()
+        try {
+            $hashBytes = $sha256.ComputeHash($stream)
+            return [pscustomobject]@{
+                Length = $stream.Length
+                Sha256 = [BitConverter]::ToString($hashBytes).Replace("-", "")
+            }
+        } finally {
+            $sha256.Dispose()
+        }
+    } finally {
+        $stream.Dispose()
+    }
+}
+
 function Get-DagPeSubsystem {
     param([Parameter(Mandatory)][string]$Path)
 
@@ -161,20 +185,18 @@ function Test-DagPackageIntegrity {
                     $issues.Add("package-file-missing")
                     continue
                 }
+                $entryStage = "fingerprint-file"
+                $fingerprint = Get-DagFileFingerprint -Path $candidate
                 $entryStage = "check-length"
-                $file = Get-Item -LiteralPath $candidate
                 if ($null -eq $entry.PSObject.Properties["length"] -or
-                    $file.Length -ne [long]$entry.length) {
+                    $fingerprint.Length -ne [long]$entry.length) {
                     $issues.Add("package-file-length")
                     continue
                 }
 
                 $entryStage = "check-hash"
-                $actualHash = (Get-FileHash `
-                    -LiteralPath $candidate `
-                    -Algorithm SHA256).Hash
                 if ($null -eq $entry.PSObject.Properties["sha256"] -or
-                    -not $actualHash.Equals(
+                    -not $fingerprint.Sha256.Equals(
                         [string]$entry.sha256,
                         [StringComparison]::OrdinalIgnoreCase)) {
                     $issues.Add("package-file-hash")

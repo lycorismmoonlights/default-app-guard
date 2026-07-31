@@ -58,6 +58,10 @@ jobs:
         shell: pwsh
         run: ./tests/Test-PackageIntegrity.ps1
 
+      - name: Test package integrity on Windows PowerShell 5.1
+        shell: powershell
+        run: ./tests/Test-PackageIntegrity.ps1
+
       - name: Audit production dependencies
         run: pnpm audit --prod
 

@@ -118,6 +118,22 @@ try {
         ("package-path-escape" -in $escaping.IssueCodes) `
         "The path traversal entry was not reported."
 
+    $manifest.payload[1].path = "README.txt"
+    $manifest |
+        ConvertTo-Json -Depth 5 |
+        Set-Content -LiteralPath $manifestPath -Encoding UTF8
+    function global:Get-FileHash {
+        throw "Package verification must not depend on Get-FileHash."
+    }
+    try {
+        $validWithoutCmdlet = Test-DagPackageIntegrity -PackageRoot $testRoot
+        Assert-True `
+            $validWithoutCmdlet.Passed `
+            "Package verification depends on the Get-FileHash command."
+    } finally {
+        Remove-Item Function:\Get-FileHash -Force
+    }
+
     "Package integrity behavior tests passed."
 } finally {
     if (Test-Path -LiteralPath $testRoot) {
