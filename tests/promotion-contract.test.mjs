@@ -109,6 +109,7 @@ test("published package includes the bilingual risk notice", async () => {
   assert.ok(releaseGate.includes("watchdogConfigurationVerified"));
   assert.ok(releaseGate.includes("watchdogRestartStormSuppressed"));
   assert.ok(releaseGate.includes("configurationRecoveryVerified"));
+  assert.ok(releaseGate.includes("configurationRecoveryUiVerified"));
   assert.ok(releaseGate.includes("configurationSettingsPreserved"));
   assert.ok(releaseGate.includes("Test-WatchdogBackoff.ps1"));
   assert.ok(releaseGate.includes("exactVersionsVerified = $true"));
@@ -194,6 +195,9 @@ test("configuration persistence uses durable replacement and tested recovery", a
   assert.ok(store.includes('"backup-restored"'));
   assert.ok(store.includes('"defaults-restored"'));
   assert.ok(lifecycle.includes("configurationRecoveryVerified = $true"));
+  assert.ok(lifecycle.includes("Get-PackagedRecoveryUiEvidence"));
+  assert.ok(lifecycle.includes("recoveryUiVerified"));
+  assert.ok(lifecycle.includes("recovery-dismiss-button"));
   assert.ok(lifecycle.includes("configurationSettingsPreserved"));
   assert.ok(releaseGate.includes("configurationPersistence.recoveryVerified"));
   assert.ok(promotion.includes("configurationPersistence.recoveryVerified"));

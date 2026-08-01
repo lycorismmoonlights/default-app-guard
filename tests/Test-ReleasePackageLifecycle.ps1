@@ -62,6 +62,60 @@ function Get-AvailableLoopbackPort {
     }
 }
 
+function Get-PackagedRecoveryUiEvidence {
+    param([Parameter(Mandatory)][string]$AgentUrl)
+
+    $rootUri = [Uri]::new("$($AgentUrl.TrimEnd('/'))/")
+    $indexResponse = Invoke-WebRequest `
+        -Uri $rootUri.AbsoluteUri `
+        -UseBasicParsing `
+        -TimeoutSec 5
+    $scriptMatches = [regex]::Matches(
+        [string]$indexResponse.Content,
+        '<script[^>]+src=["''](?<source>[^"'']+\.js)["'']',
+        [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    Assert-True ($scriptMatches.Count -gt 0) `
+        "The packaged UI did not reference a JavaScript asset."
+
+    $scriptContent = [Text.StringBuilder]::new()
+    foreach ($scriptMatch in $scriptMatches) {
+        $assetUri = [Uri]::new(
+            $rootUri,
+            [string]$scriptMatch.Groups["source"].Value)
+        $assetResponse = Invoke-WebRequest `
+            -Uri $assetUri.AbsoluteUri `
+            -UseBasicParsing `
+            -TimeoutSec 5
+        [void]$scriptContent.AppendLine([string]$assetResponse.Content)
+    }
+
+    $requiredTokens = @(
+        "backup-restored",
+        "defaults-restored",
+        "default-app-guard.configuration-recovery.acknowledged-event",
+        "recovery-notice",
+        "recovery-notice-copy",
+        "recovery-review-button",
+        "recovery-dismiss-button"
+    )
+    $combinedContent = $scriptContent.ToString()
+    $missingTokens = @(
+        $requiredTokens |
+            Where-Object {
+                $combinedContent.IndexOf(
+                    $_,
+                    [StringComparison]::Ordinal) -lt 0
+            })
+    Assert-True ($missingTokens.Count -eq 0) `
+        "The packaged recovery UI is incomplete: $($missingTokens -join ', ')"
+
+    return [pscustomobject]@{
+        Verified = $true
+        ScriptAssetCount = $scriptMatches.Count
+        RequiredTokenCount = $requiredTokens.Count
+    }
+}
+
 function Get-AgentProcesses {
     param([Parameter(Mandatory)][string]$ExecutablePath)
 
@@ -310,6 +364,7 @@ $taskConfigurationVerified = $false
 $notificationConfigurationVerified = $false
 $configurationRecoveryVerified = $false
 $configurationSettingsPreserved = $false
+$configurationRecoveryUiEvidence = $null
 
 try {
     New-Item -ItemType Directory -Path $workPath | Out-Null
@@ -751,6 +806,8 @@ try {
             $ExpectedExtensionCount) `
         "The recovered configuration file is not valid or complete."
     $configurationRecoveryVerified = $true
+    $configurationRecoveryUiEvidence = Get-PackagedRecoveryUiEvidence `
+        -AgentUrl $agentUrl
     $recoveredTask = Wait-WatchdogTaskReady `
         -TaskName $taskName `
         -Deadline ([DateTime]::UtcNow.AddSeconds(20))
@@ -1041,6 +1098,12 @@ try {
             backupAvailableAtInstall =
                 [bool]$installResult.ConfigurationBackupAvailable
             recoveryVerified = $configurationRecoveryVerified
+            recoveryUiVerified =
+                [bool]$configurationRecoveryUiEvidence.Verified
+            recoveryUiScriptAssetCount =
+                [int]$configurationRecoveryUiEvidence.ScriptAssetCount
+            recoveryUiRequiredTokenCount =
+                [int]$configurationRecoveryUiEvidence.RequiredTokenCount
             recoveryCode =
                 [string]$afterWatchdog.Health.ConfigurationRecoveryCode
             settingsPreserved = $configurationSettingsPreserved

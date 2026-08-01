@@ -418,6 +418,10 @@ if (-not [bool]$lifecycleEvidence.passed -or
         $lifecycleEvidence.configurationPersistence.backupAvailableAtInstall) -or
     -not [bool](
         $lifecycleEvidence.configurationPersistence.recoveryVerified) -or
+    -not [bool](
+        $lifecycleEvidence.configurationPersistence.recoveryUiVerified) -or
+    [int]$lifecycleEvidence.configurationPersistence.recoveryUiScriptAssetCount -lt 1 -or
+    [int]$lifecycleEvidence.configurationPersistence.recoveryUiRequiredTokenCount -ne 7 -or
     [string]$lifecycleEvidence.configurationPersistence.recoveryCode -ne
         "backup-restored" -or
     -not [bool](
@@ -662,6 +666,8 @@ $evidenceFile = Join-Path $releaseRoot "release-gate.json"
                 $lifecycleEvidence.configurationPersistence.backupAvailableAtInstall)
         configurationRecoveryVerified =
             [bool]$lifecycleEvidence.configurationPersistence.recoveryVerified
+        configurationRecoveryUiVerified =
+            [bool]$lifecycleEvidence.configurationPersistence.recoveryUiVerified
         configurationSettingsPreserved =
             [bool]$lifecycleEvidence.configurationPersistence.settingsPreserved
         configurationRecoveryDiagnosticsHealthy =

@@ -33,7 +33,7 @@ source review and advanced operation.
 The current alpha is unsigned. Verify the checksum before installation:
 
 ```powershell
-Get-FileHash .\DefaultAppGuard-0.1.13-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DefaultAppGuard-0.1.14-win-x64.zip -Algorithm SHA256
 ```
 
 Read [ENVIRONMENT-AND-RISKS.txt](ENVIRONMENT-AND-RISKS.txt) before
@@ -42,7 +42,7 @@ privacy boundary, known limitations, and license notice in Chinese and English.
 The release gate requires this file to be reviewed and version-matched for every
 release.
 
-Version 0.1.13 packages contain a per-file SHA-256 manifest. The graphical Setup
+Version 0.1.14 packages contain a per-file SHA-256 manifest. The graphical Setup
 launcher runs without a console or administrator elevation. Before starting
 PowerShell, native Setup code independently verifies the package manifest,
 file set, lengths, and SHA-256 hashes. Setup uses `ExecutionPolicy Bypass` only
@@ -78,6 +78,10 @@ that validated backup. If neither copy is valid, the Agent restores the safe
 default of all 34 supported video formats with notifications enabled. Storage
 permission and I/O failures remain fatal instead of being mistaken for damaged
 content. Health and redacted diagnostics expose whether recovery occurred.
+The application also displays a persistent recovery notice. It distinguishes a
+last-known-good backup restore from a safe-default restore where custom choices
+may have been lost, links directly to the protected-format review, and stores
+notice acknowledgement locally without changing protection settings.
 
 For unsigned alpha fallback releases, GitHub builds and attests one immutable
 candidate archive. A separate Windows validation computer verifies those
@@ -139,7 +143,7 @@ build or verify the project, not to install it.
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.13 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.14 `
   -PackageManagerPath pnpm
 ```
 
@@ -178,7 +182,7 @@ notice. See
   signed or invalidly signed release is rejected.
 - The `require-signed` path can sign the fresh payload with a code-signing
   certificate available through the Windows certificate store or an attached
-  HSM before the package manifest is generated. Version 0.1.13 remains an
+  HSM before the package manifest is generated. Version 0.1.14 remains an
   unsigned alpha unless its release notes explicitly state otherwise.
 - Unsigned fallback candidates carry GitHub build attestations for the ZIP,
   SBOM, and build record. These establish build provenance but do not replace a
