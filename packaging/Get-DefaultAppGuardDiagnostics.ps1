@@ -251,11 +251,12 @@ if ($null -ne $installState -and
     }
 }
 $runtimePath = Join-Path $dataPath "runtime"
-$expectedTaskArguments = @(
+$expectedAgentArguments = @(
     "--url `"$agentUrl`""
     "--state `"$(Join-Path $runtimePath "agent-status.json")`""
     "--config `"$(Join-Path $runtimePath "guard-configuration.json")`""
 ) -join " "
+$expectedTaskArguments = "--watchdog $expectedAgentArguments"
 $expectedWatchdogInterval = [Xml.XmlConvert]::ToString(
     [TimeSpan]::FromMinutes($expectedWatchdogIntervalMinutes))
 
@@ -271,6 +272,8 @@ $taskTriggersMatch = $false
 $taskConfigurationHealthy = $false
 $taskEnabled = $false
 $taskState = "Missing"
+$taskStateHealthy = $false
+$taskRunAgeSeconds = $null
 $taskLastResult = $null
 $taskLastResultDisposition = "unavailable"
 $triggerSummaries = @()
@@ -280,7 +283,7 @@ if ($null -ne $task) {
     if ($taskActions.Count -eq 1) {
         $taskExecutableMatches =
             -not [string]::IsNullOrWhiteSpace($taskActions[0].Execute) -and
-            (Get-NormalizedPath $taskActions[0].Execute) -eq $executablePath
+            (Get-NormalizedPath $taskActions[0].Execute) -eq $setupPath
         $taskWorkingDirectoryMatches =
             -not [string]::IsNullOrWhiteSpace(
                 $taskActions[0].WorkingDirectory) -and
@@ -319,7 +322,7 @@ if ($null -ne $task) {
         [bool]$task.Settings.StartWhenAvailable -and
         [int]$task.Settings.RestartCount -eq 3 -and
         [string]$task.Settings.RestartInterval -eq "PT1M" -and
-        [string]$task.Settings.ExecutionTimeLimit -eq "PT0S" -and
+        [string]$task.Settings.ExecutionTimeLimit -eq "PT1M" -and
         -not [bool]$task.Settings.DisallowStartIfOnBatteries -and
         -not [bool]$task.Settings.StopIfGoingOnBatteries
 
@@ -345,15 +348,19 @@ if ($null -ne $task) {
 
     $taskEnabled = [bool]$task.Settings.Enabled
     $taskState = [string]$task.State
+    if ($taskState -eq "Ready") {
+        $taskStateHealthy = $true
+    } elseif ($taskState -eq "Running") {
+        $taskRunAgeSeconds = [Math]::Max(
+            0,
+            ((Get-Date) - $taskInfo.LastRunTime).TotalSeconds)
+        $taskStateHealthy = $taskRunAgeSeconds -le 90
+    }
     $taskLastResult = $taskInfo.LastTaskResult
     $taskLastResultDisposition = if (
-        $taskState -eq "Running" -and
-        [int64]$taskLastResult -eq 2147946720 -and
-        [string]$task.Settings.MultipleInstances -eq "IgnoreNew") {
-        "expected-ignore-new-while-running"
-    } elseif ($taskState -eq "Running") {
-        "running"
-    } elseif ([int64]$taskLastResult -eq 0) {
+        $taskState -eq "Running" -and $taskStateHealthy) {
+        "watchdog-running"
+    } elseif ($taskState -eq "Ready" -and [int64]$taskLastResult -eq 0) {
         "success"
     } else {
         "nonzero"
@@ -369,7 +376,7 @@ if ($null -ne $task) {
             })
     $taskConfigurationHealthy =
         $taskEnabled -and
-        $taskState -eq "Running" -and
+        $taskStateHealthy -and
         $taskActionMatches -and
         $taskPrincipalMatches -and
         $taskSettingsMatch -and
@@ -386,8 +393,8 @@ if ($null -ne $task) {
     if (-not $taskTriggersMatch) {
         $issues.Add("task-triggers-mismatch")
     }
-    if (-not $taskEnabled -or $taskState -ne "Running") {
-        $issues.Add("scheduled-task-not-running")
+    if (-not $taskEnabled -or -not $taskStateHealthy) {
+        $issues.Add("scheduled-task-state-unhealthy")
     }
 } else {
     $issues.Add("scheduled-task-missing")
@@ -589,6 +596,8 @@ $report = [ordered]@{
         present = $null -ne $task
         enabled = $taskEnabled
         state = $taskState
+        stateHealthy = $taskStateHealthy
+        runningAgeSeconds = $taskRunAgeSeconds
         actionMatchesInstall = $taskActionMatches
         action = [ordered]@{
             executableMatches = $taskExecutableMatches
@@ -665,6 +674,7 @@ $report["overallHealthy"] =
     $manifestMatchesInstallState -and
     $taskActionMatches -and
     $taskEnabled -and
+    $taskConfigurationHealthy -and
     $uninstallRegistrationHealthy -and
     $agentProcesses.Count -eq 1 -and
     $consoleChildCount -eq 0 -and

@@ -34,6 +34,11 @@ internal static class Program
             return 2;
         }
 
+        if (options.Watchdog is not null)
+        {
+            return WatchdogRunner.Run(options.Watchdog);
+        }
+
         using var setupMutex = new Mutex(
             initiallyOwned: false,
             @"Local\DefaultAppGuard.Setup");
@@ -381,13 +386,18 @@ internal sealed record SetupOptions(
     bool Quiet,
     bool VerifyOnly,
     string? AgentUrl,
-    IReadOnlyList<string> InstallerArguments)
+    IReadOnlyList<string> InstallerArguments,
+    WatchdogOptions? Watchdog)
 {
     public static SetupOptions Parse(IReadOnlyList<string> args)
     {
         var quiet = false;
         var verifyOnly = false;
         string? agentUrl = null;
+        var watchdogMode = false;
+        string? watchdogUrl = null;
+        string? watchdogStatePath = null;
+        string? watchdogConfigPath = null;
         var installerArguments = new List<string>();
 
         for (var index = 0; index < args.Count; index++)
@@ -400,6 +410,18 @@ internal sealed record SetupOptions(
                     break;
                 case "--verify-only":
                     verifyOnly = true;
+                    break;
+                case "--watchdog":
+                    watchdogMode = true;
+                    break;
+                case "--url":
+                    watchdogUrl = ReadValue(args, ref index, option);
+                    break;
+                case "--state":
+                    watchdogStatePath = ReadValue(args, ref index, option);
+                    break;
+                case "--config":
+                    watchdogConfigPath = ReadValue(args, ref index, option);
                     break;
                 case "--no-start-menu-shortcut":
                     installerArguments.Add("-NoStartMenuShortcut");
@@ -435,11 +457,34 @@ internal sealed record SetupOptions(
             }
         }
 
+        WatchdogOptions? watchdog = null;
+        if (watchdogMode)
+        {
+            if (verifyOnly || installerArguments.Count != 0)
+            {
+                throw new ArgumentException(
+                    "Watchdog mode cannot use installation options.");
+            }
+
+            watchdog = WatchdogOptions.Create(
+                watchdogUrl,
+                watchdogStatePath,
+                watchdogConfigPath);
+        }
+        else if (watchdogUrl is not null ||
+                 watchdogStatePath is not null ||
+                 watchdogConfigPath is not null)
+        {
+            throw new ArgumentException(
+                "--url, --state, and --config require --watchdog.");
+        }
+
         return new SetupOptions(
             quiet,
             verifyOnly,
             agentUrl,
-            installerArguments);
+            installerArguments,
+            watchdog);
     }
 
     private static void AddValue(

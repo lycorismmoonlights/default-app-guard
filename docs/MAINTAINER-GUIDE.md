@@ -73,24 +73,28 @@ $testRoot = Join-Path $env:TEMP "DefaultAppGuard-install-test"
 Verify:
 
 1. The installer reports `PackageIntegrityVerified: True`,
-   `TransactionalUpgrade: True`, and `ProcessMode: background-no-console`.
+   `TransactionalUpgrade: True`, `ProcessMode: background-no-console`, and
+   `WatchdogTaskState: Ready`.
 2. `/api/health` reports the COM query, registry monitor, expected PID, and
    background process mode.
 3. `/api/status` reports all declared formats individually.
 4. A harmless subkey created below the current user's `FileExts` tree increases
    `registryEventCount`.
 5. The exact probe key is removed.
-6. Killing the installed process produces a different PID after the watchdog
-   trigger and a fresh 34-format startup audit.
-7. Deliberately failed upgrades before and after readiness restore the previous
+6. The task action is `DefaultAppGuard.Setup.exe --watchdog ...`, normally
+   returns to `Ready` with result 0, and has a one-minute execution limit.
+7. Killing the installed process produces a different PID after the repeated
+   watchdog trigger, followed by a fresh 34-format startup audit; the watchdog
+   task returns to `Ready` while the replacement Agent remains running.
+8. Deliberately failed upgrades before and after readiness restore the previous
    package version, task definition, exact install-state file, uninstall entry,
    process, and healthy audit.
-8. The current-user Installed apps entry is complete, and its exact hidden
+9. The current-user Installed apps entry is complete, and its exact hidden
    uninstall command removes the entry, task, process, install directory, and
    data directory.
-9. `Get-DefaultAppGuardDiagnostics.ps1` reports no issues and does not include
+10. `Get-DefaultAppGuardDiagnostics.ps1` reports no issues and does not include
    personal paths or raw runtime contents.
-10. Uninstallation leaves no task, process, install directory, data directory,
+11. Uninstallation leaves no task, process, install directory, data directory,
    or probe key.
 
 The lifecycle evidence is written to `package-lifecycle.json`. The gate also

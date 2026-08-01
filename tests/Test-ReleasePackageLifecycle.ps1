@@ -126,6 +126,32 @@ function Wait-AgentHealthy {
     throw "Packaged Agent did not become healthy: $lastFailure"
 }
 
+function Wait-WatchdogTaskReady {
+    param(
+        [Parameter(Mandatory)][string]$TaskName,
+        [Parameter(Mandatory)][DateTime]$Deadline
+    )
+
+    $lastState = "Missing"
+    do {
+        $task = Get-ScheduledTask -TaskName $TaskName `
+            -ErrorAction SilentlyContinue
+        if ($null -ne $task) {
+            $lastState = [string]$task.State
+            if ($lastState -eq "Ready") {
+                $taskInfo = Get-ScheduledTaskInfo -TaskName $TaskName
+                Assert-True ([int64]$taskInfo.LastTaskResult -eq 0) `
+                    "The watchdog task completed with a nonzero result."
+                return $task
+            }
+        }
+
+        Start-Sleep -Milliseconds 250
+    } until ([DateTime]::UtcNow -ge $Deadline)
+
+    throw "The watchdog task did not return to Ready state: $lastState"
+}
+
 function Get-OptionalFileHash {
     param([Parameter(Mandatory)][string]$Path)
 
@@ -200,6 +226,8 @@ $agentUrl = "http://127.0.0.1:$agentPort"
 $blockedAgentUrl = "http://127.0.0.1:$blockedPort"
 $installedExecutable = Join-Path $installPath `
     "DefaultAppGuard.Agent.exe"
+$installedSetupExecutable = Join-Path $installPath `
+    "DefaultAppGuard.Setup.exe"
 $installerPath = Join-Path $packagePath `
     "Install-DefaultAppGuard.ps1"
 $setupInstallResultPath = Join-Path $workPath "setup-install-result.json"
@@ -439,19 +467,22 @@ try {
         -ExecutablePath $installedExecutable `
         -ExpectedVersion $Version `
         -Deadline ([DateTime]::UtcNow.AddSeconds(20))
-    $task = Get-ScheduledTask -TaskName $taskName
+    $task = Wait-WatchdogTaskReady `
+        -TaskName $taskName `
+        -Deadline ([DateTime]::UtcNow.AddSeconds(20))
     $taskInfo = Get-ScheduledTaskInfo -TaskName $taskName
     $taskActions = @($task.Actions)
-    $expectedTaskArguments = @(
+    $expectedAgentArguments = @(
         "--url `"$agentUrl`""
         "--state `"$(Join-Path $dataPath "runtime\agent-status.json")`""
         "--config `"$(Join-Path $dataPath "runtime\guard-configuration.json")`""
     ) -join " "
+    $expectedTaskArguments = "--watchdog $expectedAgentArguments"
     Assert-True ($taskActions.Count -eq 1) `
         "The installed watchdog task has an unexpected action count."
     Assert-True ((Get-NormalizedPath $taskActions[0].Execute) -eq
-        $installedExecutable) `
-        "The installed watchdog executable does not match the package."
+        $installedSetupExecutable) `
+        "The installed watchdog launcher does not match the package."
     Assert-True ((Get-NormalizedPath $taskActions[0].WorkingDirectory) -eq
         $installPath) `
         "The installed watchdog working directory does not match the package."
@@ -485,8 +516,8 @@ try {
         "The installed watchdog restart count is unexpected."
     Assert-True ([string]$task.Settings.RestartInterval -eq "PT1M") `
         "The installed watchdog restart interval is unexpected."
-    Assert-True ([string]$task.Settings.ExecutionTimeLimit -eq "PT0S") `
-        "The installed watchdog has a finite execution limit."
+    Assert-True ([string]$task.Settings.ExecutionTimeLimit -eq "PT1M") `
+        "The installed watchdog execution limit is unexpected."
     Assert-True (-not [bool]$task.Settings.DisallowStartIfOnBatteries) `
         "The installed watchdog is disabled on battery power."
     Assert-True (-not [bool]$task.Settings.StopIfGoingOnBatteries) `
@@ -518,8 +549,8 @@ try {
         "The installed watchdog repetition interval is unexpected."
     Assert-True ([bool]$task.Settings.Enabled) `
         "The installed watchdog task is disabled."
-    Assert-True ([string]$task.State -eq "Running") `
-        "The installed watchdog task is not running."
+    Assert-True ([string]$task.State -eq "Ready") `
+        "The installed watchdog task did not return to Ready state."
     $taskConfigurationVerified = $true
 
     Stop-Process -Id $beforeWatchdog.ProcessId -Force
@@ -532,8 +563,12 @@ try {
         -DifferentFromProcessId $beforeWatchdog.ProcessId `
         -Deadline ([DateTime]::UtcNow.AddSeconds(
             $WatchdogTimeoutSeconds))
+    $recoveredTask = Wait-WatchdogTaskReady `
+        -TaskName $taskName `
+        -Deadline ([DateTime]::UtcNow.AddSeconds(20))
     $watchdogResult = [pscustomobject]@{
         TaskConfigurationVerified = $taskConfigurationVerified
+        TaskState = [string]$recoveredTask.State
         RepetitionInterval = [string]$repeatingTriggers[0].Repetition.Interval
         ScheduledNextRun = $taskInfo.NextRunTime.ToUniversalTime().ToString("O")
         PreviousProcessId = $beforeWatchdog.ProcessId

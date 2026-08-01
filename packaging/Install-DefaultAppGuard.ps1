@@ -104,7 +104,7 @@ function Remove-DirectoryWithRetry {
     }
 }
 
-function New-AgentScheduledTask {
+function New-WatchdogScheduledTask {
     param(
         [Parameter(Mandatory)][string]$ExecutablePath,
         [Parameter(Mandatory)][string]$WorkingDirectory,
@@ -137,7 +137,7 @@ function New-AgentScheduledTask {
         -MultipleInstances IgnoreNew `
         -RestartCount 3 `
         -RestartInterval (New-TimeSpan -Minutes 1) `
-        -ExecutionTimeLimit ([TimeSpan]::Zero
+        -ExecutionTimeLimit (New-TimeSpan -Minutes 1
         )
 
     return New-ScheduledTask `
@@ -146,7 +146,37 @@ function New-AgentScheduledTask {
         -Principal $principal `
         -Settings $settings `
         -Description (
-            "Monitors the current user's Windows default video applications.")
+            "Checks and recovers the current user's DefaultAppGuard Agent.")
+}
+
+function Wait-WatchdogTaskReady {
+    param(
+        [Parameter(Mandatory)][string]$TaskName,
+        [Parameter(Mandatory)][int]$TimeoutSeconds
+    )
+
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $lastState = "Missing"
+    do {
+        $task = Get-ScheduledTask -TaskName $TaskName `
+            -ErrorAction SilentlyContinue
+        if ($null -ne $task) {
+            $lastState = [string]$task.State
+            if ($lastState -eq "Ready") {
+                $taskInfo = Get-ScheduledTaskInfo -TaskName $TaskName
+                if ([int64]$taskInfo.LastTaskResult -ne 0) {
+                    throw (
+                        "The watchdog task exited with result 0x{0:X8}." -f
+                        ([uint32]$taskInfo.LastTaskResult))
+                }
+                return $task
+            }
+        }
+
+        Start-Sleep -Milliseconds 250
+    } until ([DateTime]::UtcNow -ge $deadline)
+
+    throw "The watchdog task did not return to Ready state: $lastState"
 }
 
 function Wait-AgentReady {
@@ -560,13 +590,15 @@ if (Test-Path -LiteralPath $installPath -PathType Container) {
     }
 }
 
-$taskArguments = @(
+$agentArguments = @(
     "--url `"$AgentUrl`""
     "--state `"$statePath`""
     "--config `"$configurationPath`""
 ) -join " "
+$watchdogArguments = "--watchdog $agentArguments"
 $installedExecutable = Join-Path $installPath `
     ([string]$manifest.executable)
+$installedSetup = Join-Path $installPath "DefaultAppGuard.Setup.exe"
 $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $existingTask = Get-ScheduledTask -TaskName $TaskName `
     -ErrorAction SilentlyContinue
@@ -674,10 +706,10 @@ try {
     Move-Item -LiteralPath $stagingPath -Destination $installPath
     $swapCompleted = $true
 
-    $scheduledTask = New-AgentScheduledTask `
-        -ExecutablePath $installedExecutable `
+    $scheduledTask = New-WatchdogScheduledTask `
+        -ExecutablePath $installedSetup `
         -WorkingDirectory $installPath `
-        -Arguments $taskArguments `
+        -Arguments $watchdogArguments `
         -CurrentUser $currentUser `
         -IntervalMinutes $WatchdogIntervalMinutes
     Register-ScheduledTask `
@@ -691,6 +723,9 @@ try {
         -ExecutablePath $installedExecutable `
         -ExpectedVersion ([string]$manifest.version) `
         -TimeoutSeconds $HealthTimeoutSeconds
+    $watchdogTask = Wait-WatchdogTaskReady `
+        -TaskName $TaskName `
+        -TimeoutSeconds $HealthTimeoutSeconds
 
     if ($NoStartMenuShortcut) {
         if ($shouldManageShortcut -and
@@ -702,7 +737,7 @@ try {
         $shell = New-Object -ComObject WScript.Shell
         $shortcut = $shell.CreateShortcut($shortcutPath)
         $shortcut.TargetPath = $installedExecutable
-        $shortcut.Arguments = "--open-ui $taskArguments"
+        $shortcut.Arguments = "--open-ui $agentArguments"
         $shortcut.WorkingDirectory = $installPath
         $shortcut.Description = "Open DefaultAppGuard"
         $shortcut.WindowStyle = 7
@@ -769,6 +804,7 @@ try {
         PackageIntegrityVerified = $true
         PackagePayloadFileCount = @($manifest.payload).Count
         WatchdogIntervalMinutes = $WatchdogIntervalMinutes
+        WatchdogTaskState = [string]$watchdogTask.State
         UninstallRegistryKeyName = $UninstallRegistryKeyName
         UninstallRegistered = $true
     }

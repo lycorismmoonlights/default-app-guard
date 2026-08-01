@@ -15,9 +15,10 @@ DefaultAppGuard Community
 - 目标应用：必须已安装 Microsoft Media Player（媒体播放器）。
 - 账户：需要可交互登录的普通 Windows 用户账户。
 - 安装方式：按用户安装到 %LOCALAPPDATA%，通常不需要管理员权限。
-- 运行方式：登录任务“DefaultAppGuard Agent”会启动后台 Agent。
-- 稳定性任务：同一计划任务还会每 5 分钟检查一次启动机会，并使用
-  IgnoreNew 单实例策略；已有 Agent 正常运行时，新的触发不会启动第二个进程。
+- 运行方式：登录任务“DefaultAppGuard Agent”会运行一次无控制台的原生看门狗；
+  看门狗核验安装包和本地健康接口，必要时启动后台 Agent，然后自行退出。
+- 稳定性任务：同一计划任务还会每 5 分钟运行一次短时检查，并使用 IgnoreNew
+  防止两个检查重叠。正常状态是计划任务显示“准备就绪”，Agent 进程单独保持运行。
 - 卸载入口：安装成功后会在当前用户的 Windows“已安装的应用”中注册
   DefaultAppGuard Community，不会写入全局机器安装列表。
 - 进程模式：Agent 使用无控制台的 Windows 后台子系统，不应弹出或常驻终端窗口。
@@ -146,11 +147,16 @@ DefaultAppGuard Community
 - 后台 Agent 和计划任务会占用少量内存、CPU 和本地端口。
 - Agent 是长期运行的后台进程；关闭应用页面不会停止监控。若出现 Agent
   控制台窗口，通常表示仍在运行 0.1.1 或更早版本，应升级并重新安装。
-- 当 Agent 已经正常运行时，Windows 任务计划程序可能把被 IgnoreNew 策略
-  忽略的重复触发记录为 0x800710E0（“操作员或管理员拒绝了请求”）。在任务
-  状态为“正在运行”、诊断中的 scheduledTask.configurationHealthy 为 true、
-  且 34 项主算法检查健康时，这表示单实例保护生效，不表示程序崩溃。若任务
-  不在运行、诊断出现问题码或主算法不健康，应重新安装或提交诊断报告。
+- 计划任务运行的是短时看门狗，不再直接托管长期运行的 Agent。正常情况下，
+  看门狗在确认 Agent 健康或完成恢复后会在 1 分钟内退出，任务通常应显示为
+  “准备就绪”，上次运行结果为 0；Agent 则继续在后台运行。
+- 如果计划任务连续 90 秒以上仍显示“正在运行”、反复出现 0x800710E0
+  （“操作员或管理员拒绝了请求”）、或诊断中的
+  scheduledTask.configurationHealthy 为 false，这不是可忽略的正常状态。请先
+  确认 Agent 是否仍健康，再运行诊断；普通用户可直接重新运行安装包进行修复安装，
+  若仍失败，请提交诊断 JSON。不要删除未知任务或手工修改注册表。
+- Agent 被关闭后，恢复最长可能等待到下一次看门狗周期；默认间隔为 5 分钟。
+  这不是瞬时故障转移。发布门禁使用 1 分钟间隔进行真实终止和自动恢复测试。
 - 本地 API 只允许回环地址和受限 Origin，但同一用户会话中的恶意本地进程仍可能尝试访问它。
 - 当前仅在上面列出的 Windows 版本上完成完整发布验证，其他 Windows 11 版本需要单独验证。
 - 软件按“现状”提供，不附带无故障、无数据损失或适用于特定用途的保证。
@@ -190,10 +196,12 @@ English
 - Account: a normal interactive Windows user account is required.
 - Installation: per-user under %LOCALAPPDATA%; administrator rights are
   normally not required.
-- Startup: the "DefaultAppGuard Agent" logon task starts the background Agent.
-- Resilience task: the same scheduled task checks for a start opportunity every
-  five minutes and uses the IgnoreNew single-instance policy. A healthy running
-  Agent prevents a second process from being started.
+- Startup: the "DefaultAppGuard Agent" logon task runs a no-console native
+  watchdog. It verifies the installed package and local health endpoint, starts
+  the background Agent when needed, and then exits.
+- Resilience task: the same scheduled task runs a short check every five
+  minutes and uses IgnoreNew only to prevent overlapping checks. The normal
+  state is a Ready scheduled task with the Agent running separately.
 - Uninstall entry: successful setup registers DefaultAppGuard Community in the
   current user's Windows Installed apps list, not the machine-wide list.
 - Process mode: the Agent uses the no-console Windows GUI subsystem and should
@@ -366,14 +374,19 @@ or ask a trusted person with Windows security experience to inspect it.
 - The Agent is a long-running background process; closing the application page
   does not stop monitoring. A visible Agent console normally means version
   0.1.1 or earlier is still installed and should be upgraded.
-- While the Agent is healthy and running, Windows Task Scheduler may record an
-  IgnoreNew-suppressed duplicate trigger as 0x800710E0 ("The operator or
-  administrator has refused the request"). When the task state is Running,
-  scheduledTask.configurationHealthy is true in diagnostics, and all 34 primary
-  algorithm checks are healthy, this means single-instance protection worked;
-  it does not mean the Agent crashed. Reinstall or submit diagnostics when the
-  task is not running, issue codes are present, or the primary algorithm is
-  unhealthy.
+- The scheduled task runs the short-lived watchdog; it no longer directly owns
+  the long-running Agent. Normally the watchdog exits within one minute after
+  confirming health or completing recovery, the task should show Ready, its
+  last result should be 0, and the Agent continues running in the background.
+- A task that remains Running for more than 90 seconds, repeatedly reports
+  0x800710E0 ("The operator or administrator has refused the request"), or has
+  scheduledTask.configurationHealthy set to false is not an ignorable normal
+  state. Check whether the Agent is healthy and run diagnostics. Non-technical
+  users can run Setup again for a repair installation; if that fails, submit
+  the diagnostics JSON. Do not delete unknown tasks or edit the registry.
+- Recovery after the Agent stops may wait until the next watchdog interval,
+  which is five minutes by default. This is not instantaneous failover. The
+  release gate uses a one-minute interval for a real terminate-and-recover test.
 - The API is loopback-only with restricted Origins, but a malicious local
   process in the same user session may still attempt to access it.
 - Full release validation has only been completed on the Windows build listed

@@ -43,8 +43,10 @@ DefaultAppGuard Agent running while the exact-package lifecycle gate executes.
    installer, uninstaller, diagnostics script, UI assets, and Agent executable.
 9. Executes Setup's exact-package verification, installs the package in an
    isolated location, requires the readiness endpoint to report primary COM
-   evidence for every declared format, and verifies the kernel notification before and after an automatic watchdog
-   restart, a deliberately failed transactional upgrade and rollback,
+   evidence for every declared format, and verifies the kernel notification
+   before and after the short-lived native watchdog recovers a terminated
+   Agent and returns its task to `Ready`, a deliberately failed transactional
+   upgrade and rollback,
    diagnostics, Windows Installed apps registration, execution of the exact
    registered hidden uninstall command, clean removal, and no shortcut
    ownership violation.

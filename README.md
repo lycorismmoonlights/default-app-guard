@@ -54,9 +54,10 @@ uninstall registration as one transaction.
 Release assets also include a Microsoft SBOM Tool-generated SPDX 2.2 software
 bill of materials and checksum. The release gate validates the SBOM against
 the exact package, then installs that package in isolation and verifies the
-real monitor, transactional rollback, the watchdog's exact arguments,
-current-user privilege, triggers, single-instance and restart settings,
-automatic recovery, diagnostics, and clean uninstall before publication.
+real monitor, transactional rollback, the short-lived native watchdog's exact
+arguments, current-user privilege, triggers, execution limit and restart
+settings, automatic recovery, diagnostics, and clean uninstall before
+publication.
 
 See [docs/USER-GUIDE.md](docs/USER-GUIDE.md) for installation, use,
 diagnostics, and uninstallation.
@@ -83,7 +84,8 @@ approaches and product boundaries.
   registry notification.
 - `native/DefaultAppGuard.Agent`: loopback API, monitor worker, persisted
   configuration, and packaged UI host.
-- `native/DefaultAppGuard.Setup`: small NativeAOT graphical package launcher.
+- `native/DefaultAppGuard.Setup`: NativeAOT graphical package launcher and
+  short-lived no-console watchdog.
 - `native/DefaultAppGuard.Tests`: unit tests plus real Windows integration
   tests.
 - `src`: React application.
@@ -100,8 +102,9 @@ pnpm install --frozen-lockfile
 The release gate runs the real COM and kernel registry-notification tests
 separately and verifies their names in the test result. It requires Microsoft
 Media Player to be installed and configured for every declared video format.
-It also rejects a published Agent unless its PE subsystem is Windows GUI, which
-prevents a scheduled watchdog start from opening a console window. Hosted CI
+It also rejects a published Agent or Setup watchdog unless its PE subsystem is
+Windows GUI, which prevents a scheduled recovery check from opening a console
+window. Hosted CI
 alone is intentionally insufficient for a release. The dedicated release
 machine must not already be running another DefaultAppGuard Agent because the
 product intentionally allows one instance per signed-in user.

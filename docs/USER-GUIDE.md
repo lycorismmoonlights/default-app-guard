@@ -46,16 +46,16 @@ restores the previous files, scheduled task, install-state file, shortcut, and
 standard uninstall registration.
 
 The Agent is a long-running background process compiled without a console
-window. The watchdog task may check or restart it in the background, but it
-should not open Windows Terminal. If an Agent terminal remains visible, verify
-that version 0.1.2 or later is installed.
+window. The scheduled task runs the graphical, no-console Setup executable in
+`--watchdog` mode. That short-lived watchdog verifies the installed package,
+checks whether the correct Agent owns the local health endpoint, starts it when
+needed, and exits. The task should normally show `Ready` while the Agent remains
+`Running`; it should not open Windows Terminal.
 
-The watchdog uses Task Scheduler's `IgnoreNew` policy. While the Agent is
-already running, Windows can record a rejected duplicate start as
-`0x800710E0`; this is expected only when diagnostics report the task as
-`Running`, `scheduledTask.configurationHealthy` is `true`, and the main
-algorithm is healthy. The bilingual risk notice explains how to distinguish
-this state from a real startup failure.
+`IgnoreNew` only prevents overlapping watchdog checks. A task that remains
+`Running` for more than 90 seconds, repeatedly reports `0x800710E0`, or fails to
+return to `Ready` is not treated as healthy. Run diagnostics and reinstall or
+report the JSON file if `scheduledTask.configurationHealthy` is `false`.
 
 The scripts and executables are not yet code-signed. Windows may display a
 warning for files downloaded from the internet.
