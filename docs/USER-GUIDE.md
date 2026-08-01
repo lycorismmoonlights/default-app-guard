@@ -97,15 +97,17 @@ The default runtime files are:
 ```text
 %LOCALAPPDATA%\DefaultAppGuard\runtime\agent-status.json
 %LOCALAPPDATA%\DefaultAppGuard\runtime\guard-configuration.json
-%LOCALAPPDATA%\DefaultAppGuard\runtime\watchdog-status.json
 %LOCALAPPDATA%\DefaultAppGuard\install-state.json
 ```
 
-`watchdog-status.json` is a local troubleshooting summary, not uploaded
-telemetry. After repeated startup failures, it records a bounded delay before
-the next recovery attempt so the computer is not caught in a rapid restart
-loop. Non-technical users should run Setup again for repair if diagnostics
-report `watchdog-last-outcome-unhealthy` or `watchdog-telemetry-stale`.
+The watchdog recovery summary is stored under the fixed current-user product
+key `HKCU\Software\DefaultAppGuard\Watchdog`. It is local troubleshooting
+state, not uploaded telemetry, and standard uninstall removes it unless data
+is deliberately kept. After repeated startup failures, it records a bounded
+delay before the next recovery attempt so the computer is not caught in a
+rapid restart loop. Non-technical users should run Setup again for repair if
+diagnostics report `watchdog-last-outcome-unhealthy` or
+`watchdog-telemetry-stale`.
 
 The scheduled task is named `DefaultAppGuard Agent`.
 

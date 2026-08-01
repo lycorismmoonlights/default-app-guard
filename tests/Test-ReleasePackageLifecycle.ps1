@@ -566,14 +566,21 @@ try {
     $recoveredTask = Wait-WatchdogTaskReady `
         -TaskName $taskName `
         -Deadline ([DateTime]::UtcNow.AddSeconds(20))
-    $watchdogStatusPath = Join-Path $dataPath `
-        "runtime\watchdog-status.json"
-    Assert-True (Test-Path -LiteralPath $watchdogStatusPath -PathType Leaf) `
+    $watchdogRegistrySubKeyPath = "Software\DefaultAppGuard\Watchdog"
+    $watchdogKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
+        $watchdogRegistrySubKeyPath)
+    Assert-True ($null -ne $watchdogKey) `
         "The watchdog did not persist recovery telemetry."
-    $watchdogStatusText = Get-Content `
-        -LiteralPath $watchdogStatusPath `
-        -Raw `
-        -Encoding UTF8
+    try {
+        $watchdogStatusText = [string]$watchdogKey.GetValue(
+            "StatusJson",
+            $null,
+            [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+    } finally {
+        $watchdogKey.Dispose()
+    }
+    Assert-True (-not [string]::IsNullOrWhiteSpace($watchdogStatusText)) `
+        "The watchdog recovery telemetry value is missing."
     $watchdogStatus = $watchdogStatusText | ConvertFrom-Json
     Assert-True ([int]$watchdogStatus.schemaVersion -eq 1) `
         "The watchdog telemetry schema is unexpected."
@@ -605,12 +612,6 @@ try {
         $dataPath,
         [StringComparison]::OrdinalIgnoreCase) -lt 0) `
         "The watchdog telemetry exposed the data path."
-    Assert-True (@(Get-ChildItem `
-        -LiteralPath (Split-Path -Parent $watchdogStatusPath) `
-        -Filter "watchdog-status.json.*.tmp" `
-        -File `
-        -ErrorAction SilentlyContinue).Count -eq 0) `
-        "The watchdog left a temporary telemetry file behind."
     $watchdogResult = [pscustomobject]@{
         TaskConfigurationVerified = $taskConfigurationVerified
         TaskState = [string]$recoveredTask.State
@@ -715,6 +716,15 @@ try {
     }
     Assert-True $uninstallRegistrationRemoved `
         "The standard uninstall registry entry remained after uninstall."
+    $remainingWatchdogKey =
+        [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
+            "Software\DefaultAppGuard\Watchdog")
+    $watchdogTelemetryRemoved = $null -eq $remainingWatchdogKey
+    if ($null -ne $remainingWatchdogKey) {
+        $remainingWatchdogKey.Dispose()
+    }
+    Assert-True $watchdogTelemetryRemoved `
+        "The watchdog telemetry registry key remained after uninstall."
     Assert-True ((Get-OptionalFileHash -Path $shortcutPath) -eq
         $shortcutHashBefore) `
         "The isolated package lifecycle changed the user's shortcut."
@@ -794,6 +804,7 @@ try {
             registrationRemoved = $uninstallRegistrationRemoved
             taskRemoved = $true
             processRemoved = $true
+            watchdogTelemetryRemoved = $watchdogTelemetryRemoved
             directoriesRemoved = $true
             shortcutUnchanged = $true
             transactionResidueCount = $transactionResidue.Count

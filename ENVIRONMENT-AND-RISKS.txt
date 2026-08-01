@@ -159,7 +159,7 @@ DefaultAppGuard Community
   若仍失败，请提交诊断 JSON。不要删除未知任务或手工修改注册表。
 - Agent 被关闭后，恢复最长可能等待到下一次看门狗周期；默认间隔为 5 分钟。
   这不是瞬时故障转移。发布门禁使用 1 分钟间隔进行真实终止和自动恢复测试。
-- 从 0.1.8 起，看门狗会在 runtime\watchdog-status.json 写入受约束的本地恢复摘要。
+- 从 0.1.8 起，看门狗会在当前用户的固定产品注册键中写入受约束的本地恢复摘要。
   它只记录时间、结果、进程号、失败阶段和退避计数，不记录个人路径、异常正文或
   文件内容，也不会上传。连续恢复失败会按 5、10、20、40、60 分钟逐步退避，
   以防损坏安装或端口冲突造成反复启动；退避期间 Agent 可能暂时不可用。普通用户
@@ -398,7 +398,7 @@ or ask a trusted person with Windows security experience to inspect it.
   which is five minutes by default. This is not instantaneous failover. The
   release gate uses a one-minute interval for a real terminate-and-recover test.
 - Starting with 0.1.8, the watchdog writes a constrained local recovery summary
-  to runtime\watchdog-status.json. It records times, outcomes, process IDs,
+  to the product's fixed current-user registry key. It records times, outcomes, process IDs,
   failure stages, and backoff counters only; it does not record personal paths,
   exception text, or file contents, and it is never uploaded. Consecutive
   recovery failures back off for 5, 10, 20, 40, then 60 minutes to prevent a

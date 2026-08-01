@@ -147,9 +147,11 @@ test("graphical setup verifies before its process-only script policy", async () 
   assert.ok(watchdog.includes("Process.GetProcessById(processId)"));
   assert.ok(watchdog.includes("ShouldDeferRecovery"));
   assert.ok(watchdog.includes("StopFailedLaunch"));
-  assert.ok(telemetry.includes('"watchdog-status.json"'));
-  assert.ok(telemetry.includes("FileOptions.WriteThrough"));
-  assert.ok(telemetry.includes("File.Move(temporaryPath, path, overwrite: true)"));
+  assert.ok(telemetry.includes('@"Software\\DefaultAppGuard\\Watchdog"'));
+  assert.ok(telemetry.includes('RegistryValueName = "StatusJson"'));
+  assert.ok(telemetry.includes("Registry.CurrentUser.CreateSubKey"));
+  assert.ok(telemetry.includes("RegistryValueKind.String"));
+  assert.equal(telemetry.includes("File.Move"), false);
   assert.ok(lifecycle.includes('TelemetryOutcome = [string]$watchdogStatus.outcome'));
 });
 
@@ -252,6 +254,7 @@ test("diagnostics are packaged, redacted, and inspect the primary algorithm", as
   assert.ok(diagnostics.includes('"watchdog-telemetry-missing"'));
   assert.ok(diagnostics.includes('"watchdog-last-outcome-unhealthy"'));
   assert.ok(diagnostics.includes("watchdogTelemetry = [ordered]@{"));
+  assert.ok(diagnostics.includes('storage = "HKCU\\Software\\DefaultAppGuard'));
   assert.ok(diagnostics.includes("watchdogProcessMatches"));
   assert.equal(
     diagnostics.includes('"expected-ignore-new-while-running"'),
@@ -281,6 +284,8 @@ test("uninstaller verifies ownership before removing task or directories", async
   assert.ok(uninstaller.includes("$null -ne $installState"));
   assert.ok(uninstaller.includes("DefaultAppGuard.Setup.exe"));
   assert.ok(uninstaller.includes('"--watchdog $expectedAgentArguments"'));
+  assert.ok(uninstaller.includes('"Software\\DefaultAppGuard\\Watchdog"'));
+  assert.ok(uninstaller.includes("WatchdogTelemetryRemoved"));
   assert.ok(ownershipIndex >= 0);
   assert.ok(unregisterIndex > ownershipIndex);
   assert.ok(removeInstallIndex > unregisterIndex);

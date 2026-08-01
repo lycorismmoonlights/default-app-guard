@@ -67,14 +67,12 @@ internal static class WatchdogRunner
     internal static int Run(WatchdogOptions options)
     {
         var invokedAtUtc = DateTimeOffset.UtcNow;
-        var telemetryPath = WatchdogTelemetry.GetPath(options.StatePath);
-        var previousStatus = WatchdogTelemetry.TryRead(telemetryPath);
+        var previousStatus = WatchdogTelemetry.TryRead();
 
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000) ||
             !Environment.Is64BitOperatingSystem)
         {
             WriteStatus(
-                telemetryPath,
                 invokedAtUtc,
                 WatchdogTelemetry.UnsupportedOutcome,
                 exitCode: 4,
@@ -101,7 +99,6 @@ internal static class WatchdogRunner
             if (!packageCheck.Passed)
             {
                 WriteStatus(
-                    telemetryPath,
                     invokedAtUtc,
                     WatchdogTelemetry.IntegrityFailedOutcome,
                     exitCode: 20,
@@ -120,7 +117,6 @@ internal static class WatchdogRunner
             if (initialHealth.Healthy)
             {
                 WriteStatus(
-                    telemetryPath,
                     invokedAtUtc,
                     WatchdogTelemetry.HealthyOutcome,
                     exitCode: 0,
@@ -134,7 +130,6 @@ internal static class WatchdogRunner
             if (WatchdogTelemetry.ShouldDeferRecovery(previousStatus, now))
             {
                 WriteStatus(
-                    telemetryPath,
                     invokedAtUtc,
                     WatchdogTelemetry.DeferredOutcome,
                     exitCode: 0,
@@ -169,7 +164,6 @@ internal static class WatchdogRunner
             if (process is null)
             {
                 WriteRecoveryFailure(
-                    telemetryPath,
                     invokedAtUtc,
                     previousStatus,
                     exitCode: 23,
@@ -187,7 +181,6 @@ internal static class WatchdogRunner
             if (recoveredHealth.Healthy)
             {
                 WriteStatus(
-                    telemetryPath,
                     invokedAtUtc,
                     WatchdogTelemetry.RecoveredOutcome,
                     exitCode: 0,
@@ -200,7 +193,6 @@ internal static class WatchdogRunner
 
             StopFailedLaunch(process, agentPath);
             WriteRecoveryFailure(
-                telemetryPath,
                 invokedAtUtc,
                 previousStatus,
                 exitCode: 24,
@@ -219,7 +211,6 @@ internal static class WatchdogRunner
             if (recoveryAttempted)
             {
                 WriteRecoveryFailure(
-                    telemetryPath,
                     invokedAtUtc,
                     previousStatus,
                     exitCode: 25,
@@ -229,7 +220,6 @@ internal static class WatchdogRunner
             else
             {
                 WriteStatus(
-                    telemetryPath,
                     invokedAtUtc,
                     WatchdogTelemetry.FailedOutcome,
                     exitCode: 25,
@@ -425,7 +415,6 @@ internal static class WatchdogRunner
     }
 
     private static void WriteRecoveryFailure(
-        string telemetryPath,
         DateTimeOffset invokedAtUtc,
         WatchdogStatus? previousStatus,
         int exitCode,
@@ -437,7 +426,6 @@ internal static class WatchdogRunner
             previousStatus,
             completedAtUtc);
         WriteStatus(
-            telemetryPath,
             invokedAtUtc,
             WatchdogTelemetry.FailedOutcome,
             exitCode,
@@ -451,7 +439,6 @@ internal static class WatchdogRunner
     }
 
     private static void WriteStatus(
-        string telemetryPath,
         DateTimeOffset invokedAtUtc,
         string outcome,
         int exitCode,
@@ -466,7 +453,6 @@ internal static class WatchdogRunner
         DateTimeOffset? completedAtUtc = null)
     {
         WatchdogTelemetry.TryWrite(
-            telemetryPath,
             new WatchdogStatus(
                 WatchdogTelemetry.SchemaVersion,
                 outcome,

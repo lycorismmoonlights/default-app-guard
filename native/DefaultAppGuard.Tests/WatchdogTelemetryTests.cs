@@ -83,12 +83,8 @@ public sealed class WatchdogTelemetryTests
     }
 
     [Fact]
-    public void TryWriteAndRead_RoundTripsRedactedStatusAtomically()
+    public void SerializeAndDeserialize_RoundTripsRedactedStatus()
     {
-        var root = Path.Combine(
-            Path.GetTempPath(),
-            $"DefaultAppGuard-Watchdog-{Guid.NewGuid():N}");
-        var path = Path.Combine(root, "watchdog-status.json");
         var now = DateTimeOffset.Parse("2026-08-01T03:00:00Z");
         var status = new WatchdogStatus(
             WatchdogTelemetry.SchemaVersion,
@@ -105,35 +101,20 @@ public sealed class WatchdogTelemetryTests
             null,
             null);
 
-        try
-        {
-            Assert.True(WatchdogTelemetry.TryWrite(path, status));
-            Assert.Equal(status, WatchdogTelemetry.TryRead(path));
+        var content = WatchdogTelemetry.Serialize(status);
 
-            var content = File.ReadAllText(path);
-            Assert.DoesNotContain(root, content, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("exception", content, StringComparison.OrdinalIgnoreCase);
-            Assert.Empty(Directory.GetFiles(root, "*.tmp"));
-        }
-        finally
-        {
-            Directory.Delete(root, recursive: true);
-        }
+        Assert.Equal(status, WatchdogTelemetry.TryDeserialize(content));
+        Assert.DoesNotContain("exception", content, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(
+            @"Software\DefaultAppGuard\Watchdog",
+            WatchdogTelemetry.RegistrySubKeyPath);
+        Assert.Equal("StatusJson", WatchdogTelemetry.RegistryValueName);
     }
 
     [Fact]
-    public void TryRead_ReturnsNullForMalformedStatus()
+    public void TryDeserialize_ReturnsNullForMalformedStatus()
     {
-        var path = Path.GetTempFileName();
-        try
-        {
-            File.WriteAllText(path, "{not-json");
-            Assert.Null(WatchdogTelemetry.TryRead(path));
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        Assert.Null(WatchdogTelemetry.TryDeserialize("{not-json"));
     }
 
     private static WatchdogStatus CreateStatus(

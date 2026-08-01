@@ -251,7 +251,9 @@ if ($null -ne $installState -and
     }
 }
 $runtimePath = Join-Path $dataPath "runtime"
-$watchdogStatusPath = Join-Path $runtimePath "watchdog-status.json"
+$watchdogRegistrySubKeyPath = "Software\DefaultAppGuard\Watchdog"
+$watchdogRegistryValueName = "StatusJson"
+$watchdogTelemetryPresent = $false
 $watchdogStatus = $null
 $watchdogStatusReadable = $false
 $watchdogSchemaValid = $false
@@ -265,13 +267,20 @@ $watchdogActiveProcessId = $null
 $watchdogConsecutiveFailures = $null
 $watchdogNextRecoveryAllowedAtUtc = $null
 $watchdogFailureStage = $null
-if (Test-Path -LiteralPath $watchdogStatusPath -PathType Leaf) {
+$watchdogKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
+    $watchdogRegistrySubKeyPath)
+if ($null -ne $watchdogKey) {
     try {
-        $watchdogStatus = Get-Content `
-            -LiteralPath $watchdogStatusPath `
-            -Raw `
-            -Encoding UTF8 |
-            ConvertFrom-Json
+        $watchdogStatusJson = $watchdogKey.GetValue(
+            $watchdogRegistryValueName,
+            $null,
+            [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        if ($watchdogStatusJson -isnot [string] -or
+            [string]::IsNullOrWhiteSpace($watchdogStatusJson)) {
+            throw "Watchdog telemetry registry value is missing or invalid."
+        }
+        $watchdogTelemetryPresent = $true
+        $watchdogStatus = $watchdogStatusJson | ConvertFrom-Json
         $watchdogStatusReadable = $true
         $watchdogSchemaValid = [int]$watchdogStatus.schemaVersion -eq 1
         $watchdogOutcome = [string]$watchdogStatus.outcome
@@ -308,6 +317,8 @@ if (Test-Path -LiteralPath $watchdogStatusPath -PathType Leaf) {
         }
     } catch {
         $issues.Add("watchdog-telemetry-unreadable")
+    } finally {
+        $watchdogKey.Dispose()
     }
 } else {
     $issues.Add("watchdog-telemetry-missing")
@@ -713,7 +724,8 @@ $report = [ordered]@{
         triggers = $triggerSummaries
     }
     watchdogTelemetry = [ordered]@{
-        present = Test-Path -LiteralPath $watchdogStatusPath -PathType Leaf
+        storage = "HKCU\Software\DefaultAppGuard\Watchdog\StatusJson"
+        present = $watchdogTelemetryPresent
         readable = $watchdogStatusReadable
         schemaValid = $watchdogSchemaValid
         outcome = $watchdogOutcome

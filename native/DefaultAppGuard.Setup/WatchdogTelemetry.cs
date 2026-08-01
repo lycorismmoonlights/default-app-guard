@@ -1,3 +1,6 @@
+using Microsoft.Win32;
+using System.Security;
+using System.Text;
 using System.Text.Json;
 
 namespace DefaultAppGuard.Setup;
@@ -26,6 +29,9 @@ internal static class WatchdogTelemetry
     internal const string FailedOutcome = "failed";
     internal const string IntegrityFailedOutcome = "package-integrity-failed";
     internal const string UnsupportedOutcome = "unsupported-platform";
+    internal const string RegistrySubKeyPath =
+        @"Software\DefaultAppGuard\Watchdog";
+    internal const string RegistryValueName = "StatusJson";
 
     private static readonly TimeSpan[] RecoveryBackoffs =
     [
@@ -36,30 +42,33 @@ internal static class WatchdogTelemetry
         TimeSpan.FromMinutes(60),
     ];
 
-    internal static string GetPath(string statePath)
-    {
-        var directory = Path.GetDirectoryName(statePath)
-            ?? throw new ArgumentException(
-                "The watchdog state path has no directory.",
-                nameof(statePath));
-        return Path.Combine(directory, "watchdog-status.json");
-    }
-
-    internal static WatchdogStatus? TryRead(string path)
+    internal static WatchdogStatus? TryRead()
     {
         try
         {
-            if (!File.Exists(path))
-            {
-                return null;
-            }
+            using var key = Registry.CurrentUser.OpenSubKey(RegistrySubKeyPath);
+            return key?.GetValue(
+                    RegistryValueName,
+                    null,
+                    RegistryValueOptions.DoNotExpandEnvironmentNames) is string json
+                ? TryDeserialize(json)
+                : null;
+        }
+        catch (Exception exception) when (
+            exception is IOException or
+            UnauthorizedAccessException or
+            SecurityException or
+            ObjectDisposedException)
+        {
+            return null;
+        }
+    }
 
-            using var stream = new FileStream(
-                path,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.ReadWrite | FileShare.Delete);
-            using var document = JsonDocument.Parse(stream);
+    internal static WatchdogStatus? TryDeserialize(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
 
             if (!TryGetInt32(root, "schemaVersion", out var schemaVersion) ||
@@ -94,10 +103,7 @@ internal static class WatchdogTelemetry
                 GetNullableString(root, "failureStage"));
         }
         catch (Exception exception) when (
-            exception is IOException or
-            UnauthorizedAccessException or
-            JsonException or
-            InvalidOperationException)
+            exception is JsonException or InvalidOperationException)
         {
             return null;
         }
@@ -144,93 +150,85 @@ internal static class WatchdogTelemetry
         return (failureCount, now + RecoveryBackoffs[backoffIndex]);
     }
 
-    internal static bool TryWrite(string path, WatchdogStatus status)
+    internal static bool TryWrite(WatchdogStatus status)
     {
-        var temporaryPath = $"{path}.{Guid.NewGuid():N}.tmp";
         try
         {
-            var directory = Path.GetDirectoryName(path)
-                ?? throw new InvalidOperationException(
-                    "The watchdog telemetry path has no directory.");
-            Directory.CreateDirectory(directory);
-
-            using (var stream = new FileStream(
-                       temporaryPath,
-                       FileMode.CreateNew,
-                       FileAccess.Write,
-                       FileShare.None,
-                       16 * 1024,
-                       FileOptions.WriteThrough))
-            using (var writer = new Utf8JsonWriter(
-                       stream,
-                       new JsonWriterOptions { Indented = true }))
+            using var key = Registry.CurrentUser.CreateSubKey(
+                RegistrySubKeyPath,
+                writable: true);
+            if (key is null)
             {
-                writer.WriteStartObject();
-                writer.WriteNumber("schemaVersion", status.SchemaVersion);
-                writer.WriteString("outcome", status.Outcome);
-                writer.WriteString("invokedAtUtc", status.InvokedAtUtc);
-                writer.WriteString("completedAtUtc", status.CompletedAtUtc);
-                writer.WriteNumber("exitCode", status.ExitCode);
-                writer.WriteBoolean(
-                    "packageIntegrityPassed",
-                    status.PackageIntegrityPassed);
-                writer.WriteBoolean(
-                    "initialHealthPassed",
-                    status.InitialHealthPassed);
-                writer.WriteBoolean("recoveryAttempted", status.RecoveryAttempted);
-                WriteNullableNumber(
-                    writer,
-                    "previousProcessId",
-                    status.PreviousProcessId);
-                WriteNullableNumber(writer, "activeProcessId", status.ActiveProcessId);
-                writer.WriteNumber(
-                    "consecutiveRecoveryFailures",
-                    status.ConsecutiveRecoveryFailures);
-                if (status.NextRecoveryAllowedAtUtc is { } nextAllowed)
-                {
-                    writer.WriteString("nextRecoveryAllowedAtUtc", nextAllowed);
-                }
-                else
-                {
-                    writer.WriteNull("nextRecoveryAllowedAtUtc");
-                }
-
-                if (status.FailureStage is { } failureStage)
-                {
-                    writer.WriteString("failureStage", failureStage);
-                }
-                else
-                {
-                    writer.WriteNull("failureStage");
-                }
-
-                writer.WriteEndObject();
-                writer.Flush();
-                stream.Flush(flushToDisk: true);
+                return false;
             }
 
-            File.Move(temporaryPath, path, overwrite: true);
+            key.SetValue(
+                RegistryValueName,
+                Serialize(status),
+                RegistryValueKind.String);
+            key.Flush();
             return true;
         }
         catch (Exception exception) when (
             exception is IOException or
             UnauthorizedAccessException or
-            InvalidOperationException)
+            SecurityException or
+            ObjectDisposedException)
         {
             return false;
         }
-        finally
+    }
+
+    internal static string Serialize(WatchdogStatus status)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(
+                   stream,
+                   new JsonWriterOptions { Indented = true }))
         {
-            try
+            writer.WriteStartObject();
+            writer.WriteNumber("schemaVersion", status.SchemaVersion);
+            writer.WriteString("outcome", status.Outcome);
+            writer.WriteString("invokedAtUtc", status.InvokedAtUtc);
+            writer.WriteString("completedAtUtc", status.CompletedAtUtc);
+            writer.WriteNumber("exitCode", status.ExitCode);
+            writer.WriteBoolean(
+                "packageIntegrityPassed",
+                status.PackageIntegrityPassed);
+            writer.WriteBoolean(
+                "initialHealthPassed",
+                status.InitialHealthPassed);
+            writer.WriteBoolean("recoveryAttempted", status.RecoveryAttempted);
+            WriteNullableNumber(
+                writer,
+                "previousProcessId",
+                status.PreviousProcessId);
+            WriteNullableNumber(writer, "activeProcessId", status.ActiveProcessId);
+            writer.WriteNumber(
+                "consecutiveRecoveryFailures",
+                status.ConsecutiveRecoveryFailures);
+            if (status.NextRecoveryAllowedAtUtc is { } nextAllowed)
             {
-                File.Delete(temporaryPath);
+                writer.WriteString("nextRecoveryAllowedAtUtc", nextAllowed);
             }
-            catch (Exception exception) when (
-                exception is IOException or UnauthorizedAccessException)
+            else
             {
-                // A later invocation can replace the canonical telemetry file.
+                writer.WriteNull("nextRecoveryAllowedAtUtc");
             }
+
+            if (status.FailureStage is { } failureStage)
+            {
+                writer.WriteString("failureStage", failureStage);
+            }
+            else
+            {
+                writer.WriteNull("failureStage");
+            }
+
+            writer.WriteEndObject();
         }
+
+        return Encoding.UTF8.GetString(stream.ToArray());
     }
 
     private static bool TryGetInt32(

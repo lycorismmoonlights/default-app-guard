@@ -397,6 +397,7 @@ if (-not [bool]$lifecycleEvidence.passed -or
     -not [bool]$lifecycleEvidence.diagnostics.watchdogTelemetryHealthy -or
     -not [bool]$lifecycleEvidence.diagnostics.watchdogTelemetryMatchesTaskRun -or
     -not [bool]$lifecycleEvidence.diagnostics.watchdogProcessMatches -or
+    -not [bool]$lifecycleEvidence.uninstall.watchdogTelemetryRemoved -or
     -not [bool]$lifecycleEvidence.uninstall.registrationRemoved) {
     throw "The exact release package lacks primary-algorithm lifecycle evidence."
 }
@@ -599,6 +600,8 @@ $evidenceFile = Join-Path $releaseRoot "release-gate.json"
         uninstallClean = [bool]$lifecycleEvidence.uninstall.passed
         uninstallRegistrationRemoved =
             [bool]$lifecycleEvidence.uninstall.registrationRemoved
+        watchdogTelemetryRemoved =
+            [bool]$lifecycleEvidence.uninstall.watchdogTelemetryRemoved
         passed = [bool]$lifecycleEvidence.passed
     }
     sbom = [ordered]@{

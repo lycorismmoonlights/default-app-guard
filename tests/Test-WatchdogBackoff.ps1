@@ -67,6 +67,23 @@ function Invoke-Watchdog {
     return $process.ExitCode
 }
 
+function Get-WatchdogStatusText {
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
+        "Software\DefaultAppGuard\Watchdog")
+    if ($null -eq $key) {
+        return $null
+    }
+
+    try {
+        return [string]$key.GetValue(
+            "StatusJson",
+            $null,
+            [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+    } finally {
+        $key.Dispose()
+    }
+}
+
 $packagePath = Get-NormalizedPath $PackageDirectory
 $workPath = [IO.Path]::GetFullPath($WorkRoot)
 $evidenceFile = [IO.Path]::GetFullPath($EvidencePath)
@@ -93,7 +110,9 @@ try {
     New-Item -ItemType Directory -Path $runtimePath | Out-Null
     $statePath = Join-Path $runtimePath "agent-status.json"
     $configurationPath = Join-Path $runtimePath "guard-configuration.json"
-    $watchdogStatusPath = Join-Path $runtimePath "watchdog-status.json"
+    [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree(
+        "Software\DefaultAppGuard\Watchdog",
+        $false)
 
     $listener.Start()
     $port = ([Net.IPEndPoint]$listener.LocalEndpoint).Port
@@ -107,14 +126,9 @@ try {
         -ConfigurationPath $configurationPath
     Assert-True ($firstExitCode -eq 24) `
         "The watchdog did not report the forced health-check failure."
-    Assert-True (Test-Path `
-        -LiteralPath $watchdogStatusPath `
-        -PathType Leaf) `
+    $firstStatusText = Get-WatchdogStatusText
+    Assert-True (-not [string]::IsNullOrWhiteSpace($firstStatusText)) `
         "The failed recovery did not create watchdog telemetry."
-    $firstStatusText = Get-Content `
-        -LiteralPath $watchdogStatusPath `
-        -Raw `
-        -Encoding UTF8
     $firstStatus = $firstStatusText | ConvertFrom-Json
     Assert-True ([string]$firstStatus.outcome -eq "failed") `
         "The watchdog did not record a failed outcome."
@@ -150,10 +164,9 @@ try {
         -ConfigurationPath $configurationPath
     Assert-True ($secondExitCode -eq 0) `
         "The intentional watchdog backoff returned an error."
-    $secondStatusText = Get-Content `
-        -LiteralPath $watchdogStatusPath `
-        -Raw `
-        -Encoding UTF8
+    $secondStatusText = Get-WatchdogStatusText
+    Assert-True (-not [string]::IsNullOrWhiteSpace($secondStatusText)) `
+        "The deferred recovery did not update watchdog telemetry."
     $secondStatus = $secondStatusText | ConvertFrom-Json
     Assert-True ([string]$secondStatus.outcome -eq "recovery-deferred") `
         "The immediate retry did not enter recovery backoff."
@@ -221,6 +234,9 @@ try {
 }
 finally {
     $listener.Stop()
+    [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree(
+        "Software\DefaultAppGuard\Watchdog",
+        $false)
     foreach ($process in @(Get-PackageAgentProcesses `
         -ExecutablePath $agentPath)) {
         Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
