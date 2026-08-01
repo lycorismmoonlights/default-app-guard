@@ -337,6 +337,7 @@ test("diagnostics are packaged, redacted, and inspect the primary algorithm", as
   assert.ok(diagnostics.includes("operational-log-retention-exceeded"));
   assert.ok(diagnostics.includes("operational-log-roll-threshold-exceeded"));
   assert.ok(diagnostics.includes("overshootAllowanceBytes"));
+  assert.ok(diagnostics.includes("$operationalLogFile.Refresh()"));
   assert.equal(
     diagnostics.includes('"expected-ignore-new-while-running"'),
     false,

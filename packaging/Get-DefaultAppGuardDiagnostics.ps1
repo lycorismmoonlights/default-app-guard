@@ -701,6 +701,7 @@ try {
                 -File)
         $operationalLogFileCount = $operationalLogFiles.Count
         foreach ($operationalLogFile in $operationalLogFiles) {
+            $operationalLogFile.Refresh()
             $length = [int64]$operationalLogFile.Length
             $operationalLogTotalBytes += $length
             if ($length -gt $operationalLogLargestFileBytes) {
