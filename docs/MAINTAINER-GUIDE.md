@@ -10,7 +10,7 @@ Run all of the following on Windows:
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.14 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.15 `
   -PackageManagerPath pnpm
 ```
 
@@ -26,14 +26,17 @@ and promote those exact bytes on the dedicated validation computer:
 ```powershell
 .\packaging\Promote-ReleaseCandidate.ps1 `
   -CandidateDirectory F:\path\to\release-candidate `
-  -Version 0.1.14 `
+  -Version 0.1.15 `
   -ExpectedCommit <full-main-commit-sha>
 ```
 
 The promotion script requires GitHub CLI authentication and verifies hosted
 GitHub attestations for the archive, SBOM, and build evidence. It rejects a
 candidate from another commit, ref, repository, workflow, toolchain, or
-self-hosted builder. The validation machine must have no running
+self-hosted builder. It also requires candidate evidence schema 2 to record the
+explicit `windows-2025` request, an actual `win25` image family, a non-empty
+image version, Windows Server 2025 build 26100, and x64. The validation machine
+must have no running
 `DefaultAppGuard.Agent.exe`; restore any production installation only after the
 isolated lifecycle has completed and cleaned up.
 
@@ -42,7 +45,7 @@ report `codeSigning.status` as `unsigned`. Any release described as signed must
 run:
 
 ```powershell
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.14 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.15 `
   -PackageManagerPath pnpm `
   -SigningCertificateThumbprint $env:DAG_SIGNING_CERTIFICATE_THUMBPRINT `
   -TimestampServer $env:DAG_TIMESTAMP_SERVER `
@@ -79,6 +82,15 @@ The required signals are:
 - `/api/health` reports a writable `Serilog.Sinks.File` channel using CLEF,
   a 2 MiB file limit, and seven-file retention. Operational logs are
   observability only and must never substitute for primary evidence.
+
+Hosted CI runs the portable suite separately on `windows-2022` and
+`windows-2025`. The retained JSON artifacts expose the actual weekly image
+revision used by each job. These Server jobs validate build and packaging
+compatibility only. Server 2022 is intentionally not a supported installation
+platform: its job requires Setup to return unsupported-platform exit code 4,
+while Server 2025 requires exact-package verification exit code 0. Do not count
+either result as any of the real COM or
+`RegNotifyChangeKeyValue` signals above.
 
 ## Installation Test
 

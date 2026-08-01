@@ -1,7 +1,7 @@
 DefaultAppGuard Community
 环境配置要求与风险提示 / Environment Requirements and Risk Notice
 
-适用版本 / Applies to version: 0.1.14
+适用版本 / Applies to version: 0.1.15
 更新日期 / Updated: 2026-08-01
 
 ============================================================
@@ -60,7 +60,7 @@ DefaultAppGuard Community
 
 3.1 本版本的签名状态
 
-- 适用本提示文本的 0.1.14 版本是“未签名 alpha 版本”。
+- 适用本提示文本的 0.1.15 版本是“未签名 alpha 版本”。
 - DefaultAppGuard.Agent.exe、DefaultAppGuard.Setup.exe、Install-DefaultAppGuard.ps1、
   Uninstall-DefaultAppGuard.ps1、Get-DefaultAppGuardDiagnostics.ps1 和
   DefaultAppGuard.Package.psm1 均没有受 Windows 信任的发布者签名。
@@ -90,7 +90,7 @@ DefaultAppGuard Community
 3) 同时下载对应的 .sha256 文件，并核对 ZIP 的 SHA-256。可以在 ZIP
    所在文件夹打开 PowerShell，运行：
 
-   Get-FileHash .\DefaultAppGuard-0.1.14-win-x64.zip -Algorithm SHA256
+   Get-FileHash .\DefaultAppGuard-0.1.15-win-x64.zip -Algorithm SHA256
 
    输出的 64 位哈希必须与 .sha256 文件完全一致。任何一位不同都不要运行。
 4) 完整解压 ZIP 后再安装，不要从压缩包预览窗口直接运行脚本。
@@ -194,7 +194,7 @@ DefaultAppGuard Community
   文件内容，也不会上传。连续恢复失败会按 5、10、20、40、60 分钟逐步退避，
   以防损坏安装或端口冲突造成反复启动；退避期间 Agent 可能暂时不可用。普通用户
   应重新运行 Setup 进行修复，并提交诊断 JSON，而不是反复手动启动程序。
-- 0.1.14 将当前设置保存在
+- 0.1.15 将当前设置保存在
   %LOCALAPPDATA%\DefaultAppGuard\runtime\guard-configuration.json，并在同一
   目录保留 guard-configuration.json.bak 作为“上一份已知可用副本”。保存时先在
   同一目录写入临时文件、要求系统把数据刷新到存储，再使用 Windows 文件替换机制
@@ -210,7 +210,7 @@ DefaultAppGuard Community
   `configuration-defaults-restored`，但不会包含配置文件原文。若诊断同时有 issue
   code、Agent 无法启动或 34 项主 COM 审计不完整，则不能因为看见恢复提示就认为
   程序健康。
-- 0.1.14 的应用界面会把最近一次有效恢复显示为不会自动消失的页面提示。“保护设置
+- 0.1.15 的应用界面会把最近一次有效恢复显示为不会自动消失的页面提示。“保护设置
   已从备份恢复”表示上一份有效选择已经恢复；“保护设置已恢复为安全默认值”表示两份
   配置均不可用，程序已保护全部 34 种格式并开启通知，但原来的自定义选择可能丢失。
   普通用户应选择“检查保护范围”，核对需要监控的格式，再按正常流程保存。
@@ -331,7 +331,7 @@ English
 
 3.1 Signing status of this version
 
-- Version 0.1.14 covered by this notice is an unsigned alpha release.
+- Version 0.1.15 covered by this notice is an unsigned alpha release.
 - DefaultAppGuard.Agent.exe, DefaultAppGuard.Setup.exe, Install-DefaultAppGuard.ps1,
   Uninstall-DefaultAppGuard.ps1, Get-DefaultAppGuardDiagnostics.ps1, and
   DefaultAppGuard.Package.psm1 do not have a publisher signature trusted by
@@ -368,7 +368,7 @@ Consider installing this unsigned alpha only when every item below is true:
 3) Download the matching .sha256 file and verify the ZIP. Open PowerShell in
    the folder containing the ZIP and run:
 
-   Get-FileHash .\DefaultAppGuard-0.1.14-win-x64.zip -Algorithm SHA256
+   Get-FileHash .\DefaultAppGuard-0.1.15-win-x64.zip -Algorithm SHA256
 
    The 64-character hash must match the .sha256 file exactly. Do not run the
    package when even one character is different.
@@ -517,7 +517,7 @@ or ask a trusted person with Windows security experience to inspect it.
   damaged install or port conflict from causing a restart storm. The Agent may
   remain unavailable during backoff. Non-technical users should rerun Setup for
   repair and submit the diagnostics JSON instead of repeatedly launching files.
-- Version 0.1.14 stores current settings in
+- Version 0.1.15 stores current settings in
   %LOCALAPPDATA%\DefaultAppGuard\runtime\guard-configuration.json and keeps
   guard-configuration.json.bak beside it as the previous last-known-good copy.
   A save first writes a temporary file in the same directory, requests a flush
@@ -538,7 +538,7 @@ or ask a trusted person with Windows security experience to inspect it.
   `configuration-defaults-restored` without including raw configuration
   contents. An issue code, a failed Agent start, or incomplete 34-format primary
   COM evidence still means the installation is not healthy.
-- In version 0.1.14, the application shows the latest valid recovery as a
+- In version 0.1.15, the application shows the latest valid recovery as a
   persistent page notice. "Protection settings restored from backup" means the
   previous valid selection was recovered. "Protection settings restored to safe
   defaults" means neither configuration copy was usable; all 34 formats and
@@ -613,15 +613,15 @@ license text, and this notice file.
 
 中文：
 
-- 0.1.14 保留基于真实审计时间的就绪新鲜度判定。默认 15 分钟周期复检对应
+- 0.1.15 保留基于真实审计时间的就绪新鲜度判定。默认 15 分钟周期复检对应
   18 分 45 秒最长证据年龄；看门狗必须同时通过存活检查和新鲜、完整的 34 项
   主 COM 证据检查。诊断 schema 6 会独立计算并报告该证据年龄和配置恢复状态。
-- 0.1.14 的精确包门禁会写坏已安装的主配置文件、终止 Agent，并要求正式计划任务
+- 0.1.15 的精确包门禁会写坏已安装的主配置文件、终止 Agent，并要求正式计划任务
   启动新进程、从已验证的 .bak 保留原设置、继续完成 34/34 主 COM 查询和第二次
   真实 RegNotifyChangeKeyValue 检查。`package-lifecycle.json` 必须记录
   `configurationPersistence.recoveryVerified: true`，并从恢复后的实包 Agent 下载
   前端资产，核验恢复代码、确认键和检查/关闭操作均已打包；否则禁止发布。
-- 0.1.14 的发布附件包含 SPDX 2.2 软件物料清单（SBOM）及其 SHA-256。
+- 0.1.15 的发布附件包含 SPDX 2.2 软件物料清单（SBOM）及其 SHA-256。
   SBOM 使用固定版本的 Microsoft SBOM Tool 生成，并在发布门禁中逐文件验证。
 - 发布门禁会先运行无控制台图形安装器的确切包验证，再安装即将发布的软件包，
   并验证就绪端点、未过期的 34 项主 COM 查询证据、真实注册表通知、
@@ -633,9 +633,21 @@ license text, and this notice file.
   门禁会失败，不允许使用悄然滚动的新工具链发布。
 - 这些证据用于提高构建可追溯性和发现发布过程错误，不代表软件在所有电脑上
   都不会出现兼容性问题，也不能代替 Windows Authenticode 发布者签名。
-- 对于 0.1.14 的未签名候选包，ZIP、SBOM 和 candidate-build.json 由 GitHub
-  托管的 Windows 构建任务生成并分别附加 GitHub artifact attestation（构建来源
-  证明）。发布维护者随后必须在配置了真实 Microsoft Media Player 默认关联的
+- 0.1.15 的普通 CI 会在明确指定的 `windows-2022` 和 `windows-2025` 两套
+  GitHub 托管 Windows Server 环境中分别运行完整便携测试，并为每套环境保存
+  JSON 证据，其中包括请求标签、实际镜像族、每周镜像版本、OS build 和 x64 架构。
+  这有助于发现构建工具或打包流程在不同服务器版本上的问题，但它不是对普通用户
+  Windows 11 桌面环境的测试，也不会查询用户电脑上的真实默认应用。两个 CI 任务
+  即使都显示绿色，也不能代替下文的 34/34 主 COM 查询和真实注册表通知门禁。
+  Windows Server 2022 低于本软件要求的 Windows 11 build，因此该任务必须确认
+  Setup 以“不支持平台”退出码 4 拒绝安装；这不表示本软件支持 Server 2022。
+  Server 2025 任务则必须让 Setup 的确切包验证以退出码 0 完成。
+- 对于 0.1.15 的未签名候选包，ZIP、SBOM 和 candidate-build.json 由明确指定
+  `windows-2025` 标签的 GitHub 托管任务生成。candidate-build.json schema 2 会记录
+  请求标签、实际 `win25` 镜像族、不可为空的镜像版本、Windows Server 2025
+  build 26100 和 x64 架构；本地主算法晋级门禁会逐项核对。ZIP、SBOM 和构建记录
+  还会分别附加 GitHub artifact attestation（构建来源证明）。发布维护者随后必须在
+  配置了真实 Microsoft Media Player 默认关联的
   Windows 电脑上，对完全相同的 ZIP 运行本地主算法晋级门禁；该门禁不会重新
   构建程序，并会再次检查来源提交、main 分支、文件哈希、安全解压、34 项主 COM
   查询、真实注册表通知、自动恢复、失败退避、回滚、诊断和卸载。
@@ -652,18 +664,18 @@ license text, and this notice file.
   Authenticode 代码签名。用户仍应只从官方 Releases 页面下载、核对 SHA-256、
   保持安全软件开启，并把本版本视为未签名 alpha。
 - 项目已经具备使用 Windows 证书存储或兼容 HSM 进行发布签名的构建入口；但是
-  本提示对应的 0.1.14 仍是未签名 alpha。只有当 GitHub 发布说明明确写明“已签名”、
+  本提示对应的 0.1.15 仍是未签名 alpha。只有当 GitHub 发布说明明确写明“已签名”、
   列出签名者，且 release-gate.json 显示所有受检文件签名有效并已加时间戳时，
   才能把某个未来版本视为已签名版本。
 
 English:
 
-- Version 0.1.14 retains readiness freshness based on the real audit timestamp.
+- Version 0.1.15 retains readiness freshness based on the real audit timestamp.
   The default 15-minute periodic audit gives evidence a maximum age of 18
   minutes 45 seconds. The watchdog requires both liveness and fresh, complete
   primary COM evidence for all 34 formats. Diagnostics schema 6 independently
   calculates and reports that evidence age and configuration recovery state.
-- The exact-package gate for 0.1.14 corrupts the installed primary
+- The exact-package gate for 0.1.15 corrupts the installed primary
   configuration, terminates the Agent, and requires the production scheduled
   task to start a new process, preserve settings from the validated `.bak`,
   complete 34/34 primary COM queries, and pass the second real
@@ -672,7 +684,7 @@ English:
   `configurationPersistence.recoveryVerified: true`, and it downloads the UI
   assets from the recovered packaged Agent to verify that the recovery codes,
   acknowledgement key, review action, and dismiss action were shipped.
-- Version 0.1.14 release assets include an SPDX 2.2 software bill of materials
+- Version 0.1.15 release assets include an SPDX 2.2 software bill of materials
   (SBOM) and its SHA-256. The pinned Microsoft SBOM Tool generates it, and the
   release gate validates every packaged file against it.
 - The release gate first runs the graphical no-console Setup verifier, then
@@ -691,9 +703,25 @@ English:
 - This evidence improves build traceability and catches release-process
   failures. It does not guarantee compatibility on every computer and does not
   replace a trusted Windows Authenticode publisher signature.
-- For the unsigned 0.1.14 candidate, a GitHub-hosted Windows build creates the
+- Version 0.1.15 portable CI runs independently on the explicit
+  `windows-2022` and `windows-2025` GitHub-hosted Windows Server labels. Each
+  job retains JSON evidence with the requested label, actual image family,
+  weekly image version, OS build, and x64 architecture. This detects build and
+  packaging incompatibilities across those Server environments. It does not
+  test a normal user's Windows 11 desktop default-app state. Two green CI jobs
+  never replace the 34/34 primary COM audit and real registry-notification gate
+  described below. Windows Server 2022 is below the required Windows 11 build,
+  so that job must prove Setup rejects installation with unsupported-platform
+  exit code 4; this does not mean Server 2022 is supported. The Server 2025 job
+  requires Setup exact-package verification to finish with exit code 0.
+- For the unsigned 0.1.15 candidate, a GitHub-hosted build explicitly requests
+  `windows-2025` and creates the
   ZIP, SBOM, and candidate-build.json and attaches a separate GitHub artifact
-  attestation to each. A maintainer must then run the local main-algorithm
+  attestation to each. Candidate-build.json schema 2 records the requested
+  label, actual `win25` image family, non-empty image version, Windows Server
+  2025 build 26100, and x64 architecture. The local promotion gate validates
+  each value and separately denies self-hosted build attestations. A maintainer
+  must then run the local main-algorithm
   promotion gate on a Windows computer whose real default associations target
   Microsoft Media Player. That gate does not rebuild the program. It rechecks
   the source commit, main ref, hashes, safe extraction, all 34 primary COM
@@ -716,7 +744,7 @@ English:
   SHA-256, keep security software enabled, and continue to treat this version
   as an unsigned alpha.
 - The build now supports release signing through the Windows certificate store
-  or a compatible HSM. However, version 0.1.14 covered by this notice remains an
+  or a compatible HSM. However, version 0.1.15 covered by this notice remains an
   unsigned alpha. Treat a future version as signed only when its GitHub release
   notes explicitly say so, name the signer, and release-gate.json reports valid,
   timestamped signatures for every checked file.

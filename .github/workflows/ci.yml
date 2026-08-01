@@ -11,9 +11,15 @@ permissions:
 
 jobs:
   portable-validation:
-    name: Portable validation
-    runs-on: windows-latest
+    name: Portable validation (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - windows-2022
+          - windows-2025
 
     steps:
       - name: Check out source
@@ -51,6 +57,21 @@ jobs:
           if ((pnpm --version) -ne [string]$metadata.engines.pnpm) {
             throw "The active pnpm version does not match package.json."
           }
+
+      - name: Verify and record hosted Windows runner
+        shell: pwsh
+        run: >
+          ./tests/Test-HostedWindowsRunner.ps1
+          -RequestedLabel "${{ matrix.runner }}"
+          -OutputPath "${{ runner.temp }}/runner-compatibility-${{ matrix.runner }}.json"
+
+      - name: Upload hosted Windows compatibility evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: runner-compatibility-${{ matrix.runner }}-${{ github.sha }}
+          path: ${{ runner.temp }}/runner-compatibility-${{ matrix.runner }}.json
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Restore pinned build tools
         run: |
@@ -119,14 +140,21 @@ jobs:
             -RedirectStandardError $setupStderr `
             -Wait `
             -PassThru
-          if ($verification.ExitCode -ne 0) {
+          $expectedSetupExitCode = if (
+            "${{ matrix.runner }}" -eq "windows-2022") {
+              4
+            } else {
+              0
+            }
+          if ($verification.ExitCode -ne $expectedSetupExitCode) {
             $details = @(
               Get-Content -LiteralPath $setupStdout -Raw -ErrorAction SilentlyContinue
               Get-Content -LiteralPath $setupStderr -Raw -ErrorAction SilentlyContinue
             ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
             throw (
               "Hosted Setup package verification failed with exit code " +
-              "$($verification.ExitCode).`n$($details -join "`n")")
+              "$($verification.ExitCode); expected $expectedSetupExitCode." +
+              "`n$($details -join "`n")")
           }
 
       - name: Parse PowerShell scripts
