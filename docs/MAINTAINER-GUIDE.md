@@ -10,7 +10,7 @@ Run all of the following on Windows:
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.13 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.14 `
   -PackageManagerPath pnpm
 ```
 
@@ -26,7 +26,7 @@ and promote those exact bytes on the dedicated validation computer:
 ```powershell
 .\packaging\Promote-ReleaseCandidate.ps1 `
   -CandidateDirectory F:\path\to\release-candidate `
-  -Version 0.1.13 `
+  -Version 0.1.14 `
   -ExpectedCommit <full-main-commit-sha>
 ```
 
@@ -42,7 +42,7 @@ report `codeSigning.status` as `unsigned`. Any release described as signed must
 run:
 
 ```powershell
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.13 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.14 `
   -PackageManagerPath pnpm `
   -SigningCertificateThumbprint $env:DAG_SIGNING_CERTIFICATE_THUMBPRINT `
   -TimestampServer $env:DAG_TIMESTAMP_SERVER `
@@ -138,7 +138,10 @@ Verify:
     `configuration-backup-restored` notice; all 34 settings and the subsequent
     real `RegNotifyChangeKeyValue` monitor test must still pass. Permission,
     sharing, and other I/O failures must not be accepted as content recovery.
-13. Uninstallation leaves no task, process, install directory, data directory,
+13. After that real recovery, the exact packaged UI assets served by the Agent
+    must contain both recovery states, the local acknowledgement key, and the
+    review and dismiss controls. Source-only UI evidence is insufficient.
+14. Uninstallation leaves no task, process, install directory, data directory,
     or probe key.
 
 The lifecycle evidence is written to `package-lifecycle.json`. The gate also

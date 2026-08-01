@@ -12,6 +12,12 @@ import {
   ShieldCheckmark24Filled,
   Warning24Regular,
 } from "@fluentui/react-icons";
+import {
+  acknowledgeRecoveryEvent,
+  getConfigurationRecoveryNotice,
+  getRecoveryStorage,
+  readAcknowledgedRecoveryEvent,
+} from "./configurationRecovery.js";
 
 const sections = [
   { id: "status", label: "状态", icon: Shield24Regular },
@@ -728,6 +734,58 @@ function SettingsPage({
   );
 }
 
+function ConfigurationRecoveryNotice({ agentHealth, onReview }) {
+  const recoveryNotice = useMemo(
+    () => getConfigurationRecoveryNotice(agentHealth),
+    [agentHealth],
+  );
+  const [acknowledgedEvent, setAcknowledgedEvent] = useState(() =>
+    readAcknowledgedRecoveryEvent(getRecoveryStorage()),
+  );
+
+  if (!recoveryNotice || acknowledgedEvent === recoveryNotice.eventKey) {
+    return null;
+  }
+
+  const dismiss = () => {
+    acknowledgeRecoveryEvent(getRecoveryStorage(), recoveryNotice.eventKey);
+    setAcknowledgedEvent(recoveryNotice.eventKey);
+  };
+  const isWarning = recoveryNotice.severity === "warning";
+
+  return (
+    <section
+      aria-atomic="true"
+      className={`recovery-notice ${recoveryNotice.severity}`}
+      role={isWarning ? "alert" : "status"}
+    >
+      <span className="recovery-notice-icon" aria-hidden="true">
+        {isWarning ? <Warning24Regular /> : <Info24Regular />}
+      </span>
+      <div className="recovery-notice-copy">
+        <strong>{recoveryNotice.title}</strong>
+        <span>{recoveryNotice.message}</span>
+      </div>
+      <button
+        className="secondary-button recovery-review-button"
+        onClick={onReview}
+        type="button"
+      >
+        检查保护范围
+      </button>
+      <button
+        aria-label="关闭配置恢复提示"
+        className="icon-button recovery-dismiss-button"
+        onClick={dismiss}
+        title="关闭提示"
+        type="button"
+      >
+        <Dismiss24Regular />
+      </button>
+    </section>
+  );
+}
+
 export function App() {
   const [activeSection, setActiveSection] = useState("defaults");
   const {
@@ -820,7 +878,13 @@ export function App() {
           agentStatus={agentStatus}
           onChange={setActiveSection}
         />
-        <div className="content-frame">{content}</div>
+        <div className="content-frame">
+          <ConfigurationRecoveryNotice
+            agentHealth={agentHealth}
+            onReview={() => setActiveSection("defaults")}
+          />
+          <div className="content-body">{content}</div>
+        </div>
       </div>
     </div>
   );

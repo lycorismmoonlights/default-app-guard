@@ -70,7 +70,8 @@ same attested archive. It never rebuilds the package locally.
     preference round-trip without protected-scope loss, a real bounded CLEF
     operational-log write and retention diagnostics,
    diagnostics, Windows Installed apps registration, execution of the exact
-   registered hidden uninstall command, clean removal, and no shortcut
+    registered hidden uninstall command, packaged recovery-notice asset
+    verification, clean removal, and no shortcut
    ownership violation.
 12. Generates an SPDX 2.2 SBOM with the pinned Microsoft SBOM Tool and validates
     all package file hashes and detected dependencies. Component detection uses
@@ -127,7 +128,7 @@ Use this fallback only while Authenticode signing is unavailable:
 ```powershell
 .\packaging\Promote-ReleaseCandidate.ps1 `
   -CandidateDirectory F:\path\to\downloaded-candidate `
-  -Version 0.1.13 `
+  -Version 0.1.14 `
   -ExpectedCommit <full-main-commit-sha>
 ```
 
@@ -136,6 +137,7 @@ Use this fallback only while Authenticode signing is unavailable:
    fresh primary snapshots, zero failed reads, both real monitor checks,
    freshness-aware watchdog recovery, exact-package configuration corruption
    and validated last-known-good restoration with preserved settings,
+   packaged recovery-notice asset verification,
    notification-channel and preference round-trip evidence, bounded local-log
    evidence, rollback, diagnostics, and clean uninstall.
 6. Publish the original candidate ZIP, its checksum, the original SBOM and its

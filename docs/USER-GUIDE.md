@@ -86,6 +86,22 @@ status rather than treating the presence or absence of a balloon as proof.
 The application does not silently change Windows defaults. After completing a
 change in Windows Settings, return to DefaultAppGuard and run another check.
 
+## Configuration recovery notice
+
+If the Agent repaired its configuration during startup, the application keeps
+a notice visible until you dismiss it. A backup-restored notice means the last
+validated protected-format and notification settings were recovered. A
+safe-default notice means both configuration copies were unusable; protection
+was reset to all 34 supported formats with notifications enabled, and previous
+custom choices may have been lost. Use **Review protected formats** before
+dismissing that warning.
+
+Dismissing a notice acknowledges only that recovery event. It does not stop the
+Agent, disable monitoring, change protected formats, delete the backup, or clear
+diagnostics. The acknowledgement remains in local browser storage and is not
+uploaded. A later recovery is shown again. If browser policy blocks local
+storage, the notice can return when the application is reopened.
+
 ## Diagnostics
 
 Generate a constrained support report:

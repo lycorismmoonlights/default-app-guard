@@ -1,6 +1,6 @@
 {
   "name": "default-app-guard",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "private": true,
   "license": "SEE LICENSE IN LICENSE.md",
   "engines": {
@@ -13,7 +13,7 @@
     "dev": "vite",
     "build": "vite build && node scripts/prepare-sites-build.mjs",
     "preview": "vite preview",
-    "test:sites": "node --test tests/sites-worker.test.mjs",
+    "test:sites": "node --test tests/sites-worker.test.mjs tests/configuration-recovery-ui.test.mjs",
     "test:promotion": "node --test tests/promotion-contract.test.mjs"
   },
   "dependencies": {
