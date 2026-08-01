@@ -249,6 +249,8 @@ test("uninstaller verifies ownership before removing task or directories", async
   assert.ok(uninstaller.includes('product -ne "DefaultAppGuard Community"'));
   assert.ok(uninstaller.includes("data owned by another installation"));
   assert.ok(uninstaller.includes("$null -ne $installState"));
+  assert.ok(uninstaller.includes("DefaultAppGuard.Setup.exe"));
+  assert.ok(uninstaller.includes('"--watchdog $expectedAgentArguments"'));
   assert.ok(ownershipIndex >= 0);
   assert.ok(unregisterIndex > ownershipIndex);
   assert.ok(removeInstallIndex > unregisterIndex);

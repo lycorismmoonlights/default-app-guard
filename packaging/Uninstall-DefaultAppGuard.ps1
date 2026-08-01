@@ -147,8 +147,25 @@ if ($null -ne $uninstallKey) {
 $task = Get-ScheduledTask -TaskName $TaskName `
     -ErrorAction SilentlyContinue
 if ($null -ne $task) {
-    $taskExecutable = Get-NormalizedPath $task.Actions[0].Execute
-    if ($taskExecutable -ne (Get-NormalizedPath $installedExecutable)) {
+    $taskActions = @($task.Actions)
+    $installedSetup = Join-Path $installPath "DefaultAppGuard.Setup.exe"
+    $taskOwned = $taskActions.Count -eq 1 -and
+        -not [string]::IsNullOrWhiteSpace($taskActions[0].Execute) -and
+        (Get-NormalizedPath $taskActions[0].Execute) -eq
+            (Get-NormalizedPath $installedSetup) -and
+        -not [string]::IsNullOrWhiteSpace($taskActions[0].WorkingDirectory) -and
+        (Get-NormalizedPath $taskActions[0].WorkingDirectory) -eq $installPath
+    if ($taskOwned -and $null -ne $installState) {
+        $runtimePath = Join-Path $dataPath "runtime"
+        $expectedAgentArguments = @(
+            "--url `"$([string]$installState.agentUrl)`""
+            "--state `"$(Join-Path $runtimePath "agent-status.json")`""
+            "--config `"$(Join-Path $runtimePath "guard-configuration.json")`""
+        ) -join " "
+        $taskOwned = [string]$taskActions[0].Arguments -eq
+            "--watchdog $expectedAgentArguments"
+    }
+    if (-not $taskOwned) {
         throw "Refusing to remove a scheduled task owned by another installation."
     }
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
