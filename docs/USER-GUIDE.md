@@ -104,7 +104,11 @@ checks the `WindowsForms.NotifyIcon` channel and records whether the user
 enabled alerts. A user-disabled preference is not a fault; an unavailable
 notification channel is. It also verifies the operational-log channel, format,
 retention limits, file count, and aggregate byte counts without reading or
-including log contents. It does not include personal paths, registry exports,
+including log contents. Diagnostics schema 6 also verifies the local
+configuration backup and reports `configuration-backup-restored` or
+`configuration-defaults-restored` as a notice after successful recovery. The
+latter means custom selections may have been lost and should be reviewed in
+the application. It does not include personal paths, registry exports,
 raw runtime file contents, log contents, or tokens. Review it before attaching
 it to an issue.
 
@@ -113,6 +117,7 @@ The default runtime files are:
 ```text
 %LOCALAPPDATA%\DefaultAppGuard\runtime\agent-status.json
 %LOCALAPPDATA%\DefaultAppGuard\runtime\guard-configuration.json
+%LOCALAPPDATA%\DefaultAppGuard\runtime\guard-configuration.json.bak
 %LOCALAPPDATA%\DefaultAppGuard\runtime\logs\agent-YYYYMMDD.clef
 %LOCALAPPDATA%\DefaultAppGuard\install-state.json
 ```
@@ -133,6 +138,12 @@ delay before the next recovery attempt so the computer is not caught in a
 rapid restart loop. Non-technical users should run Setup again for repair if
 diagnostics report `watchdog-last-outcome-unhealthy` or
 `watchdog-telemetry-stale`.
+
+The `.bak` file is the previous validated configuration, not a versioned or
+cloud backup. Do not edit, delete, or permission-lock either configuration
+file. If the Agent cannot start, run diagnostics and rerun Setup for repair;
+permission, sharing, and disk I/O failures are intentionally not converted into
+a silent reset.
 
 The scheduled task is named `DefaultAppGuard Agent`.
 

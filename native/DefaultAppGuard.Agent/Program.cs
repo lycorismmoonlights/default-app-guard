@@ -98,6 +98,8 @@ try
     {
         var notificationStatus = notifications.Snapshot();
         var operationalLogStatus = operationalLogs.Snapshot();
+        var configurationStatus =
+            configurationStore.SnapshotPersistenceStatus();
         return Results.Ok(new
         {
             Service = "DefaultAppGuard.Agent",
@@ -127,6 +129,16 @@ try
             OperationalLogLastError = operationalLogStatus.LastErrorCode,
             OperationalLogLastErrorAtUtc =
                 operationalLogStatus.LastErrorAtUtc,
+            ConfigurationStorage = configurationStatus.Storage,
+            ConfigurationBackupStorage =
+                configurationStatus.BackupStorage,
+            ConfigurationBackupAvailable =
+                configurationStatus.BackupAvailable,
+            ConfigurationRecovered = configurationStatus.Recovered,
+            ConfigurationRecoveryCode =
+                configurationStatus.RecoveryCode,
+            ConfigurationRecoveredAtUtc =
+                configurationStatus.RecoveredAtUtc,
         });
     });
 

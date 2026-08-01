@@ -227,6 +227,27 @@ function Wait-AgentReady {
                 $lastFailure = "Health endpoint did not publish an audit freshness limit."
                 continue
             }
+            $configurationRecoveryCode =
+                [string]$health.ConfigurationRecoveryCode
+            $configurationPersistenceHealthy =
+                $health.ConfigurationStorage -eq
+                    "runtime/guard-configuration.json" -and
+                $health.ConfigurationBackupStorage -eq
+                    "runtime/guard-configuration.json.bak" -and
+                [bool]$health.ConfigurationBackupAvailable -and
+                (($configurationRecoveryCode -eq "none" -and
+                    -not [bool]$health.ConfigurationRecovered) -or
+                 ($configurationRecoveryCode -in @(
+                        "backup-restored",
+                        "defaults-restored") -and
+                    [bool]$health.ConfigurationRecovered -and
+                    -not [string]::IsNullOrWhiteSpace(
+                        [string]$health.ConfigurationRecoveredAtUtc)))
+            if (-not $configurationPersistenceHealthy) {
+                $lastFailure =
+                    "Configuration persistence or recovery is unavailable."
+                continue
+            }
             if (-not ([string]$health.Version).StartsWith(
                     "$ExpectedVersion.",
                     [StringComparison]::Ordinal)) {
@@ -842,6 +863,17 @@ try {
         AuditAgeSeconds = $agent.Readiness.AuditAgeSeconds
         MaximumAuditAgeSeconds =
             $agent.Readiness.MaximumAuditAgeSeconds
+        ConfigurationStorage = $agent.Health.ConfigurationStorage
+        ConfigurationBackupStorage =
+            $agent.Health.ConfigurationBackupStorage
+        ConfigurationBackupAvailable =
+            $agent.Health.ConfigurationBackupAvailable
+        ConfigurationRecovered =
+            $agent.Health.ConfigurationRecovered
+        ConfigurationRecoveryCode =
+            $agent.Health.ConfigurationRecoveryCode
+        ConfigurationRecoveredAtUtc =
+            $agent.Health.ConfigurationRecoveredAtUtc
         HealthyCount = $agent.Readiness.HealthyCount
         DriftCount = $agent.Readiness.DriftCount
         PackageIntegrityVerified = $true

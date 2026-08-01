@@ -1,6 +1,6 @@
 # Code Signing Plan
 
-The current 0.1.12 alpha package is unsigned unless its GitHub release notes
+The current 0.1.13 alpha package is unsigned unless its GitHub release notes
 explicitly state otherwise. A SHA-256 checksum proves file integrity
 after publication, but it does not establish a Windows publisher identity.
 

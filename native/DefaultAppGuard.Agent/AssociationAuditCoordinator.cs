@@ -75,40 +75,10 @@ public sealed class AssociationAuditCoordinator(
         AgentStatus snapshot,
         CancellationToken cancellationToken)
     {
-        var directory = Path.GetDirectoryName(options.StatePath)
-            ?? throw new InvalidOperationException(
-                $"Agent state path has no directory: {options.StatePath}");
-        Directory.CreateDirectory(directory);
-        var temporaryPath =
-            $"{options.StatePath}.{Guid.NewGuid():N}.tmp";
-
-        try
-        {
-            await using (var stream = new FileStream(
-                             temporaryPath,
-                             FileMode.CreateNew,
-                             FileAccess.Write,
-                             FileShare.None,
-                             16 * 1024,
-                             FileOptions.Asynchronous |
-                             FileOptions.WriteThrough))
-            {
-                await JsonSerializer.SerializeAsync(
-                    stream,
-                    snapshot,
-                    JsonOptions,
-                    cancellationToken);
-                await stream.FlushAsync(cancellationToken);
-            }
-
-            File.Move(temporaryPath, options.StatePath, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(temporaryPath))
-            {
-                File.Delete(temporaryPath);
-            }
-        }
+        await DurableJsonFile.WriteAsync(
+            options.StatePath,
+            snapshot,
+            JsonOptions,
+            cancellationToken);
     }
 }

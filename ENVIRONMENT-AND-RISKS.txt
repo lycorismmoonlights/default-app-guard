@@ -1,7 +1,7 @@
 DefaultAppGuard Community
 环境配置要求与风险提示 / Environment Requirements and Risk Notice
 
-适用版本 / Applies to version: 0.1.12
+适用版本 / Applies to version: 0.1.13
 更新日期 / Updated: 2026-08-01
 
 ============================================================
@@ -60,7 +60,7 @@ DefaultAppGuard Community
 
 3.1 本版本的签名状态
 
-- 适用本提示文本的 0.1.12 版本是“未签名 alpha 版本”。
+- 适用本提示文本的 0.1.13 版本是“未签名 alpha 版本”。
 - DefaultAppGuard.Agent.exe、DefaultAppGuard.Setup.exe、Install-DefaultAppGuard.ps1、
   Uninstall-DefaultAppGuard.ps1、Get-DefaultAppGuardDiagnostics.ps1 和
   DefaultAppGuard.Package.psm1 均没有受 Windows 信任的发布者签名。
@@ -90,7 +90,7 @@ DefaultAppGuard Community
 3) 同时下载对应的 .sha256 文件，并核对 ZIP 的 SHA-256。可以在 ZIP
    所在文件夹打开 PowerShell，运行：
 
-   Get-FileHash .\DefaultAppGuard-0.1.12-win-x64.zip -Algorithm SHA256
+   Get-FileHash .\DefaultAppGuard-0.1.13-win-x64.zip -Algorithm SHA256
 
    输出的 64 位哈希必须与 .sha256 文件完全一致。任何一位不同都不要运行。
 4) 完整解压 ZIP 后再安装，不要从压缩包预览窗口直接运行脚本。
@@ -194,6 +194,30 @@ DefaultAppGuard Community
   文件内容，也不会上传。连续恢复失败会按 5、10、20、40、60 分钟逐步退避，
   以防损坏安装或端口冲突造成反复启动；退避期间 Agent 可能暂时不可用。普通用户
   应重新运行 Setup 进行修复，并提交诊断 JSON，而不是反复手动启动程序。
+- 0.1.13 将当前设置保存在
+  %LOCALAPPDATA%\DefaultAppGuard\runtime\guard-configuration.json，并在同一
+  目录保留 guard-configuration.json.bak 作为“上一份已知可用副本”。保存时先在
+  同一目录写入临时文件、要求系统把数据刷新到存储，再使用 Windows 文件替换机制
+  提交并更新 .bak。这可显著降低程序中断时只写入半份 JSON 的概率，但不能保证在
+  硬盘故障、突然断电、文件系统损坏或恶意软件破坏时绝不丢失设置。
+- Agent 启动时会验证配置的 JSON、版本、保护模式和全部扩展名。主文件内容损坏而
+  .bak 有效时，会恢复上一份有效设置并报告 `backup-restored`。主文件和 .bak 都
+  无效，或主文件丢失且仅剩无效 .bak 时，会报告 `defaults-restored`，恢复为保护
+  全部 34 种支持的视频格式并开启系统通知。出现 `defaults-restored` 后，请打开
+  应用核对选择；它表示自定义选择可能已无法恢复，不是普通的首次启动提示。
+- 成功恢复会显示在 `/api/health` 和诊断 schema 6 中。有效恢复本身是提示而不是
+  故障；诊断会给出 `configuration-backup-restored` 或
+  `configuration-defaults-restored`，但不会包含配置文件原文。若诊断同时有 issue
+  code、Agent 无法启动或 34 项主 COM 审计不完整，则不能因为看见恢复提示就认为
+  程序健康。
+- 权限被拒绝、文件被其他程序独占、磁盘或其他真实 I/O 错误不会被当作“内容损坏”
+  并静默重置。此时启动或看门狗检查会失败并按规则退避，以保留现场。普通用户应
+  保持数据目录不动，确认磁盘空间和安全软件隔离记录，运行诊断，然后重新运行同一
+  版本的 Setup 做修复安装；仍失败时提交诊断 JSON。不要手工编辑、删除或锁定这两个
+  JSON 文件，也不要给整个目录设置“拒绝写入”权限。
+- `.bak` 只是一份随每次成功更新轮换的本机副本，不是版本历史、云备份或整机故障
+  备份。删除整个数据目录、卸载时不保留数据、磁盘损坏或同时破坏两个文件仍可能
+  丢失自定义选择。
 - 本地 API 只允许回环地址和受限 Origin，但同一用户会话中的恶意本地进程仍可能尝试访问它。
 - 当前仅在上面列出的 Windows 版本上完成完整发布验证，其他 Windows 11 版本需要单独验证。
 - 软件按“现状”提供，不附带无故障、无数据损失或适用于特定用途的保证。
@@ -202,6 +226,8 @@ DefaultAppGuard Community
 
 - 当前版本不包含向外发送的遥测、广告、云同步或主动外网请求。
 - 状态和配置默认保存在 %LOCALAPPDATA%\DefaultAppGuard 下。
+- 配置恢复完全在本机进行；健康接口和诊断只报告固定的存储名称、是否有备份、
+  恢复类型和时间，不会上传或复制用户选择的扩展名列表。
 - 运行日志默认保存在 %LOCALAPPDATA%\DefaultAppGuard\runtime\logs。它们不会
   自动上传，但异常堆栈可能含有技术路径或环境细节。不要直接公开原始日志；
   分享前必须检查并删除个人路径、用户名、令牌或其他敏感信息。
@@ -297,7 +323,7 @@ English
 
 3.1 Signing status of this version
 
-- Version 0.1.12 covered by this notice is an unsigned alpha release.
+- Version 0.1.13 covered by this notice is an unsigned alpha release.
 - DefaultAppGuard.Agent.exe, DefaultAppGuard.Setup.exe, Install-DefaultAppGuard.ps1,
   Uninstall-DefaultAppGuard.ps1, Get-DefaultAppGuardDiagnostics.ps1, and
   DefaultAppGuard.Package.psm1 do not have a publisher signature trusted by
@@ -334,7 +360,7 @@ Consider installing this unsigned alpha only when every item below is true:
 3) Download the matching .sha256 file and verify the ZIP. Open PowerShell in
    the folder containing the ZIP and run:
 
-   Get-FileHash .\DefaultAppGuard-0.1.12-win-x64.zip -Algorithm SHA256
+   Get-FileHash .\DefaultAppGuard-0.1.13-win-x64.zip -Algorithm SHA256
 
    The 64-character hash must match the .sha256 file exactly. Do not run the
    package when even one character is different.
@@ -483,6 +509,38 @@ or ask a trusted person with Windows security experience to inspect it.
   damaged install or port conflict from causing a restart storm. The Agent may
   remain unavailable during backoff. Non-technical users should rerun Setup for
   repair and submit the diagnostics JSON instead of repeatedly launching files.
+- Version 0.1.13 stores current settings in
+  %LOCALAPPDATA%\DefaultAppGuard\runtime\guard-configuration.json and keeps
+  guard-configuration.json.bak beside it as the previous last-known-good copy.
+  A save first writes a temporary file in the same directory, requests a flush
+  to storage, then commits it with Windows file-replacement semantics while
+  rotating the `.bak` copy. This substantially reduces partial JSON writes
+  after interruption, but it cannot guarantee survival of disk failure, sudden
+  power loss, filesystem damage, or malicious modification.
+- At startup, the Agent validates JSON, schema, protection mode, and every
+  extension. Invalid primary content with a valid `.bak` is restored and
+  reported as `backup-restored`. If both copies are invalid, or the primary is
+  missing and the remaining backup is invalid, the Agent reports
+  `defaults-restored` and enables protection for all 34 supported video formats
+  plus system notifications. After `defaults-restored`, open the application
+  and review the selection: custom choices may no longer be recoverable.
+- A successful recovery appears in `/api/health` and diagnostics schema 6.
+  Recovery is a notice rather than a fault when every health check passes;
+  diagnostics uses `configuration-backup-restored` or
+  `configuration-defaults-restored` without including raw configuration
+  contents. An issue code, a failed Agent start, or incomplete 34-format primary
+  COM evidence still means the installation is not healthy.
+- Access denial, an exclusive file lock, disk faults, and other real I/O errors
+  are not classified as damaged content and are not silently reset. Startup or
+  watchdog recovery fails and enters the normal bounded backoff so evidence is
+  preserved. Leave the data directory intact, check free space and security
+  quarantine history, run diagnostics, then rerun Setup for repair. Submit the
+  diagnostics JSON if repair still fails. Do not manually edit, delete, or lock
+  the two JSON files, and do not deny write access to the whole directory.
+- The `.bak` file is one rotating local copy, not version history, cloud backup,
+  or protection against complete-device failure. Removing the whole data
+  directory, uninstalling without keeping data, disk damage, or corruption of
+  both copies can still lose customized selections.
 - The API is loopback-only with restricted Origins, but a malicious local
   process in the same user session may still attempt to access it.
 - Full release validation has only been completed on the Windows build listed
@@ -495,6 +553,9 @@ or ask a trusted person with Windows security experience to inspect it.
 - The current version sends no telemetry outside the computer and contains no
   advertising, cloud sync, or proactive outbound network request.
 - Configuration and status are stored under %LOCALAPPDATA%\DefaultAppGuard.
+- Configuration recovery is entirely local. Health and diagnostics report only
+  fixed storage names, backup availability, recovery type, and time; they do
+  not upload or copy the user's selected extension list.
 - Operational logs are stored by default below
   %LOCALAPPDATA%\DefaultAppGuard\runtime\logs. They are never uploaded
   automatically, but exception stacks may contain technical paths or
@@ -532,10 +593,14 @@ license text, and this notice file.
 
 中文：
 
-- 0.1.12 增加基于真实审计时间的就绪新鲜度判定。默认 15 分钟周期复检对应
+- 0.1.13 保留基于真实审计时间的就绪新鲜度判定。默认 15 分钟周期复检对应
   18 分 45 秒最长证据年龄；看门狗必须同时通过存活检查和新鲜、完整的 34 项
-  主 COM 证据检查。诊断 schema 5 会独立计算并报告该证据年龄。
-- 0.1.12 的发布附件包含 SPDX 2.2 软件物料清单（SBOM）及其 SHA-256。
+  主 COM 证据检查。诊断 schema 6 会独立计算并报告该证据年龄和配置恢复状态。
+- 0.1.13 的精确包门禁会写坏已安装的主配置文件、终止 Agent，并要求正式计划任务
+  启动新进程、从已验证的 .bak 保留原设置、继续完成 34/34 主 COM 查询和第二次
+  真实 RegNotifyChangeKeyValue 检查。`package-lifecycle.json` 必须记录
+  `configurationPersistence.recoveryVerified: true`，否则禁止发布。
+- 0.1.13 的发布附件包含 SPDX 2.2 软件物料清单（SBOM）及其 SHA-256。
   SBOM 使用固定版本的 Microsoft SBOM Tool 生成，并在发布门禁中逐文件验证。
 - 发布门禁会先运行无控制台图形安装器的确切包验证，再安装即将发布的软件包，
   并验证就绪端点、未过期的 34 项主 COM 查询证据、真实注册表通知、
@@ -547,7 +612,7 @@ license text, and this notice file.
   门禁会失败，不允许使用悄然滚动的新工具链发布。
 - 这些证据用于提高构建可追溯性和发现发布过程错误，不代表软件在所有电脑上
   都不会出现兼容性问题，也不能代替 Windows Authenticode 发布者签名。
-- 对于 0.1.12 的未签名候选包，ZIP、SBOM 和 candidate-build.json 由 GitHub
+- 对于 0.1.13 的未签名候选包，ZIP、SBOM 和 candidate-build.json 由 GitHub
   托管的 Windows 构建任务生成并分别附加 GitHub artifact attestation（构建来源
   证明）。发布维护者随后必须在配置了真实 Microsoft Media Player 默认关联的
   Windows 电脑上，对完全相同的 ZIP 运行本地主算法晋级门禁；该门禁不会重新
@@ -566,18 +631,25 @@ license text, and this notice file.
   Authenticode 代码签名。用户仍应只从官方 Releases 页面下载、核对 SHA-256、
   保持安全软件开启，并把本版本视为未签名 alpha。
 - 项目已经具备使用 Windows 证书存储或兼容 HSM 进行发布签名的构建入口；但是
-  本提示对应的 0.1.12 仍是未签名 alpha。只有当 GitHub 发布说明明确写明“已签名”、
+  本提示对应的 0.1.13 仍是未签名 alpha。只有当 GitHub 发布说明明确写明“已签名”、
   列出签名者，且 release-gate.json 显示所有受检文件签名有效并已加时间戳时，
   才能把某个未来版本视为已签名版本。
 
 English:
 
-- Version 0.1.12 adds readiness freshness based on the real audit timestamp.
+- Version 0.1.13 retains readiness freshness based on the real audit timestamp.
   The default 15-minute periodic audit gives evidence a maximum age of 18
   minutes 45 seconds. The watchdog requires both liveness and fresh, complete
-  primary COM evidence for all 34 formats. Diagnostics schema 5 independently
-  calculates and reports that evidence age.
-- Version 0.1.12 release assets include an SPDX 2.2 software bill of materials
+  primary COM evidence for all 34 formats. Diagnostics schema 6 independently
+  calculates and reports that evidence age and configuration recovery state.
+- The exact-package gate for 0.1.13 corrupts the installed primary
+  configuration, terminates the Agent, and requires the production scheduled
+  task to start a new process, preserve settings from the validated `.bak`,
+  complete 34/34 primary COM queries, and pass the second real
+  RegNotifyChangeKeyValue check. Publication is blocked unless
+  `package-lifecycle.json` records
+  `configurationPersistence.recoveryVerified: true`.
+- Version 0.1.13 release assets include an SPDX 2.2 software bill of materials
   (SBOM) and its SHA-256. The pinned Microsoft SBOM Tool generates it, and the
   release gate validates every packaged file against it.
 - The release gate first runs the graphical no-console Setup verifier, then
@@ -596,7 +668,7 @@ English:
 - This evidence improves build traceability and catches release-process
   failures. It does not guarantee compatibility on every computer and does not
   replace a trusted Windows Authenticode publisher signature.
-- For the unsigned 0.1.12 candidate, a GitHub-hosted Windows build creates the
+- For the unsigned 0.1.13 candidate, a GitHub-hosted Windows build creates the
   ZIP, SBOM, and candidate-build.json and attaches a separate GitHub artifact
   attestation to each. A maintainer must then run the local main-algorithm
   promotion gate on a Windows computer whose real default associations target
@@ -621,7 +693,7 @@ English:
   SHA-256, keep security software enabled, and continue to treat this version
   as an unsigned alpha.
 - The build now supports release signing through the Windows certificate store
-  or a compatible HSM. However, version 0.1.12 covered by this notice remains an
+  or a compatible HSM. However, version 0.1.13 covered by this notice remains an
   unsigned alpha. Treat a future version as signed only when its GitHub release
   notes explicitly say so, name the signer, and release-gate.json reports valid,
   timestamped signatures for every checked file.
