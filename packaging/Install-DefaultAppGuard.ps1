@@ -209,6 +209,11 @@ function Wait-AgentReady {
                 $lastFailure = "Health endpoint reported an unsafe process mode."
                 continue
             }
+            if ($health.NotificationChannel -ne "WindowsForms.NotifyIcon" -or
+                -not [bool]$health.NotificationsAvailable) {
+                $lastFailure = "System notification channel is unavailable."
+                continue
+            }
             if (-not ([string]$health.Version).StartsWith(
                     "$ExpectedVersion.",
                     [StringComparison]::Ordinal)) {
@@ -792,6 +797,9 @@ try {
         ProcessMode = $agent.Health.ProcessMode
         MainQuery = $agent.Health.Query
         MainMonitor = $agent.Health.Monitor
+        NotificationChannel = $agent.Health.NotificationChannel
+        NotificationsAvailable = $agent.Health.NotificationsAvailable
+        NotificationsEnabled = $agent.Health.NotificationsEnabled
         Ready = $agent.Readiness.Ready
         ReadinessCode = $agent.Readiness.Code
         TargetProgId = $agent.Readiness.TargetProgId

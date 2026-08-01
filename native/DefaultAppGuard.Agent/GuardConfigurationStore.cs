@@ -6,10 +6,12 @@ namespace DefaultAppGuard.Agent;
 public sealed record GuardConfiguration(
     int SchemaVersion,
     IReadOnlyList<string> ProtectedVideoExtensions,
-    string ProtectionMode);
+    string ProtectionMode,
+    bool NotificationsEnabled);
 
 public sealed record GuardConfigurationUpdate(
-    IReadOnlyList<string>? ProtectedVideoExtensions);
+    IReadOnlyList<string>? ProtectedVideoExtensions,
+    bool? NotificationsEnabled);
 
 public sealed class GuardConfigurationStore
 {
@@ -31,23 +33,30 @@ public sealed class GuardConfigurationStore
 
     public GuardConfiguration Snapshot()
     {
-        return current with
+        var snapshot = Volatile.Read(ref current);
+        return snapshot with
         {
             ProtectedVideoExtensions =
-                current.ProtectedVideoExtensions.ToArray(),
+                snapshot.ProtectedVideoExtensions.ToArray(),
         };
     }
 
     public async Task<GuardConfiguration> UpdateAsync(
-        IEnumerable<string>? extensions,
+        GuardConfigurationUpdate update,
         CancellationToken cancellationToken)
     {
-        var next = Create(extensions);
+        ArgumentNullException.ThrowIfNull(update);
         await gate.WaitAsync(cancellationToken);
         try
         {
+            var existing = Volatile.Read(ref current);
+            var next = Create(
+                update.ProtectedVideoExtensions ??
+                    existing.ProtectedVideoExtensions,
+                update.NotificationsEnabled ??
+                    existing.NotificationsEnabled);
             await WriteAtomicallyAsync(next, cancellationToken);
-            current = next;
+            Volatile.Write(ref current, next);
             return Snapshot();
         }
         finally
@@ -60,7 +69,9 @@ public sealed class GuardConfigurationStore
     {
         if (!File.Exists(path))
         {
-            var initial = Create(AssociationConstants.VideoExtensions);
+            var initial = Create(
+                AssociationConstants.VideoExtensions,
+                notificationsEnabled: true);
             WriteAtomically(initial);
             return initial;
         }
@@ -70,7 +81,7 @@ public sealed class GuardConfigurationStore
             JsonOptions)
             ?? throw new InvalidDataException(
                 $"Configuration file is empty: {path}");
-        if (parsed.SchemaVersion != 1 ||
+        if (parsed.SchemaVersion is not (1 or 2) ||
             !string.Equals(
                 parsed.ProtectionMode,
                 "monitor",
@@ -80,11 +91,20 @@ public sealed class GuardConfigurationStore
                 $"Unsupported guard configuration schema: {path}");
         }
 
-        return Create(parsed.ProtectedVideoExtensions);
+        var migrated = Create(
+            parsed.ProtectedVideoExtensions,
+            parsed.SchemaVersion == 1 || parsed.NotificationsEnabled);
+        if (parsed.SchemaVersion == 1)
+        {
+            WriteAtomically(migrated);
+        }
+
+        return migrated;
     }
 
     private static GuardConfiguration Create(
-        IEnumerable<string>? extensions)
+        IEnumerable<string>? extensions,
+        bool notificationsEnabled)
     {
         ArgumentNullException.ThrowIfNull(extensions);
         var normalized = extensions
@@ -111,7 +131,11 @@ public sealed class GuardConfigurationStore
                 nameof(extensions));
         }
 
-        return new GuardConfiguration(1, normalized, "monitor");
+        return new GuardConfiguration(
+            2,
+            normalized,
+            "monitor",
+            notificationsEnabled);
     }
 
     private void WriteAtomically(GuardConfiguration configuration)

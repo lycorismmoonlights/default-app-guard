@@ -10,7 +10,7 @@ Run all of the following on Windows:
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.8 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.9 `
   -PackageManagerPath pnpm
 ```
 
@@ -26,7 +26,7 @@ and promote those exact bytes on the dedicated validation computer:
 ```powershell
 .\packaging\Promote-ReleaseCandidate.ps1 `
   -CandidateDirectory F:\path\to\release-candidate `
-  -Version 0.1.8 `
+  -Version 0.1.9 `
   -ExpectedCommit <full-main-commit-sha>
 ```
 
@@ -42,7 +42,7 @@ report `codeSigning.status` as `unsigned`. Any release described as signed must
 run:
 
 ```powershell
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.8 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.9 `
   -PackageManagerPath pnpm `
   -SigningCertificateThumbprint $env:DAG_SIGNING_CERTIFICATE_THUMBPRINT `
   -TimestampServer $env:DAG_TIMESTAMP_SERVER `
@@ -72,6 +72,8 @@ The required signals are:
 - Registry evidence never replaces a failed COM result.
 - `/api/readiness` resolves Microsoft Media Player and reports evidence from
   the primary COM query before an install transaction can commit.
+- `/api/health` reports an available `WindowsForms.NotifyIcon` channel. This
+  channel consumes audit results and must never substitute for primary evidence.
 
 ## Installation Test
 
@@ -99,8 +101,8 @@ Verify:
 1. The installer reports `PackageIntegrityVerified: True`,
    `TransactionalUpgrade: True`, `ProcessMode: background-no-console`, and
    `WatchdogTaskState: Ready`.
-2. `/api/health` reports the COM query, registry monitor, expected PID, and
-   background process mode.
+2. `/api/health` reports the COM query, registry monitor, expected PID,
+   background process mode, and available `WindowsForms.NotifyIcon` channel.
 3. `/api/status` reports all declared formats individually.
 4. A harmless subkey created below the current user's `FileExts` tree increases
    `registryEventCount`.
@@ -116,9 +118,11 @@ Verify:
 9. The current-user Installed apps entry is complete, and its exact hidden
    uninstall command removes the entry, task, process, install directory, and
    data directory.
-10. `Get-DefaultAppGuardDiagnostics.ps1` reports no issues and does not include
+10. Toggling notifications off and on preserves all protected extensions, and
+    diagnostics reports the channel available and enabled after restoration.
+11. `Get-DefaultAppGuardDiagnostics.ps1` reports no issues and does not include
    personal paths or raw runtime contents.
-11. Uninstallation leaves no task, process, install directory, data directory,
+12. Uninstallation leaves no task, process, install directory, data directory,
    or probe key.
 
 The lifecycle evidence is written to `package-lifecycle.json`. The gate also

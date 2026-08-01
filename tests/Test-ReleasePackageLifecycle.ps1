@@ -100,6 +100,10 @@ function Wait-AgentHealthy {
                 $lastFailure = "Agent reported a non-primary algorithm."
             } elseif ($health.ProcessMode -ne "background-no-console") {
                 $lastFailure = "Agent reported an unsafe process mode."
+            } elseif ($health.NotificationChannel -ne
+                "WindowsForms.NotifyIcon" -or
+                -not [bool]$health.NotificationsAvailable) {
+                $lastFailure = "Agent notification channel is unavailable."
             } elseif (-not ([string]$health.Version).StartsWith(
                     "$ExpectedVersion.",
                     [StringComparison]::Ordinal)) {
@@ -250,6 +254,7 @@ $downloadPolicyProbe = $null
 $nativeTamperProbe = $null
 $uninstallRegistrationVerified = $false
 $taskConfigurationVerified = $false
+$notificationConfigurationVerified = $false
 
 try {
     New-Item -ItemType Directory -Path $workPath | Out-Null
@@ -381,6 +386,13 @@ try {
     Assert-True ($installResult.ProcessMode -eq
         "background-no-console") `
         "The installed candidate did not use hidden background mode."
+    Assert-True ($installResult.NotificationChannel -eq
+        "WindowsForms.NotifyIcon") `
+        "The installed candidate reported another notification channel."
+    Assert-True ([bool]$installResult.NotificationsAvailable) `
+        "The installed candidate's notification channel was unavailable."
+    Assert-True ([bool]$installResult.NotificationsEnabled) `
+        "The installed candidate did not enable notifications by default."
     Assert-True ([bool]$installResult.Ready) `
         "The installed candidate did not pass the readiness gate."
     Assert-True ($installResult.ReadinessCode -eq "ready") `
@@ -398,6 +410,53 @@ try {
     Assert-True ($installResult.UninstallRegistryKeyName -eq
         $uninstallRegistryKeyName) `
         "The candidate installer registered another uninstall key."
+
+    $initialConfiguration = Invoke-RestMethod `
+        -Uri "$agentUrl/api/config" `
+        -TimeoutSec 2
+    Assert-True ([int]$initialConfiguration.schemaVersion -eq 2) `
+        "The installed candidate did not migrate to configuration schema 2."
+    Assert-True ([bool]$initialConfiguration.notificationsEnabled) `
+        "The installed candidate's notifications were not enabled."
+    Assert-True (@($initialConfiguration.protectedVideoExtensions).Count -eq
+        $ExpectedExtensionCount) `
+        "The installed candidate's configuration lost protected extensions."
+    $localClientHeaders = @{
+        "X-DefaultAppGuard-Client" = "local-ui"
+    }
+    $disabledConfiguration = Invoke-RestMethod `
+        -Uri "$agentUrl/api/config" `
+        -Method Put `
+        -Headers $localClientHeaders `
+        -ContentType "application/json" `
+        -Body '{"notificationsEnabled":false}' `
+        -TimeoutSec 2
+    Assert-True (-not [bool](
+        $disabledConfiguration.configuration.notificationsEnabled)) `
+        "The notification preference could not be disabled."
+    Assert-True (@(
+        $disabledConfiguration.configuration.protectedVideoExtensions
+    ).Count -eq $ExpectedExtensionCount) `
+        "A notification-only update changed protected extensions."
+    $disabledHealth = Invoke-RestMethod `
+        -Uri "$agentUrl/api/health" `
+        -TimeoutSec 2
+    Assert-True (-not [bool]$disabledHealth.NotificationsEnabled) `
+        "Health did not expose the disabled notification preference."
+    $enabledConfiguration = Invoke-RestMethod `
+        -Uri "$agentUrl/api/config" `
+        -Method Put `
+        -Headers $localClientHeaders `
+        -ContentType "application/json" `
+        -Body '{"notificationsEnabled":true}' `
+        -TimeoutSec 2
+    $notificationConfigurationVerified =
+        [bool]$enabledConfiguration.configuration.notificationsEnabled -and
+        @(
+            $enabledConfiguration.configuration.protectedVideoExtensions
+        ).Count -eq $ExpectedExtensionCount
+    Assert-True $notificationConfigurationVerified `
+        "The notification preference could not be restored safely."
 
     $uninstallKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
         $uninstallSubKeyPath)
@@ -664,8 +723,13 @@ try {
         "Diagnostics rejected the standard uninstall registration."
     Assert-True ([bool]$diagnosticsReport.scheduledTask.configurationHealthy) `
         "Diagnostics rejected the installed watchdog configuration."
-    Assert-True ([int]$diagnosticsReport.schemaVersion -eq 2) `
-        "Diagnostics did not use the watchdog-aware schema."
+    Assert-True ([int]$diagnosticsReport.schemaVersion -eq 3) `
+        "Diagnostics did not use the notification-aware schema."
+    Assert-True ($diagnosticsReport.notifications.channel -eq
+        "WindowsForms.NotifyIcon" -and
+        [bool]$diagnosticsReport.notifications.available -and
+        [bool]$diagnosticsReport.notifications.enabled) `
+        "Diagnostics rejected the notification channel."
     Assert-True ([bool]$diagnosticsReport.watchdogTelemetry.outcomeHealthy) `
         "Diagnostics rejected the watchdog recovery outcome."
     Assert-True ([bool]$diagnosticsReport.watchdogTelemetry.matchesLastTaskRun) `
@@ -766,6 +830,13 @@ try {
             processMode = $installResult.ProcessMode
             uninstallRegistrationVerified = $uninstallRegistrationVerified
         }
+        notifications = [ordered]@{
+            channel = $installResult.NotificationChannel
+            available = [bool]$installResult.NotificationsAvailable
+            enabledByDefault = [bool]$installResult.NotificationsEnabled
+            configurationRoundTripVerified =
+                $notificationConfigurationVerified
+        }
         mainAlgorithm = [ordered]@{
             query = $installResult.MainQuery
             monitor = $installResult.MainMonitor
@@ -791,6 +862,12 @@ try {
             issueCount = @($diagnosticsReport.issueCodes).Count
             loopbackOnly = [bool]$diagnosticsReport.process.loopbackOnly
             consoleChildCount = [int]$diagnosticsReport.process.consoleChildCount
+            notificationChannel =
+                [string]$diagnosticsReport.notifications.channel
+            notificationsAvailable =
+                [bool]$diagnosticsReport.notifications.available
+            notificationsEnabled =
+                [bool]$diagnosticsReport.notifications.enabled
             watchdogTelemetryHealthy =
                 [bool]$diagnosticsReport.watchdogTelemetry.outcomeHealthy
             watchdogTelemetryMatchesTaskRun =

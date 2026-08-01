@@ -63,6 +63,8 @@ internal static class WatchdogRunner
         "IApplicationAssociationRegistration.QueryCurrentDefault";
     private const string ExpectedMonitor = "RegNotifyChangeKeyValue";
     private const string ExpectedProcessMode = "background-no-console";
+    private const string ExpectedNotificationChannel =
+        "WindowsForms.NotifyIcon";
 
     internal static int Run(WatchdogOptions options)
     {
@@ -368,6 +370,16 @@ internal static class WatchdogRunner
             monitor != ExpectedMonitor ||
             !TryGetString(health, "processMode", out var processMode) ||
             processMode != ExpectedProcessMode ||
+            !TryGetString(
+                health,
+                "notificationChannel",
+                out var notificationChannel) ||
+            notificationChannel != ExpectedNotificationChannel ||
+            !TryGetBoolean(
+                health,
+                "notificationsAvailable",
+                out var notificationsAvailable) ||
+            !notificationsAvailable ||
             !TryGetString(health, "version", out var version) ||
             string.IsNullOrWhiteSpace(expectedVersion) ||
             !version.StartsWith(
@@ -412,6 +424,23 @@ internal static class WatchdogRunner
 
         value = property.GetString() ?? string.Empty;
         return !string.IsNullOrWhiteSpace(value);
+    }
+
+    private static bool TryGetBoolean(
+        JsonElement element,
+        string propertyName,
+        out bool value)
+    {
+        value = false;
+        if (!element.TryGetProperty(propertyName, out var property) ||
+            property.ValueKind is not (
+                JsonValueKind.True or JsonValueKind.False))
+        {
+            return false;
+        }
+
+        value = property.GetBoolean();
+        return true;
     }
 
     private static void WriteRecoveryFailure(

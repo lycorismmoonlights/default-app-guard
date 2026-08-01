@@ -21,7 +21,13 @@ builder.Services.AddSingleton<AgentRuntimeState>();
 builder.Services.AddSingleton<AssociationAuditService>();
 builder.Services.AddSingleton<GuardConfigurationStore>();
 builder.Services.AddSingleton<AssociationAuditCoordinator>();
+builder.Services.AddSingleton<TrayUserNotificationSink>();
+builder.Services.AddSingleton<IUserNotificationSink>(services =>
+    services.GetRequiredService<TrayUserNotificationSink>());
+builder.Services.AddHostedService<TrayUserNotificationSink>(services =>
+    services.GetRequiredService<TrayUserNotificationSink>());
 builder.Services.AddHostedService<AssociationMonitorWorker>();
+builder.Services.AddHostedService<DriftNotificationWorker>();
 
 var app = builder.Build();
 var packagedUiPath = Path.Combine(AppContext.BaseDirectory, "wwwroot");
@@ -65,7 +71,8 @@ app.Use(async (context, next) =>
         context.Response.Headers.AccessControlAllowOrigin = origin;
         context.Response.Headers.AccessControlAllowHeaders =
             "Content-Type,X-DefaultAppGuard-Client";
-        context.Response.Headers.AccessControlAllowMethods = "GET,POST,OPTIONS";
+        context.Response.Headers.AccessControlAllowMethods =
+            "GET,POST,PUT,OPTIONS";
     }
 
     if (HttpMethods.IsOptions(context.Request.Method))
@@ -77,18 +84,29 @@ app.Use(async (context, next) =>
     await next();
 });
 
-app.MapGet("/api/health", () => Results.Ok(new
+app.MapGet("/api/health", (
+    TrayUserNotificationSink notifications,
+    GuardConfigurationStore configurationStore) =>
 {
-    Service = "DefaultAppGuard.Agent",
-    Version = typeof(Program).Assembly.GetName().Version?.ToString(),
-    Monitor = "RegNotifyChangeKeyValue",
-    Query = "IApplicationAssociationRegistration.QueryCurrentDefault",
-    ProcessId = Environment.ProcessId,
-    ProcessMode = "background-no-console",
-    PeriodicReadbackSeconds =
-        (int)options.PeriodicAuditInterval.TotalSeconds,
-    PackagedUi = packagedUiAvailable,
-}));
+    var notificationStatus = notifications.Snapshot();
+    return Results.Ok(new
+    {
+        Service = "DefaultAppGuard.Agent",
+        Version = typeof(Program).Assembly.GetName().Version?.ToString(),
+        Monitor = "RegNotifyChangeKeyValue",
+        Query = "IApplicationAssociationRegistration.QueryCurrentDefault",
+        ProcessId = Environment.ProcessId,
+        ProcessMode = "background-no-console",
+        PeriodicReadbackSeconds =
+            (int)options.PeriodicAuditInterval.TotalSeconds,
+        PackagedUi = packagedUiAvailable,
+        NotificationChannel = notificationStatus.Channel,
+        NotificationsAvailable = notificationStatus.Available,
+        NotificationsEnabled =
+            configurationStore.Snapshot().NotificationsEnabled,
+        NotificationLastError = notificationStatus.LastError,
+    });
+});
 
 app.MapGet("/api/readiness", (AgentRuntimeState state) =>
 {
@@ -126,7 +144,7 @@ app.MapPut("/api/config", async Task<IResult> (
     try
     {
         var configuration = await store.UpdateAsync(
-            update.ProtectedVideoExtensions,
+            update,
             cancellationToken);
         var status = await coordinator.AuditNowAsync(
             "configuration-change",

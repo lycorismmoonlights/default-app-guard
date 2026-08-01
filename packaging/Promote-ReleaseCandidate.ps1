@@ -421,6 +421,11 @@ Assert-True ([bool]$lifecycleEvidence.passed -and
     [int]$lifecycleEvidence.mainAlgorithm.failedReadCount -eq 0 -and
     [bool]$lifecycleEvidence.mainAlgorithm.initialMonitorVerified -and
     [bool]$lifecycleEvidence.mainAlgorithm.postRestartMonitorVerified -and
+    [string]$lifecycleEvidence.notifications.channel -eq
+        "WindowsForms.NotifyIcon" -and
+    [bool]$lifecycleEvidence.notifications.available -and
+    [bool]$lifecycleEvidence.notifications.enabledByDefault -and
+    [bool]$lifecycleEvidence.notifications.configurationRoundTripVerified -and
     [bool]$lifecycleEvidence.rollback.passed -and
     [bool]$lifecycleEvidence.rollback.lateStagePassed -and
     [bool]$lifecycleEvidence.rollback.installStateRestored -and
@@ -497,6 +502,7 @@ $releaseGatePath = Join-Path $promotionRoot "release-gate.json"
     packageLifecycle = [ordered]@{
         exactReleasePackagePassed = [bool]$lifecycleEvidence.passed
         mainAlgorithm = $lifecycleEvidence.mainAlgorithm
+        notifications = $lifecycleEvidence.notifications
         rollback = $lifecycleEvidence.rollback
         watchdog = $lifecycleEvidence.watchdog
         diagnostics = $lifecycleEvidence.diagnostics
