@@ -51,9 +51,12 @@ $projectRoot = [System.IO.Path]::GetFullPath(
 $packageModulePath = Join-Path $PSScriptRoot `
     "DefaultAppGuard.Package.psm1"
 Import-Module -Name $packageModulePath -Force
-$packageVersion = (
-    Get-Content -LiteralPath (Join-Path $projectRoot "package.json") -Raw |
-        ConvertFrom-Json).version
+$packageMetadata = Get-Content `
+    -LiteralPath (Join-Path $projectRoot "package.json") `
+    -Raw `
+    -Encoding UTF8 |
+    ConvertFrom-Json
+$packageVersion = [string]$packageMetadata.version
 if ($packageVersion -ne $Version) {
     throw "Requested version $Version does not match package.json $packageVersion."
 }

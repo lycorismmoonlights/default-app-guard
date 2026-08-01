@@ -19,6 +19,24 @@ exercise the real COM query and the real kernel registry notification. It must
 also prove successful watchdog recovery and a forced failed-startup path that
 cleans the failed process and suppresses immediate restart loops.
 
+If the labeled self-hosted runner is unavailable, build an unsigned candidate
+with `.github/workflows/release-candidate.yml`, download the resulting artifact,
+and promote those exact bytes on the dedicated validation computer:
+
+```powershell
+.\packaging\Promote-ReleaseCandidate.ps1 `
+  -CandidateDirectory F:\path\to\release-candidate `
+  -Version 0.1.8 `
+  -ExpectedCommit <full-main-commit-sha>
+```
+
+The promotion script requires GitHub CLI authentication and verifies hosted
+GitHub attestations for the archive, SBOM, and build evidence. It rejects a
+candidate from another commit, ref, repository, workflow, toolchain, or
+self-hosted builder. The validation machine must have no running
+`DefaultAppGuard.Agent.exe`; restore any production installation only after the
+isolated lifecycle has completed and cleaned up.
+
 Unsigned alpha releases may omit `-RequireSigned`, but their evidence must
 report `codeSigning.status` as `unsigned`. Any release described as signed must
 run:

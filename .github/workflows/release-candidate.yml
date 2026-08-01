@@ -1,0 +1,311 @@
+name: Release Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version without the v prefix
+        required: true
+        type: string
+
+concurrency:
+  group: release-candidate-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  attestations: write
+  contents: read
+  id-token: write
+
+jobs:
+  build-candidate:
+    name: Build unsigned attested candidate
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        with:
+          version: 11.9.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.18.0
+          cache: pnpm
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: 10.0.302
+
+      - name: Verify pinned toolchain and version
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          $metadata = Get-Content package.json -Raw | ConvertFrom-Json
+          $sdk = Get-Content global.json -Raw | ConvertFrom-Json
+          if ([string]$metadata.version -ne $env:RELEASE_VERSION) {
+            throw "The requested version does not match package.json."
+          }
+          if ((dotnet --version) -ne [string]$sdk.sdk.version) {
+            throw "The active .NET SDK does not match global.json."
+          }
+          if ((node -p "process.versions.node") -ne [string]$metadata.engines.node) {
+            throw "The active Node.js version does not match package.json."
+          }
+          if ((pnpm --version) -ne [string]$metadata.engines.pnpm) {
+            throw "The active pnpm version does not match package.json."
+          }
+
+      - name: Restore pinned tools and dependencies
+        run: |
+          dotnet tool restore
+          dotnet tool run sbom-tool -- version
+          pnpm install --frozen-lockfile
+
+      - name: Run portable candidate checks
+        shell: pwsh
+        run: |
+          pnpm run build
+          pnpm run test:sites
+          pnpm run test:promotion
+          ./tests/Test-PackageIntegrity.ps1
+          pnpm audit --prod
+          dotnet test `
+            native/DefaultAppGuard.Tests/DefaultAppGuard.Tests.csproj `
+            --configuration Release `
+            --filter "Category!=MainAlgorithmIntegration" `
+            --logger "console;verbosity=normal"
+
+      - name: Test package integrity on Windows PowerShell 5.1
+        shell: powershell
+        run: ./tests/Test-PackageIntegrity.ps1
+
+      - name: Build archive, SBOM, and candidate evidence
+        id: candidate
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          function Invoke-Checked {
+            param(
+              [Parameter(Mandatory)][string]$FilePath,
+              [Parameter(Mandatory)][string[]]$Arguments
+            )
+            & $FilePath @Arguments
+            if ($LASTEXITCODE -ne 0) {
+              throw "$FilePath failed with exit code $LASTEXITCODE."
+            }
+          }
+
+          $root = Join-Path $env:RUNNER_TEMP (
+            "DefaultAppGuard-candidate-{0}" -f $env:RELEASE_VERSION)
+          $packagePath = Join-Path $root (
+            "DefaultAppGuard-{0}-win-x64" -f $env:RELEASE_VERSION)
+          New-Item -ItemType Directory -Path $root | Out-Null
+          $published = ./packaging/Publish-Windows.ps1 `
+            -Version $env:RELEASE_VERSION `
+            -OutputDirectory $packagePath `
+            -PackageManagerPath pnpm `
+            -NodePath node `
+            -CreateArchive
+
+          Import-Module ./packaging/DefaultAppGuard.Package.psm1 -Force
+          $packageCheck = Test-DagPackageIntegrity -PackageRoot $packagePath
+          if (-not $packageCheck.Passed) {
+            throw "Candidate package integrity failed."
+          }
+          $setupPath = Join-Path $packagePath "DefaultAppGuard.Setup.exe"
+          if ((Get-DagPeSubsystem -Path $setupPath) -ne 2) {
+            throw "Candidate Setup does not use the Windows GUI subsystem."
+          }
+          $setup = Start-Process `
+            -FilePath $setupPath `
+            -ArgumentList @("--quiet", "--verify-only") `
+            -WindowStyle Hidden `
+            -Wait `
+            -PassThru
+          if ($setup.ExitCode -ne 0) {
+            throw "Candidate Setup verification failed."
+          }
+
+          $componentRoot = Join-Path $root "sbom-components"
+          $sbomWorkingRoot = Join-Path $root "sbom-work"
+          New-Item -ItemType Directory -Path $componentRoot | Out-Null
+          New-Item -ItemType Directory -Path $sbomWorkingRoot | Out-Null
+          $componentFiles = @(
+            Get-Item package.json
+            Get-Item pnpm-lock.yaml
+            Get-Item pnpm-workspace.yaml
+            Get-ChildItem native -Filter *.csproj -Recurse -File
+            Get-ChildItem native -Filter project.assets.json -Recurse -File
+          )
+          if (@($componentFiles | Where-Object {
+              $_.Name -eq "project.assets.json"
+            }).Count -eq 0) {
+            throw "The candidate lacks restored .NET dependency graphs."
+          }
+          foreach ($componentFile in $componentFiles) {
+            $relative = Get-DagRelativePackagePath `
+              -Root $env:GITHUB_WORKSPACE `
+              -Path $componentFile.FullName
+            $destination = Join-Path $componentRoot $relative
+            New-Item `
+              -ItemType Directory `
+              -Path (Split-Path -Parent $destination) `
+              -Force | Out-Null
+            Copy-Item -LiteralPath $componentFile.FullName -Destination $destination
+          }
+
+          $sbomValidationPath = Join-Path $root "sbom-validation.json"
+          Invoke-Checked dotnet @(
+            "tool", "run", "sbom-tool", "--", "generate",
+            "-b", $packagePath,
+            "-bc", $componentRoot,
+            "-pn", "DefaultAppGuard Community",
+            "-pv", $env:RELEASE_VERSION,
+            "-ps", "Organization: DefaultAppGuard Community",
+            "-nsb", "https://github.com/lycorismmoonlights/default-app-guard",
+            "-m", $sbomWorkingRoot,
+            "-mi", "SPDX:2.2",
+            "-V", "Warning")
+          $generatedSbom = Join-Path $sbomWorkingRoot `
+            "_manifest\spdx_2.2\manifest.spdx.json"
+          Invoke-Checked dotnet @(
+            "tool", "run", "sbom-tool", "--", "validate",
+            "-b", $packagePath,
+            "-m", (Join-Path $sbomWorkingRoot "_manifest"),
+            "-o", $sbomValidationPath,
+            "-mi", "SPDX:2.2",
+            "-n",
+            "-V", "Warning")
+          $sbomValidation = Get-Content `
+            -LiteralPath $sbomValidationPath `
+            -Raw `
+            -Encoding UTF8 | ConvertFrom-Json
+          if ($sbomValidation.Result -ne "Success" -or
+              [int]$sbomValidation.ValidationErrors.Count -ne 0 -or
+              [int]$sbomValidation.Summary.ValidationTelemetery.FilesFailedCount -ne 0) {
+            throw "Candidate SBOM validation failed."
+          }
+          $sbomPath = Join-Path $root (
+            "DefaultAppGuard-{0}.spdx.json" -f $env:RELEASE_VERSION)
+          Copy-Item -LiteralPath $generatedSbom -Destination $sbomPath
+          $sbomHash = (Get-FileHash $sbomPath -Algorithm SHA256).Hash
+          $sbomChecksumPath = "$sbomPath.sha256"
+          "$sbomHash  $([IO.Path]::GetFileName($sbomPath))" |
+            Set-Content -LiteralPath $sbomChecksumPath -Encoding Ascii
+
+          $signedFiles = @(
+            Get-Item (Join-Path $packagePath "DefaultAppGuard.Agent.exe")
+            Get-Item (Join-Path $packagePath "DefaultAppGuard.Setup.exe")
+            Get-ChildItem -LiteralPath $packagePath -File |
+              Where-Object { $_.Extension -in @(".ps1", ".psm1") }
+          )
+          $signatureStates = @(
+            $signedFiles | ForEach-Object {
+              [string](Get-AuthenticodeSignature $_.FullName).Status
+            } | Select-Object -Unique)
+          if ($signatureStates.Count -ne 1 -or
+              $signatureStates[0] -ne "NotSigned") {
+            throw "The unsigned candidate has an unexpected signature state."
+          }
+
+          $metadata = Get-Content package.json -Raw | ConvertFrom-Json
+          $sdk = Get-Content global.json -Raw | ConvertFrom-Json
+          $manifestPath = Join-Path $packagePath "package-manifest.json"
+          $candidateEvidencePath = Join-Path $root "candidate-build.json"
+          [ordered]@{
+            schemaVersion = 1
+            product = "DefaultAppGuard Community"
+            version = $env:RELEASE_VERSION
+            commit = $env:GITHUB_SHA
+            sourceRef = $env:GITHUB_REF
+            repository = $env:GITHUB_REPOSITORY
+            workflow = ".github/workflows/release-candidate.yml"
+            runId = $env:GITHUB_RUN_ID
+            generatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
+            runner = [ordered]@{
+              hosted = $true
+              operatingSystem = [Environment]::OSVersion.VersionString
+              architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+            }
+            toolchain = [ordered]@{
+              dotnetSdk = (dotnet --version)
+              node = (node -p "process.versions.node")
+              pnpm = (pnpm --version)
+              exactVersionsVerified = $true
+            }
+            package = [ordered]@{
+              archive = [IO.Path]::GetFileName($published.Archive)
+              sha256 = $published.Sha256
+              manifestSha256 = (Get-FileHash $manifestPath -Algorithm SHA256).Hash
+              manifestSchemaVersion = 2
+              declaredFileCount = $packageCheck.DeclaredFileCount
+              actualFileCount = $packageCheck.ActualFileCount
+              integrityPassed = $packageCheck.Passed
+              setupVerifierPassed = $setup.ExitCode -eq 0
+            }
+            sbom = [ordered]@{
+              file = [IO.Path]::GetFileName($sbomPath)
+              sha256 = $sbomHash
+              format = "SPDX-2.2"
+              validationResult = [string]$sbomValidation.Result
+              filesValidated = [int](
+                $sbomValidation.Summary.ValidationTelemetery.FilesValidatedCount)
+              packages = [int](
+                $sbomValidation.Summary.ValidationTelemetery.TotalPackagesInManifest)
+            }
+            codeSigning = [ordered]@{
+              policy = "unsigned-alpha"
+              status = "unsigned"
+            }
+            portableValidationPassed = $true
+          } | ConvertTo-Json -Depth 8 |
+            Set-Content -LiteralPath $candidateEvidencePath -Encoding UTF8
+
+          "archive=$($published.Archive)" >> $env:GITHUB_OUTPUT
+          "checksum=$($published.ChecksumFile)" >> $env:GITHUB_OUTPUT
+          "sbom=$sbomPath" >> $env:GITHUB_OUTPUT
+          "sbom_checksum=$sbomChecksumPath" >> $env:GITHUB_OUTPUT
+          "candidate_evidence=$candidateEvidencePath" >> $env:GITHUB_OUTPUT
+          "sbom_validation=$sbomValidationPath" >> $env:GITHUB_OUTPUT
+
+      - name: Attest candidate archive
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
+        with:
+          subject-path: ${{ steps.candidate.outputs.archive }}
+
+      - name: Attest candidate SBOM
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
+        with:
+          subject-path: ${{ steps.candidate.outputs.sbom }}
+
+      - name: Attest candidate build evidence
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
+        with:
+          subject-path: ${{ steps.candidate.outputs.candidate_evidence }}
+
+      - name: Upload immutable candidate bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-candidate-${{ inputs.version }}-${{ github.sha }}
+          path: |
+            ${{ steps.candidate.outputs.archive }}
+            ${{ steps.candidate.outputs.checksum }}
+            ${{ steps.candidate.outputs.sbom }}
+            ${{ steps.candidate.outputs.sbom_checksum }}
+            ${{ steps.candidate.outputs.candidate_evidence }}
+            ${{ steps.candidate.outputs.sbom_validation }}
+          if-no-files-found: error
+          retention-days: 30
