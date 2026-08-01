@@ -419,6 +419,11 @@ Assert-True ([bool]$lifecycleEvidence.passed -and
     [int]$lifecycleEvidence.mainAlgorithm.auditedExtensionCount -eq 34 -and
     [int]$lifecycleEvidence.mainAlgorithm.primarySnapshotCount -eq 34 -and
     [int]$lifecycleEvidence.mainAlgorithm.failedReadCount -eq 0 -and
+    [bool]$lifecycleEvidence.mainAlgorithm.auditFresh -and
+    [int64]$lifecycleEvidence.mainAlgorithm.auditAgeSeconds -ge 0 -and
+    [int64]$lifecycleEvidence.mainAlgorithm.maximumAuditAgeSeconds -gt 0 -and
+    [int64]$lifecycleEvidence.mainAlgorithm.auditAgeSeconds -le
+        [int64]$lifecycleEvidence.mainAlgorithm.maximumAuditAgeSeconds -and
     [bool]$lifecycleEvidence.mainAlgorithm.initialMonitorVerified -and
     [bool]$lifecycleEvidence.mainAlgorithm.postRestartMonitorVerified -and
     [string]$lifecycleEvidence.notifications.channel -eq
@@ -443,11 +448,17 @@ Assert-True ([bool]$lifecycleEvidence.passed -and
     [string]$lifecycleEvidence.watchdog.TelemetryOutcome -eq "recovered" -and
     [bool]$lifecycleEvidence.watchdog.TelemetryActiveProcessMatches -and
     [bool]$lifecycleEvidence.watchdog.TelemetryRedacted -and
+    [bool]$lifecycleEvidence.watchdog.ReadinessFresh -and
+    [int64]$lifecycleEvidence.watchdog.AuditAgeSeconds -ge 0 -and
+    [int64]$lifecycleEvidence.watchdog.MaximumAuditAgeSeconds -gt 0 -and
+    [int64]$lifecycleEvidence.watchdog.AuditAgeSeconds -le
+        [int64]$lifecycleEvidence.watchdog.MaximumAuditAgeSeconds -and
     [bool]$lifecycleEvidence.diagnostics.overallHealthy -and
     [int]$lifecycleEvidence.diagnostics.issueCount -eq 0 -and
     [bool]$lifecycleEvidence.diagnostics.loopbackOnly -and
     [int]$lifecycleEvidence.diagnostics.consoleChildCount -eq 0 -and
     [bool]$lifecycleEvidence.diagnostics.operationalLogsHealthy -and
+    [bool]$lifecycleEvidence.diagnostics.auditFresh -and
     [bool]$lifecycleEvidence.diagnostics.watchdogTelemetryHealthy -and
     [bool]$lifecycleEvidence.diagnostics.watchdogTelemetryMatchesTaskRun -and
     [bool]$lifecycleEvidence.diagnostics.watchdogProcessMatches -and

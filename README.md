@@ -33,7 +33,7 @@ source review and advanced operation.
 The current alpha is unsigned. Verify the checksum before installation:
 
 ```powershell
-Get-FileHash .\DefaultAppGuard-0.1.11-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DefaultAppGuard-0.1.12-win-x64.zip -Algorithm SHA256
 ```
 
 Read [ENVIRONMENT-AND-RISKS.txt](ENVIRONMENT-AND-RISKS.txt) before
@@ -42,7 +42,7 @@ privacy boundary, known limitations, and license notice in Chinese and English.
 The release gate requires this file to be reviewed and version-matched for every
 release.
 
-Version 0.1.11 packages contain a per-file SHA-256 manifest. The graphical Setup
+Version 0.1.12 packages contain a per-file SHA-256 manifest. The graphical Setup
 launcher runs without a console or administrator elevation. Before starting
 PowerShell, native Setup code independently verifies the package manifest,
 file set, lengths, and SHA-256 hashes. Setup uses `ExecutionPolicy Bypass` only
@@ -54,7 +54,9 @@ and restores the previous files and scheduled task if the new Agent fails its
 identity, primary-algorithm readiness, no-console, notification, or bounded
 operational-log checks. Readiness requires
 Microsoft Media Player target resolution and primary COM-query evidence for
-every protected format; association drift itself does not block installation.
+every protected format, with zero failed reads and a bounded evidence age;
+association drift itself does not block installation. The short-lived watchdog
+requires both process liveness and this freshness-aware readiness contract.
 Successful installation also creates a current-user entry in Windows
 **Installed apps** with a hidden, ownership-checked uninstall command. A late
 failure restores the previous package, task, install state, shortcut, and
@@ -89,10 +91,12 @@ diagnostics, and uninstallation.
 5. Re-query the effective handlers after a real notification.
 6. Run a periodic COM readback in case Windows performs a change that does not
    produce a registry notification.
-7. Send repairs through the official Windows Default Apps UI.
-8. Present drift found by those primary algorithms through a best-effort
+7. Expire readiness when the last complete primary audit exceeds the bounded
+   interval derived from the configured periodic readback.
+8. Send repairs through the official Windows Default Apps UI.
+9. Present drift found by those primary algorithms through a best-effort
    `WindowsForms.NotifyIcon` alert; never use the notification layer as evidence.
-9. Persist bounded local operational events for diagnosis; never use a log
+10. Persist bounded local operational events for diagnosis; never use a log
    entry as query or monitor evidence.
 
 See [docs/ALGORITHM-DECISIONS.md](docs/ALGORITHM-DECISIONS.md) for rejected
@@ -126,7 +130,7 @@ build or verify the project, not to install it.
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.11 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.12 `
   -PackageManagerPath pnpm
 ```
 
@@ -165,7 +169,7 @@ notice. See
   signed or invalidly signed release is rejected.
 - The `require-signed` path can sign the fresh payload with a code-signing
   certificate available through the Windows certificate store or an attached
-  HSM before the package manifest is generated. Version 0.1.11 remains an
+  HSM before the package manifest is generated. Version 0.1.12 remains an
   unsigned alpha unless its release notes explicitly state otherwise.
 - Unsigned fallback candidates carry GitHub build attestations for the ZIP,
   SBOM, and build record. These establish build provenance but do not replace a

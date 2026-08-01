@@ -387,6 +387,11 @@ $lifecycleEvidence = Get-Content `
     -Encoding UTF8 |
     ConvertFrom-Json
 if (-not [bool]$lifecycleEvidence.passed -or
+    -not [bool]$lifecycleEvidence.mainAlgorithm.auditFresh -or
+    [int64]$lifecycleEvidence.mainAlgorithm.auditAgeSeconds -lt 0 -or
+    [int64]$lifecycleEvidence.mainAlgorithm.maximumAuditAgeSeconds -le 0 -or
+    [int64]$lifecycleEvidence.mainAlgorithm.auditAgeSeconds -gt
+        [int64]$lifecycleEvidence.mainAlgorithm.maximumAuditAgeSeconds -or
     -not [bool]$lifecycleEvidence.mainAlgorithm.initialMonitorVerified -or
     -not [bool]$lifecycleEvidence.mainAlgorithm.postRestartMonitorVerified -or
     [string]$lifecycleEvidence.notifications.channel -ne
@@ -412,6 +417,12 @@ if (-not [bool]$lifecycleEvidence.passed -or
     [string]$lifecycleEvidence.watchdog.TelemetryOutcome -ne "recovered" -or
     -not [bool]$lifecycleEvidence.watchdog.TelemetryActiveProcessMatches -or
     -not [bool]$lifecycleEvidence.watchdog.TelemetryRedacted -or
+    -not [bool]$lifecycleEvidence.watchdog.ReadinessFresh -or
+    [int64]$lifecycleEvidence.watchdog.AuditAgeSeconds -lt 0 -or
+    [int64]$lifecycleEvidence.watchdog.MaximumAuditAgeSeconds -le 0 -or
+    [int64]$lifecycleEvidence.watchdog.AuditAgeSeconds -gt
+        [int64]$lifecycleEvidence.watchdog.MaximumAuditAgeSeconds -or
+    -not [bool]$lifecycleEvidence.diagnostics.auditFresh -or
     -not [bool]$lifecycleEvidence.diagnostics.watchdogTelemetryHealthy -or
     -not [bool]$lifecycleEvidence.diagnostics.watchdogTelemetryMatchesTaskRun -or
     -not [bool]$lifecycleEvidence.diagnostics.watchdogProcessMatches -or
@@ -576,6 +587,11 @@ $evidenceFile = Join-Path $releaseRoot "release-gate.json"
         monitor = "RegNotifyChangeKeyValue"
         requiredTests = $requiredTests
         exactReleasePackagePassed = [bool]$lifecycleEvidence.passed
+        auditFresh = [bool]$lifecycleEvidence.mainAlgorithm.auditFresh
+        auditAgeSeconds =
+            [int64]$lifecycleEvidence.mainAlgorithm.auditAgeSeconds
+        maximumAuditAgeSeconds =
+            [int64]$lifecycleEvidence.mainAlgorithm.maximumAuditAgeSeconds
         installedMonitorBeforeRecovery =
             [bool]$lifecycleEvidence.mainAlgorithm.initialMonitorVerified
         installedMonitorAfterRecovery =

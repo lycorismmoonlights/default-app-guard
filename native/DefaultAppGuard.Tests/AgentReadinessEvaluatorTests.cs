@@ -5,6 +5,9 @@ namespace DefaultAppGuard.Tests;
 
 public sealed class AgentReadinessEvaluatorTests
 {
+    private static readonly TimeSpan MaximumAuditAge =
+        TimeSpan.FromMinutes(20);
+
     [Fact]
     public void Evaluate_AcceptsPrimaryEvidenceWhenAssociationsHaveDrift()
     {
@@ -14,12 +17,13 @@ public sealed class AgentReadinessEvaluatorTests
                     healthy: false,
                     querySource: AgentReadinessEvaluator.PrimaryQuery)));
 
-        var readiness = AgentReadinessEvaluator.Evaluate(status);
+        var readiness = Evaluate(status);
 
         Assert.True(readiness.Ready);
         Assert.Equal("ready", readiness.Code);
         Assert.Equal(1, readiness.PrimarySnapshotCount);
         Assert.Equal(1, readiness.DriftCount);
+        Assert.True(readiness.AuditFresh);
     }
 
     [Fact]
@@ -27,7 +31,7 @@ public sealed class AgentReadinessEvaluatorTests
     {
         var status = CreateStatus(audit: null);
 
-        var readiness = AgentReadinessEvaluator.Evaluate(status);
+        var readiness = Evaluate(status);
 
         Assert.False(readiness.Ready);
         Assert.Equal("audit-pending", readiness.Code);
@@ -42,7 +46,7 @@ public sealed class AgentReadinessEvaluatorTests
             Target = new AssociationTarget("", "", null, null, []),
         };
 
-        var readiness = AgentReadinessEvaluator.Evaluate(CreateStatus(audit));
+        var readiness = Evaluate(CreateStatus(audit));
 
         Assert.False(readiness.Ready);
         Assert.Equal("target-unresolved", readiness.Code);
@@ -58,7 +62,7 @@ public sealed class AgentReadinessEvaluatorTests
                 null,
                 "Primary COM query failed."));
 
-        var readiness = AgentReadinessEvaluator.Evaluate(CreateStatus(audit));
+        var readiness = Evaluate(CreateStatus(audit));
 
         Assert.False(readiness.Ready);
         Assert.Equal("primary-query-read-failed", readiness.Code);
@@ -86,7 +90,7 @@ public sealed class AgentReadinessEvaluatorTests
                 [".mp4", ".mkv"]),
         };
 
-        var readiness = AgentReadinessEvaluator.Evaluate(CreateStatus(audit));
+        var readiness = Evaluate(CreateStatus(audit));
 
         Assert.False(readiness.Ready);
         Assert.Equal("primary-query-read-failed", readiness.Code);
@@ -99,7 +103,7 @@ public sealed class AgentReadinessEvaluatorTests
     {
         var audit = CreateAudit(CreateItem(true, "registry-fallback"));
 
-        var readiness = AgentReadinessEvaluator.Evaluate(CreateStatus(audit));
+        var readiness = Evaluate(CreateStatus(audit));
 
         Assert.False(readiness.Ready);
         Assert.Equal("non-primary-query-evidence", readiness.Code);
@@ -116,10 +120,61 @@ public sealed class AgentReadinessEvaluatorTests
             LastError = "Media Player package is unavailable.",
         };
 
-        var readiness = AgentReadinessEvaluator.Evaluate(status);
+        var readiness = Evaluate(status);
 
         Assert.False(readiness.Ready);
         Assert.Equal("service-not-running", readiness.Code);
+    }
+
+    [Fact]
+    public void Evaluate_RejectsExpiredPrimaryQueryEvidence()
+    {
+        var now = DateTimeOffset.Parse("2026-08-01T12:00:00Z");
+        var audit = CreateAudit(
+            CreateItem(true, AgentReadinessEvaluator.PrimaryQuery)) with
+        {
+            AuditedAtUtc = now - MaximumAuditAge - TimeSpan.FromSeconds(1),
+        };
+
+        var readiness = AgentReadinessEvaluator.Evaluate(
+            CreateStatus(audit),
+            MaximumAuditAge,
+            now);
+
+        Assert.False(readiness.Ready);
+        Assert.False(readiness.AuditFresh);
+        Assert.Equal("audit-stale", readiness.Code);
+        Assert.Equal(1201, readiness.AuditAgeSeconds);
+        Assert.Equal(1200, readiness.MaximumAuditAgeSeconds);
+    }
+
+    [Fact]
+    public void Evaluate_AcceptsEvidenceAtFreshnessBoundary()
+    {
+        var now = DateTimeOffset.Parse("2026-08-01T12:00:00Z");
+        var audit = CreateAudit(
+            CreateItem(true, AgentReadinessEvaluator.PrimaryQuery)) with
+        {
+            AuditedAtUtc = now - MaximumAuditAge,
+        };
+
+        var readiness = AgentReadinessEvaluator.Evaluate(
+            CreateStatus(audit),
+            MaximumAuditAge,
+            now);
+
+        Assert.True(readiness.Ready);
+        Assert.True(readiness.AuditFresh);
+        Assert.Equal("ready", readiness.Code);
+        Assert.Equal(1200, readiness.AuditAgeSeconds);
+    }
+
+    private static AgentReadiness Evaluate(AgentStatus status)
+    {
+        return AgentReadinessEvaluator.Evaluate(
+            status,
+            MaximumAuditAge,
+            status.Audit?.AuditedAtUtc ?? DateTimeOffset.UtcNow);
     }
 
     private static AgentStatus CreateStatus(AssociationAuditResult? audit)

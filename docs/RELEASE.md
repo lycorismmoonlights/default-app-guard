@@ -62,7 +62,8 @@ same attested archive. It never rebuilds the package locally.
     telemetry, applies bounded backoff, and suppresses an immediate relaunch.
 11. Executes Setup's exact-package verification, installs the package in an
    isolated location, requires the readiness endpoint to report primary COM
-    evidence for every declared format, and verifies the kernel notification
+    evidence for every declared format, requires that evidence to be within
+    the published freshness threshold, and verifies the kernel notification
     before and after the short-lived native watchdog recovers a terminated
     Agent and returns its task to `Ready`, a deliberately failed transactional
     upgrade and rollback, the `WindowsForms.NotifyIcon` channel, notification
@@ -126,13 +127,14 @@ Use this fallback only while Authenticode signing is unavailable:
 ```powershell
 .\packaging\Promote-ReleaseCandidate.ps1 `
   -CandidateDirectory F:\path\to\downloaded-candidate `
-  -Version 0.1.11 `
+  -Version 0.1.12 `
   -ExpectedCommit <full-main-commit-sha>
 ```
 
 5. Require `release-gate.json`, `package-lifecycle.json`, and
    `watchdog-backoff.json` to report `passed: true`. In particular, require 34
-   primary snapshots, zero failed reads, both real monitor checks, recovery,
+   fresh primary snapshots, zero failed reads, both real monitor checks,
+   freshness-aware watchdog recovery,
    notification-channel and preference round-trip evidence, bounded local-log
    evidence, rollback, diagnostics, and clean uninstall.
 6. Publish the original candidate ZIP, its checksum, the original SBOM and its

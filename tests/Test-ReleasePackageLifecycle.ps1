@@ -111,6 +111,8 @@ function Wait-AgentHealthy {
                 [int64]$health.OperationalLogFileSizeLimitBytes -ne 2MB -or
                 [int]$health.OperationalLogRetainedFileCountLimit -ne 7) {
                 $lastFailure = "Agent operational logging is unavailable."
+            } elseif ([int64]$health.MaximumAuditAgeSeconds -le 0) {
+                $lastFailure = "Agent did not publish an audit freshness limit."
             } elseif (-not ([string]$health.Version).StartsWith(
                     "$ExpectedVersion.",
                     [StringComparison]::Ordinal)) {
@@ -122,9 +124,29 @@ function Wait-AgentHealthy {
                 [int]$processes[0].ProcessId -ne $processId) {
                 $lastFailure = "Agent endpoint is not owned by the package process."
             } else {
-                return [pscustomobject]@{
-                    Health = $health
-                    ProcessId = $processId
+                $readiness = Invoke-RestMethod `
+                    -Uri "$($AgentUrl.TrimEnd('/'))/api/readiness" `
+                    -TimeoutSec 1
+                if (-not [bool]$readiness.Ready -or
+                    [string]$readiness.Code -ne "ready" -or
+                    -not [bool]$readiness.AuditFresh -or
+                    [int64]$readiness.AuditAgeSeconds -lt 0 -or
+                    [int64]$readiness.MaximumAuditAgeSeconds -ne
+                        [int64]$health.MaximumAuditAgeSeconds -or
+                    [int64]$readiness.AuditAgeSeconds -gt
+                        [int64]$readiness.MaximumAuditAgeSeconds -or
+                    [int]$readiness.AuditedExtensionCount -le 0 -or
+                    [int]$readiness.PrimarySnapshotCount -ne
+                        [int]$readiness.AuditedExtensionCount -or
+                    [int]$readiness.FailedReadCount -ne 0) {
+                    $lastFailure =
+                        "Agent readiness evidence is stale or incomplete."
+                } else {
+                    return [pscustomobject]@{
+                        Health = $health
+                        Readiness = $readiness
+                        ProcessId = $processId
+                    }
                 }
             }
         } catch {
@@ -429,6 +451,12 @@ try {
         "The readiness gate did not obtain primary COM evidence for every extension."
     Assert-True ([int]$installResult.FailedReadCount -eq 0) `
         "The readiness gate reported failed primary association reads."
+    Assert-True ([bool]$installResult.AuditFresh -and
+        [int64]$installResult.AuditAgeSeconds -ge 0 -and
+        [int64]$installResult.MaximumAuditAgeSeconds -gt 0 -and
+        [int64]$installResult.AuditAgeSeconds -le
+            [int64]$installResult.MaximumAuditAgeSeconds) `
+        "The readiness gate accepted stale primary association evidence."
     Assert-True ([bool]$installResult.UninstallRegistered) `
         "The candidate installer did not register standard uninstallation."
     Assert-True ($installResult.UninstallRegistryKeyName -eq
@@ -707,6 +735,11 @@ try {
         TelemetryActiveProcessMatches =
             [int]$watchdogStatus.activeProcessId -eq $afterWatchdog.ProcessId
         TelemetryRedacted = $true
+        ReadinessFresh = [bool]$afterWatchdog.Readiness.AuditFresh
+        AuditAgeSeconds =
+            [int64]$afterWatchdog.Readiness.AuditAgeSeconds
+        MaximumAuditAgeSeconds =
+            [int64]$afterWatchdog.Readiness.MaximumAuditAgeSeconds
         AutomaticRestartVerified = $true
     }
 
@@ -747,8 +780,15 @@ try {
         "Diagnostics rejected the standard uninstall registration."
     Assert-True ([bool]$diagnosticsReport.scheduledTask.configurationHealthy) `
         "Diagnostics rejected the installed watchdog configuration."
-    Assert-True ([int]$diagnosticsReport.schemaVersion -eq 4) `
-        "Diagnostics did not use the operational-log-aware schema."
+    Assert-True ([int]$diagnosticsReport.schemaVersion -eq 5) `
+        "Diagnostics did not use the freshness-aware schema."
+    Assert-True ([bool]$diagnosticsReport.mainAlgorithm.auditFreshnessAvailable -and
+        [bool]$diagnosticsReport.mainAlgorithm.auditFresh -and
+        [int64]$diagnosticsReport.mainAlgorithm.auditAgeSeconds -ge 0 -and
+        [int64]$diagnosticsReport.mainAlgorithm.maximumAuditAgeSeconds -gt 0 -and
+        [int64]$diagnosticsReport.mainAlgorithm.auditAgeSeconds -le
+            [int64]$diagnosticsReport.mainAlgorithm.maximumAuditAgeSeconds) `
+        "Diagnostics accepted stale primary association evidence."
     Assert-True ($diagnosticsReport.notifications.channel -eq
         "WindowsForms.NotifyIcon" -and
         [bool]$diagnosticsReport.notifications.available -and
@@ -894,6 +934,10 @@ try {
             auditedExtensionCount = $installResult.AuditedExtensionCount
             primarySnapshotCount = $installResult.PrimarySnapshotCount
             failedReadCount = $installResult.FailedReadCount
+            auditFresh = [bool]$installResult.AuditFresh
+            auditAgeSeconds = [int64]$installResult.AuditAgeSeconds
+            maximumAuditAgeSeconds =
+                [int64]$installResult.MaximumAuditAgeSeconds
             initialMonitorVerified = [bool]$firstMonitor.InstalledMonitorVerified
             postRestartMonitorVerified = [bool]$secondMonitor.InstalledMonitorVerified
         }
@@ -919,6 +963,8 @@ try {
                 [bool]$diagnosticsReport.notifications.enabled
             operationalLogsHealthy =
                 [bool]$diagnosticsReport.operationalLogs.healthy
+            auditFresh =
+                [bool]$diagnosticsReport.mainAlgorithm.auditFresh
             watchdogTelemetryHealthy =
                 [bool]$diagnosticsReport.watchdogTelemetry.outcomeHealthy
             watchdogTelemetryMatchesTaskRun =
