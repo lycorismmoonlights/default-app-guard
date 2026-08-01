@@ -27,7 +27,7 @@ Windows 11 x64 system with Microsoft Media Player installed and selected for
 the declared video formats:
 
 ```powershell
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.8 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.9 `
   -PackageManagerPath pnpm
 ```
 

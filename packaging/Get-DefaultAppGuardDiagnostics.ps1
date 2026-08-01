@@ -617,6 +617,9 @@ $extensionCount = 0
 $queryAlgorithm = $null
 $monitorAlgorithm = $null
 $processMode = $null
+$notificationChannel = $null
+$notificationsAvailable = $false
+$notificationsEnabled = $false
 $hasRuntimeError = $false
 if ($apiReachable -and $null -ne $status -and
     $null -ne $status.audit) {
@@ -627,6 +630,9 @@ if ($apiReachable -and $null -ne $status -and
     $queryAlgorithm = [string]$status.queryAlgorithm
     $monitorAlgorithm = [string]$status.monitorAlgorithm
     $processMode = [string]$health.ProcessMode
+    $notificationChannel = [string]$health.NotificationChannel
+    $notificationsAvailable = [bool]$health.NotificationsAvailable
+    $notificationsEnabled = [bool]$health.NotificationsEnabled
     $hasRuntimeError = $null -ne $status.lastError
     if ($queryAlgorithm -ne
         "IApplicationAssociationRegistration.QueryCurrentDefault" -or
@@ -639,13 +645,19 @@ if ($apiReachable -and $null -ne $status -and
     if ($processMode -ne "background-no-console") {
         $issues.Add("agent-process-mode")
     }
+    if ($notificationChannel -ne "WindowsForms.NotifyIcon") {
+        $issues.Add("notification-channel-unexpected")
+    }
+    if (-not $notificationsAvailable) {
+        $issues.Add("notification-channel-unavailable")
+    }
 } elseif ($apiReachable) {
     $issues.Add("association-audit-unavailable")
 }
 
 $operatingSystem = Get-CimInstance Win32_OperatingSystem
 $report = [ordered]@{
-    schemaVersion = 2
+    schemaVersion = 3
     product = "DefaultAppGuard Community"
     generatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
     privacy = [ordered]@{
@@ -804,6 +816,11 @@ $report = [ordered]@{
         processMode = $processMode
         hasRuntimeError = $hasRuntimeError
     }
+    notifications = [ordered]@{
+        channel = $notificationChannel
+        available = $notificationsAvailable
+        enabled = $notificationsEnabled
+    }
     issueCodes = @($issues | Sort-Object -Unique)
 }
 $payloadPassed = $null -ne $payloadCheck -and [bool]$payloadCheck.Passed
@@ -822,6 +839,7 @@ $report["overallHealthy"] =
     $consoleChildCount -eq 0 -and
     $loopbackOnly -and
     $apiProcessMatches -and
+    $notificationsAvailable -and
     $readinessReady -and
     $auditHealthy -and
     $driftCount -eq 0

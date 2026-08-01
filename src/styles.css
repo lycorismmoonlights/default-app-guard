@@ -917,6 +917,51 @@ input[type="radio"] {
   color: var(--muted);
 }
 
+input.notification-switch {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  flex: 0 0 42px;
+  border: 1px solid #8a8d91;
+  border-radius: 12px;
+  appearance: none;
+  background: #d8dade;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+input.notification-switch::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 22%);
+  content: "";
+  transition: transform 120ms ease;
+}
+
+input.notification-switch:checked {
+  border-color: var(--teal-dark);
+  background: var(--teal);
+}
+
+input.notification-switch:checked::after {
+  transform: translateX(18px);
+}
+
+input.notification-switch:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 3px;
+}
+
+input.notification-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 @media (max-width: 1360px) {
   .app-frame {
     grid-template-columns: 220px minmax(0, 1fr);

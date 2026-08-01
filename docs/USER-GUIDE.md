@@ -71,6 +71,15 @@ Open **DefaultAppGuard** from the Start menu.
 - Select the video formats that should remain in the monitored set.
 - **Save scope and open Settings** persists that set and opens Microsoft's
   Default Apps page for Media Player.
+- **Settings > System notifications** enables or disables tray alerts. Turning
+  alerts off does not stop monitoring.
+
+When the primary audit detects drift, the Agent attempts to show a Windows
+tray balloon. The first drift and any change in the affected format set can
+alert immediately; unchanged drift is limited to one reminder per 30 minutes.
+Focus Assist, Do Not Disturb, notification permissions, Explorer restarts, or
+organization policy can suppress the visible balloon. Check the application
+status rather than treating the presence or absence of a balloon as proof.
 
 The application does not silently change Windows defaults. After completing a
 change in Windows Settings, return to DefaultAppGuard and run another check.
@@ -88,8 +97,11 @@ checks package integrity, Agent and Setup signature status, the scheduled task,
 including its exact action, current-user privilege, triggers, single-instance
 and restart settings, standard uninstall registration, Agent process identity,
 watchdog recovery outcome and backoff state, loopback listener, console
-children, readiness, and the current main-algorithm audit. The report
-does not include personal paths, registry exports, raw runtime file contents,
+children, readiness, and the current main-algorithm audit. The report also
+checks the `WindowsForms.NotifyIcon` channel and records whether the user
+enabled alerts. A user-disabled preference is not a fault; an unavailable
+notification channel is. It does not include personal paths, registry exports,
+raw runtime file contents,
 or tokens. Review it before attaching it to an issue.
 
 The default runtime files are:

@@ -62,10 +62,11 @@ same attested archive. It never rebuilds the package locally.
     telemetry, applies bounded backoff, and suppresses an immediate relaunch.
 11. Executes Setup's exact-package verification, installs the package in an
    isolated location, requires the readiness endpoint to report primary COM
-   evidence for every declared format, and verifies the kernel notification
-   before and after the short-lived native watchdog recovers a terminated
-   Agent and returns its task to `Ready`, a deliberately failed transactional
-   upgrade and rollback,
+    evidence for every declared format, and verifies the kernel notification
+    before and after the short-lived native watchdog recovers a terminated
+    Agent and returns its task to `Ready`, a deliberately failed transactional
+    upgrade and rollback, the `WindowsForms.NotifyIcon` channel, notification
+    preference round-trip without protected-scope loss,
    diagnostics, Windows Installed apps registration, execution of the exact
    registered hidden uninstall command, clean removal, and no shortcut
    ownership violation.
@@ -82,7 +83,8 @@ same attested archive. It never rebuilds the package locally.
 The gate fails if the COM query, Media Player resolver, effective plan, real
 `RegNotifyChangeKeyValue` notification, re-arm behavior, or full 34-format
 audit does not pass. It also fails if the final Agent uses the Windows Console
-subsystem.
+subsystem, cannot initialize its notification channel, or loses protected
+formats while changing the notification preference.
 
 ## Publishing
 
@@ -121,14 +123,15 @@ Use this fallback only while Authenticode signing is unavailable:
 ```powershell
 .\packaging\Promote-ReleaseCandidate.ps1 `
   -CandidateDirectory F:\path\to\downloaded-candidate `
-  -Version 0.1.8 `
+  -Version 0.1.9 `
   -ExpectedCommit <full-main-commit-sha>
 ```
 
 5. Require `release-gate.json`, `package-lifecycle.json`, and
    `watchdog-backoff.json` to report `passed: true`. In particular, require 34
    primary snapshots, zero failed reads, both real monitor checks, recovery,
-   rollback, diagnostics, and clean uninstall.
+   notification-channel and preference round-trip evidence, rollback,
+   diagnostics, and clean uninstall.
 6. Publish the original candidate ZIP, its checksum, the original SBOM and its
    checksum, `candidate-build.json`, `release-gate.json`,
    `package-lifecycle.json`, and `watchdog-backoff.json`. Target the exact

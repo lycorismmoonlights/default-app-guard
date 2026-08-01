@@ -1,7 +1,7 @@
 DefaultAppGuard Community
 环境配置要求与风险提示 / Environment Requirements and Risk Notice
 
-适用版本 / Applies to version: 0.1.8
+适用版本 / Applies to version: 0.1.9
 更新日期 / Updated: 2026-08-01
 
 ============================================================
@@ -22,6 +22,8 @@ DefaultAppGuard Community
 - 卸载入口：安装成功后会在当前用户的 Windows“已安装的应用”中注册
   DefaultAppGuard Community，不会写入全局机器安装列表。
 - 进程模式：Agent 使用无控制台的 Windows 后台子系统，不应弹出或常驻终端窗口。
+- 通知方式：Agent 在当前交互用户会话中使用 WindowsForms.NotifyIcon 提供托盘
+  图标和系统气泡提醒。设置页可关闭提醒；关闭提醒不会停止后台检测。
 - 本地端口：Agent 仅监听 127.0.0.1:51873。
 - 运行时：发布包是自包含的，不需要单独安装 Node.js 或 .NET。
 - 仅供开发者复现构建：仓库固定使用 .NET SDK 10.0.302（.NET 10 LTS）、
@@ -56,7 +58,7 @@ DefaultAppGuard Community
 
 3.1 本版本的签名状态
 
-- 适用本提示文本的 0.1.8 版本是“未签名 alpha 版本”。
+- 适用本提示文本的 0.1.9 版本是“未签名 alpha 版本”。
 - DefaultAppGuard.Agent.exe、DefaultAppGuard.Setup.exe、Install-DefaultAppGuard.ps1、
   Uninstall-DefaultAppGuard.ps1、Get-DefaultAppGuardDiagnostics.ps1 和
   DefaultAppGuard.Package.psm1 均没有受 Windows 信任的发布者签名。
@@ -86,7 +88,7 @@ DefaultAppGuard Community
 3) 同时下载对应的 .sha256 文件，并核对 ZIP 的 SHA-256。可以在 ZIP
    所在文件夹打开 PowerShell，运行：
 
-   Get-FileHash .\DefaultAppGuard-0.1.8-win-x64.zip -Algorithm SHA256
+   Get-FileHash .\DefaultAppGuard-0.1.9-win-x64.zip -Algorithm SHA256
 
    输出的 64 位哈希必须与 .sha256 文件完全一致。任何一位不同都不要运行。
 4) 完整解压 ZIP 后再安装，不要从压缩包预览窗口直接运行脚本。
@@ -132,6 +134,9 @@ DefaultAppGuard Community
 - UserChoice 注册表数据只作为交叉证据，不作为保底查询结果。
 - 主监控算法使用 RegNotifyChangeKeyValue 监听当前用户的 FileExts 变化。
 - Agent 会周期性重新执行 COM 查询，以减少遗漏变化的时间窗口。
+- 只有上述主算法的真实审计结果发现偏移时，通知层才会提醒。通知层不读取或
+  判断默认应用，也不是主算法的保底替代。首次偏移和偏移集合变化会立即尝试
+  提醒，同一组持续偏移最多每 30 分钟重复一次。
 - 程序只保存自己的监控范围、状态和安装信息。
 - 程序不会直接改写 UserChoice，不会绕过 UCPD，也不会静默强制恢复默认程序。
 - 需要修复时，程序会打开 Windows 官方“默认应用”设置，由用户确认修改。
@@ -144,6 +149,12 @@ DefaultAppGuard Community
   发布者签名，它不能证明发布者身份，也不能抵御能够同时替换文件和清单的攻击者。
 - Windows 更新、Media Player 更新或注册机制变化可能导致误报、漏报或暂时失效。
 - 注册表通知和周期复检之间存在有限时间窗口，变化不会被承诺为瞬时发现。
+- 系统气泡提醒是尽力而为的辅助提示，不是检测成功的证明。Windows 专注助手、
+  “请勿打扰”、系统通知权限、Explorer 重启或组织策略可能延迟、合并或完全
+  隐藏提醒。没有看到气泡不等于 Agent 没有检测；请打开应用查看状态或运行诊断。
+- 用户在设置页关闭“系统通知”后，COM 查询、RegNotifyChangeKeyValue 监控和
+  周期复检仍会继续，只是不再显示偏移气泡。托盘通知通道本身不可用会被安装器、
+  看门狗和诊断视为故障，但 Windows 是否最终显示气泡不受本程序完全控制。
 - 当前只保护视频扩展名，并且目标固定为本机动态解析到的 Microsoft Media Player。
 - 当前只支持单个登录用户实例；不同 Windows 用户需要分别安装和配置。
 - 后台 Agent 和计划任务会占用少量内存、CPU 和本地端口。
@@ -213,6 +224,9 @@ English
   current user's Windows Installed apps list, not the machine-wide list.
 - Process mode: the Agent uses the no-console Windows GUI subsystem and should
   not open or keep a terminal window visible.
+- Notifications: the Agent uses WindowsForms.NotifyIcon in the current
+  interactive user session for a tray icon and system balloon alerts. Alerts
+  can be disabled in Settings without stopping background detection.
 - Local port: the Agent listens only on 127.0.0.1:51873.
 - Runtime: the release package is self-contained and does not require a
   separate Node.js or .NET installation.
@@ -257,7 +271,7 @@ English
 
 3.1 Signing status of this version
 
-- Version 0.1.8 covered by this notice is an unsigned alpha release.
+- Version 0.1.9 covered by this notice is an unsigned alpha release.
 - DefaultAppGuard.Agent.exe, DefaultAppGuard.Setup.exe, Install-DefaultAppGuard.ps1,
   Uninstall-DefaultAppGuard.ps1, Get-DefaultAppGuardDiagnostics.ps1, and
   DefaultAppGuard.Package.psm1 do not have a publisher signature trusted by
@@ -294,7 +308,7 @@ Consider installing this unsigned alpha only when every item below is true:
 3) Download the matching .sha256 file and verify the ZIP. Open PowerShell in
    the folder containing the ZIP and run:
 
-   Get-FileHash .\DefaultAppGuard-0.1.8-win-x64.zip -Algorithm SHA256
+   Get-FileHash .\DefaultAppGuard-0.1.9-win-x64.zip -Algorithm SHA256
 
    The 64-character hash must match the .sha256 file exactly. Do not run the
    package when even one character is different.
@@ -358,6 +372,10 @@ or ask a trusted person with Windows security experience to inspect it.
 - The primary monitor algorithm uses RegNotifyChangeKeyValue on the current
   user's FileExts tree.
 - The Agent periodically repeats the COM query to reduce missed-change windows.
+- The notification layer alerts only after a real audit from the primary
+  algorithms reports drift. It does not read or decide defaults and is not a
+  fallback algorithm. First drift and a changed drift set trigger an immediate
+  attempt; unchanged persistent drift repeats no more than once per 30 minutes.
 - The application writes only its own monitored scope, status, and install data.
 - It does not write UserChoice, bypass UCPD, or silently force a default app.
 - Repair opens the official Windows Default Apps surface for user approval.
@@ -375,6 +393,15 @@ or ask a trusted person with Windows security experience to inspect it.
   or temporary incompatibility.
 - A limited detection window exists between registry notifications and
   periodic readback; instant detection is not guaranteed.
+- System balloon alerts are best effort and are not proof that detection ran.
+  Windows Focus Assist, Do Not Disturb, notification permissions, an Explorer
+  restart, or organization policy may delay, group, or suppress an alert.
+  Absence of a balloon does not mean the Agent missed a change; open the
+  application or run diagnostics to inspect its state.
+- Disabling System notifications in Settings leaves the COM query,
+  RegNotifyChangeKeyValue monitor, and periodic readback running. Setup, the
+  watchdog, and diagnostics treat an unavailable tray channel as a fault, but
+  the application cannot guarantee that Windows will visibly render a balloon.
 - The current version protects video extensions only and targets the locally
   resolved Microsoft Media Player installation.
 - One instance is supported per signed-in user. Each Windows user must install
@@ -446,17 +473,18 @@ retain LICENSE.md, NOTICE, and this notice file.
 
 中文：
 
-- 0.1.8 的发布附件包含 SPDX 2.2 软件物料清单（SBOM）及其 SHA-256。
+- 0.1.9 的发布附件包含 SPDX 2.2 软件物料清单（SBOM）及其 SHA-256。
   SBOM 使用固定版本的 Microsoft SBOM Tool 生成，并在发布门禁中逐文件验证。
 - 发布门禁会先运行无控制台图形安装器的确切包验证，再安装即将发布的软件包，
   并验证就绪端点、34 项主 COM 查询证据、真实注册表通知、
+  WindowsForms.NotifyIcon 通道可用性和通知开关的关闭/恢复往返、
   失败升级回滚、计划任务的参数/权限/触发器/单实例/重启配置、自动恢复、
   恢复记录、失败进程清理、重启风暴退避、无控制台运行、诊断健康和干净卸载。
 - 发布证据同时记录并核对精确的 .NET SDK、Node.js 和 pnpm 版本；版本不一致时
   门禁会失败，不允许使用悄然滚动的新工具链发布。
 - 这些证据用于提高构建可追溯性和发现发布过程错误，不代表软件在所有电脑上
   都不会出现兼容性问题，也不能代替 Windows Authenticode 发布者签名。
-- 对于 0.1.8 的未签名候选包，ZIP、SBOM 和 candidate-build.json 由 GitHub
+- 对于 0.1.9 的未签名候选包，ZIP、SBOM 和 candidate-build.json 由 GitHub
   托管的 Windows 构建任务生成并分别附加 GitHub artifact attestation（构建来源
   证明）。发布维护者随后必须在配置了真实 Microsoft Media Player 默认关联的
   Windows 电脑上，对完全相同的 ZIP 运行本地主算法晋级门禁；该门禁不会重新
@@ -474,18 +502,19 @@ retain LICENSE.md, NOTICE, and this notice file.
   Authenticode 代码签名。用户仍应只从官方 Releases 页面下载、核对 SHA-256、
   保持安全软件开启，并把本版本视为未签名 alpha。
 - 项目已经具备使用 Windows 证书存储或兼容 HSM 进行发布签名的构建入口；但是
-  本提示对应的 0.1.8 仍是未签名 alpha。只有当 GitHub 发布说明明确写明“已签名”、
+  本提示对应的 0.1.9 仍是未签名 alpha。只有当 GitHub 发布说明明确写明“已签名”、
   列出签名者，且 release-gate.json 显示所有受检文件签名有效并已加时间戳时，
   才能把某个未来版本视为已签名版本。
 
 English:
 
-- Version 0.1.8 release assets include an SPDX 2.2 software bill of materials
+- Version 0.1.9 release assets include an SPDX 2.2 software bill of materials
   (SBOM) and its SHA-256. The pinned Microsoft SBOM Tool generates it, and the
   release gate validates every packaged file against it.
 - The release gate first runs the graphical no-console Setup verifier, then
   installs the exact package and verifies readiness, primary COM evidence for
-  all 34 formats, real registry notification, failed-upgrade
+  all 34 formats, real registry notification, WindowsForms.NotifyIcon channel
+  availability, notification-preference disable/restore round-trip, failed-upgrade
   rollback, scheduled-task arguments, privilege, triggers, single-instance and
   restart settings, automatic recovery, recovery telemetry, failed-process
   cleanup, restart-storm backoff, no-console operation, healthy diagnostics,
@@ -496,7 +525,7 @@ English:
 - This evidence improves build traceability and catches release-process
   failures. It does not guarantee compatibility on every computer and does not
   replace a trusted Windows Authenticode publisher signature.
-- For the unsigned 0.1.8 candidate, a GitHub-hosted Windows build creates the
+- For the unsigned 0.1.9 candidate, a GitHub-hosted Windows build creates the
   ZIP, SBOM, and candidate-build.json and attaches a separate GitHub artifact
   attestation to each. A maintainer must then run the local main-algorithm
   promotion gate on a Windows computer whose real default associations target
@@ -520,7 +549,7 @@ English:
   SHA-256, keep security software enabled, and continue to treat this version
   as an unsigned alpha.
 - The build now supports release signing through the Windows certificate store
-  or a compatible HSM. However, version 0.1.8 covered by this notice remains an
+  or a compatible HSM. However, version 0.1.9 covered by this notice remains an
   unsigned alpha. Treat a future version as signed only when its GitHub release
   notes explicitly say so, name the signer, and release-gate.json reports valid,
   timestamped signatures for every checked file.

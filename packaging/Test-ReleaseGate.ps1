@@ -389,6 +389,12 @@ $lifecycleEvidence = Get-Content `
 if (-not [bool]$lifecycleEvidence.passed -or
     -not [bool]$lifecycleEvidence.mainAlgorithm.initialMonitorVerified -or
     -not [bool]$lifecycleEvidence.mainAlgorithm.postRestartMonitorVerified -or
+    [string]$lifecycleEvidence.notifications.channel -ne
+        "WindowsForms.NotifyIcon" -or
+    -not [bool]$lifecycleEvidence.notifications.available -or
+    -not [bool]$lifecycleEvidence.notifications.enabledByDefault -or
+    -not [bool](
+        $lifecycleEvidence.notifications.configurationRoundTripVerified) -or
     -not [bool]$lifecycleEvidence.install.uninstallRegistrationVerified -or
     -not [bool]$lifecycleEvidence.rollback.lateStagePassed -or
     -not [bool]$lifecycleEvidence.rollback.installStateRestored -or
@@ -565,6 +571,13 @@ $evidenceFile = Join-Path $releaseRoot "release-gate.json"
             [bool]$lifecycleEvidence.mainAlgorithm.initialMonitorVerified
         installedMonitorAfterRecovery =
             [bool]$lifecycleEvidence.mainAlgorithm.postRestartMonitorVerified
+        notificationChannel =
+            [string]$lifecycleEvidence.notifications.channel
+        notificationsAvailable =
+            [bool]$lifecycleEvidence.notifications.available
+        notificationConfigurationVerified =
+            [bool](
+                $lifecycleEvidence.notifications.configurationRoundTripVerified)
         passed = $true
     }
     process = [ordered]@{

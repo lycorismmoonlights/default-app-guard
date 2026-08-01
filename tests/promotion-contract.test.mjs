@@ -65,6 +65,9 @@ test("release metadata and risk notice stay version-aligned", async () => {
   assert.ok(notice.includes("release-gate.json"));
   assert.ok(notice.includes("primarySnapshotCount"));
   assert.ok(notice.includes("failedReadCount"));
+  assert.ok(notice.includes("WindowsForms.NotifyIcon"));
+  assert.ok(notice.includes("专注助手"));
+  assert.ok(notice.includes("Focus Assist"));
 });
 
 test("published package includes the bilingual risk notice", async () => {
@@ -234,6 +237,8 @@ test("candidate promotion requires provenance and exact-package main evidence", 
   assert.ok(promotion.includes("RegNotifyChangeKeyValue"));
   assert.ok(promotion.includes("primarySnapshotCount -eq 34"));
   assert.ok(promotion.includes("failedReadCount -eq 0"));
+  assert.ok(promotion.includes("WindowsForms.NotifyIcon"));
+  assert.ok(promotion.includes("configurationRoundTripVerified"));
   assert.ok(promotion.includes("exactAttestedArchivePromoted = $true"));
   assert.ok(promotion.includes('policy = "unsigned-alpha"'));
   assert.ok(promotion.includes('status = "unsigned"'));
@@ -270,6 +275,7 @@ test("installer validates, stages, and can roll back an upgrade", async () => {
   assert.ok(installer.includes("the previous installation was restored"));
   assert.ok(installer.includes("Health endpoint is not owned by the installed Agent"));
   assert.ok(installer.includes("ProcessMode -ne \"background-no-console\""));
+  assert.ok(installer.includes("System notification channel is unavailable"));
   assert.ok(installer.includes("$replacementBackupPath"));
   assert.ok(installer.includes("$shouldManageShortcut"));
   assert.ok(installer.includes("Set-UninstallRegistryEntry"));
@@ -316,6 +322,8 @@ test("diagnostics are packaged, redacted, and inspect the primary algorithm", as
   assert.ok(diagnostics.includes("watchdogTelemetry = [ordered]@{"));
   assert.ok(diagnostics.includes('storage = "HKCU\\Software\\DefaultAppGuard'));
   assert.ok(diagnostics.includes("watchdogProcessMatches"));
+  assert.ok(diagnostics.includes("notification-channel-unavailable"));
+  assert.ok(diagnostics.includes("notifications = [ordered]@{"));
   assert.equal(
     diagnostics.includes('"expected-ignore-new-while-running"'),
     false,
@@ -373,6 +381,8 @@ test("production UI exposes only implemented product capabilities", async () => 
   assert.ok(app.includes('startsWith("@{")'));
   assert.ok(app.includes('includes("ms-resource:")'));
   assert.ok(app.includes("Agent 运行异常"));
+  assert.ok(app.includes("系统通知"));
+  assert.ok(app.includes('role="switch"'));
 });
 
 test("Vite includes the patched 6.4.3 release", async () => {

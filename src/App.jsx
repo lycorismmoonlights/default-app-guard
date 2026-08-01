@@ -101,7 +101,7 @@ function useAgentStatus() {
   }, [request]);
 
   const saveConfiguration = useCallback(
-    async (extensions) => {
+    async (update) => {
       setIsRefreshing(true);
       try {
         const result = await request("/api/config", {
@@ -110,14 +110,14 @@ function useAgentStatus() {
             "Content-Type": "application/json",
             "X-DefaultAppGuard-Client": "local-ui",
           },
-          body: JSON.stringify({ protectedVideoExtensions: extensions }),
+          body: JSON.stringify(update),
         });
         setConfiguration(result.configuration);
         setStatus(result.status);
         setError("");
         return true;
       } catch (requestError) {
-        setError(requestError.message || "无法保存保护范围");
+        setError(requestError.message || "无法保存配置");
         return false;
       } finally {
         setIsRefreshing(false);
@@ -298,7 +298,9 @@ function VideoDefaults({
 
     setIsApplying(true);
     setNotice(null);
-    const saved = await onSaveConfiguration([...selectedIds]);
+    const saved = await onSaveConfiguration({
+      protectedVideoExtensions: [...selectedIds],
+    });
     if (!saved) {
       setIsApplying(false);
       setNotice({ type: "error", text: "监控范围保存失败，请检查 Agent。" });
@@ -640,7 +642,19 @@ function HistoryPage({ agentError, agentStatus }) {
   );
 }
 
-function SettingsPage({ agentStatus }) {
+function SettingsPage({
+  agentStatus,
+  configuration,
+  isRefreshing,
+  onSaveConfiguration,
+}) {
+  const notificationsEnabled =
+    configuration?.notificationsEnabled === true;
+
+  const setNotificationsEnabled = async (enabled) => {
+    await onSaveConfiguration({ notificationsEnabled: enabled });
+  };
+
   return (
     <main className="simple-page">
       <header className="page-heading">
@@ -648,6 +662,28 @@ function SettingsPage({ agentStatus }) {
         <p>本地 Agent 诊断信息。</p>
       </header>
       <div className="settings-list">
+        <label className="setting-row" htmlFor="notification-toggle">
+          <span>
+            <strong>系统通知</strong>
+            <small>
+              {notificationsEnabled
+                ? "默认应用发生偏移时提醒"
+                : "已关闭"}
+            </small>
+          </span>
+          <input
+            aria-label="系统通知"
+            checked={notificationsEnabled}
+            className="notification-switch"
+            disabled={!configuration || isRefreshing}
+            id="notification-toggle"
+            onChange={(event) => {
+              void setNotificationsEnabled(event.target.checked);
+            }}
+            role="switch"
+            type="checkbox"
+          />
+        </label>
         <div className="setting-row">
           <span>
             <strong>关联查询</strong>
@@ -702,7 +738,14 @@ export function App() {
       );
     }
     if (activeSection === "settings") {
-      return <SettingsPage agentStatus={agentStatus} />;
+      return (
+        <SettingsPage
+          agentStatus={agentStatus}
+          configuration={configuration}
+          isRefreshing={isRefreshing}
+          onSaveConfiguration={saveConfiguration}
+        />
+      );
     }
     return (
       <DefaultsPage
