@@ -87,8 +87,8 @@ The command writes a timestamped JSON report in the current directory. It
 checks package integrity, Agent and Setup signature status, the scheduled task,
 including its exact action, current-user privilege, triggers, single-instance
 and restart settings, standard uninstall registration, Agent process identity,
-loopback listener, console children, readiness, and the current main-algorithm
-audit. The report
+watchdog recovery outcome and backoff state, loopback listener, console
+children, readiness, and the current main-algorithm audit. The report
 does not include personal paths, registry exports, raw runtime file contents,
 or tokens. Review it before attaching it to an issue.
 
@@ -97,8 +97,15 @@ The default runtime files are:
 ```text
 %LOCALAPPDATA%\DefaultAppGuard\runtime\agent-status.json
 %LOCALAPPDATA%\DefaultAppGuard\runtime\guard-configuration.json
+%LOCALAPPDATA%\DefaultAppGuard\runtime\watchdog-status.json
 %LOCALAPPDATA%\DefaultAppGuard\install-state.json
 ```
+
+`watchdog-status.json` is a local troubleshooting summary, not uploaded
+telemetry. After repeated startup failures, it records a bounded delay before
+the next recovery attempt so the computer is not caught in a rapid restart
+loop. Non-technical users should run Setup again for repair if diagnostics
+report `watchdog-last-outcome-unhealthy` or `watchdog-telemetry-stale`.
 
 The scheduled task is named `DefaultAppGuard Agent`.
 

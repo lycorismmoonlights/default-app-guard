@@ -566,6 +566,51 @@ try {
     $recoveredTask = Wait-WatchdogTaskReady `
         -TaskName $taskName `
         -Deadline ([DateTime]::UtcNow.AddSeconds(20))
+    $watchdogStatusPath = Join-Path $dataPath `
+        "runtime\watchdog-status.json"
+    Assert-True (Test-Path -LiteralPath $watchdogStatusPath -PathType Leaf) `
+        "The watchdog did not persist recovery telemetry."
+    $watchdogStatusText = Get-Content `
+        -LiteralPath $watchdogStatusPath `
+        -Raw `
+        -Encoding UTF8
+    $watchdogStatus = $watchdogStatusText | ConvertFrom-Json
+    Assert-True ([int]$watchdogStatus.schemaVersion -eq 1) `
+        "The watchdog telemetry schema is unexpected."
+    Assert-True ([string]$watchdogStatus.outcome -eq "recovered") `
+        "The watchdog telemetry did not record the actual recovery."
+    Assert-True ([int]$watchdogStatus.exitCode -eq 0) `
+        "The watchdog telemetry recorded a failed recovery."
+    Assert-True ([bool]$watchdogStatus.packageIntegrityPassed) `
+        "The watchdog telemetry did not confirm package integrity."
+    Assert-True ([bool]$watchdogStatus.recoveryAttempted) `
+        "The watchdog telemetry did not record a recovery attempt."
+    Assert-True ([int]$watchdogStatus.previousProcessId -eq
+        $beforeWatchdog.ProcessId) `
+        "The watchdog telemetry did not identify the stopped Agent."
+    Assert-True ([int]$watchdogStatus.activeProcessId -eq
+        $afterWatchdog.ProcessId) `
+        "The watchdog telemetry did not identify the recovered Agent."
+    Assert-True ([int]$watchdogStatus.consecutiveRecoveryFailures -eq 0) `
+        "The watchdog did not clear its recovery failure counter."
+    Assert-True ($null -eq $watchdogStatus.nextRecoveryAllowedAtUtc) `
+        "The successful watchdog recovery retained a backoff deadline."
+    Assert-True ($null -eq $watchdogStatus.failureStage) `
+        "The successful watchdog recovery retained a failure stage."
+    Assert-True ($watchdogStatusText.IndexOf(
+        $installPath,
+        [StringComparison]::OrdinalIgnoreCase) -lt 0) `
+        "The watchdog telemetry exposed the installation path."
+    Assert-True ($watchdogStatusText.IndexOf(
+        $dataPath,
+        [StringComparison]::OrdinalIgnoreCase) -lt 0) `
+        "The watchdog telemetry exposed the data path."
+    Assert-True (@(Get-ChildItem `
+        -LiteralPath (Split-Path -Parent $watchdogStatusPath) `
+        -Filter "watchdog-status.json.*.tmp" `
+        -File `
+        -ErrorAction SilentlyContinue).Count -eq 0) `
+        "The watchdog left a temporary telemetry file behind."
     $watchdogResult = [pscustomobject]@{
         TaskConfigurationVerified = $taskConfigurationVerified
         TaskState = [string]$recoveredTask.State
@@ -573,6 +618,11 @@ try {
         ScheduledNextRun = $taskInfo.NextRunTime.ToUniversalTime().ToString("O")
         PreviousProcessId = $beforeWatchdog.ProcessId
         RestartedProcessId = $afterWatchdog.ProcessId
+        TelemetrySchemaVersion = [int]$watchdogStatus.schemaVersion
+        TelemetryOutcome = [string]$watchdogStatus.outcome
+        TelemetryActiveProcessMatches =
+            [int]$watchdogStatus.activeProcessId -eq $afterWatchdog.ProcessId
+        TelemetryRedacted = $true
         AutomaticRestartVerified = $true
     }
 
@@ -613,6 +663,14 @@ try {
         "Diagnostics rejected the standard uninstall registration."
     Assert-True ([bool]$diagnosticsReport.scheduledTask.configurationHealthy) `
         "Diagnostics rejected the installed watchdog configuration."
+    Assert-True ([int]$diagnosticsReport.schemaVersion -eq 2) `
+        "Diagnostics did not use the watchdog-aware schema."
+    Assert-True ([bool]$diagnosticsReport.watchdogTelemetry.outcomeHealthy) `
+        "Diagnostics rejected the watchdog recovery outcome."
+    Assert-True ([bool]$diagnosticsReport.watchdogTelemetry.matchesLastTaskRun) `
+        "Diagnostics found stale watchdog telemetry."
+    Assert-True ([bool]$diagnosticsReport.watchdogTelemetry.activeProcessMatches) `
+        "Diagnostics did not bind watchdog telemetry to the active Agent."
 
     $candidateManifestHash = (Get-FileHash `
         -LiteralPath (Join-Path $packagePath "package-manifest.json") `
@@ -723,6 +781,12 @@ try {
             issueCount = @($diagnosticsReport.issueCodes).Count
             loopbackOnly = [bool]$diagnosticsReport.process.loopbackOnly
             consoleChildCount = [int]$diagnosticsReport.process.consoleChildCount
+            watchdogTelemetryHealthy =
+                [bool]$diagnosticsReport.watchdogTelemetry.outcomeHealthy
+            watchdogTelemetryMatchesTaskRun =
+                [bool]$diagnosticsReport.watchdogTelemetry.matchesLastTaskRun
+            watchdogProcessMatches =
+                [bool]$diagnosticsReport.watchdogTelemetry.activeProcessMatches
         }
         uninstall = [ordered]@{
             passed = $uninstalled

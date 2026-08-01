@@ -251,6 +251,67 @@ if ($null -ne $installState -and
     }
 }
 $runtimePath = Join-Path $dataPath "runtime"
+$watchdogStatusPath = Join-Path $runtimePath "watchdog-status.json"
+$watchdogStatus = $null
+$watchdogStatusReadable = $false
+$watchdogSchemaValid = $false
+$watchdogOutcome = $null
+$watchdogExitCode = $null
+$watchdogCompletedAtUtc = $null
+$watchdogCompletedAgeSeconds = $null
+$watchdogRecoveryAttempted = $false
+$watchdogPreviousProcessId = $null
+$watchdogActiveProcessId = $null
+$watchdogConsecutiveFailures = $null
+$watchdogNextRecoveryAllowedAtUtc = $null
+$watchdogFailureStage = $null
+if (Test-Path -LiteralPath $watchdogStatusPath -PathType Leaf) {
+    try {
+        $watchdogStatus = Get-Content `
+            -LiteralPath $watchdogStatusPath `
+            -Raw `
+            -Encoding UTF8 |
+            ConvertFrom-Json
+        $watchdogStatusReadable = $true
+        $watchdogSchemaValid = [int]$watchdogStatus.schemaVersion -eq 1
+        $watchdogOutcome = [string]$watchdogStatus.outcome
+        $watchdogExitCode = [int]$watchdogStatus.exitCode
+        $watchdogCompletedAtUtc = [DateTimeOffset]::Parse(
+            [string]$watchdogStatus.completedAtUtc,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::RoundtripKind)
+        $watchdogCompletedAgeSeconds = [Math]::Max(
+            0,
+            ([DateTimeOffset]::UtcNow - $watchdogCompletedAtUtc).TotalSeconds)
+        $watchdogRecoveryAttempted =
+            [bool]$watchdogStatus.recoveryAttempted
+        if ($null -ne $watchdogStatus.previousProcessId) {
+            $watchdogPreviousProcessId =
+                [int]$watchdogStatus.previousProcessId
+        }
+        if ($null -ne $watchdogStatus.activeProcessId) {
+            $watchdogActiveProcessId = [int]$watchdogStatus.activeProcessId
+        }
+        $watchdogConsecutiveFailures =
+            [int]$watchdogStatus.consecutiveRecoveryFailures
+        if ($null -ne $watchdogStatus.nextRecoveryAllowedAtUtc) {
+            $watchdogNextRecoveryAllowedAtUtc = [DateTimeOffset]::Parse(
+                [string]$watchdogStatus.nextRecoveryAllowedAtUtc,
+                [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::RoundtripKind)
+        }
+        if ($null -ne $watchdogStatus.failureStage) {
+            $watchdogFailureStage = [string]$watchdogStatus.failureStage
+        }
+        if (-not $watchdogSchemaValid) {
+            $issues.Add("watchdog-telemetry-schema")
+        }
+    } catch {
+        $issues.Add("watchdog-telemetry-unreadable")
+    }
+} else {
+    $issues.Add("watchdog-telemetry-missing")
+}
 $expectedAgentArguments = @(
     "--url `"$agentUrl`""
     "--state `"$(Join-Path $runtimePath "agent-status.json")`""
@@ -400,6 +461,34 @@ if ($null -ne $task) {
     $issues.Add("scheduled-task-missing")
 }
 
+$watchdogOutcomeHealthy =
+    $watchdogStatusReadable -and
+    $watchdogSchemaValid -and
+    $watchdogOutcome -in @("healthy", "recovered") -and
+    $watchdogExitCode -eq 0 -and
+    $watchdogConsecutiveFailures -eq 0 -and
+    $null -eq $watchdogNextRecoveryAllowedAtUtc -and
+    $null -eq $watchdogFailureStage
+$watchdogTelemetryMatchesTaskRun = $false
+if ($watchdogStatusReadable -and
+    $null -ne $watchdogCompletedAtUtc -and
+    $null -ne $taskInfo) {
+    $taskLastRunUtc = ([DateTimeOffset]$taskInfo.LastRunTime).ToUniversalTime()
+    $watchdogTelemetryMatchesTaskRun =
+        $taskState -eq "Running" -or
+        $taskLastRunUtc.Year -lt 2000 -or
+        $watchdogCompletedAtUtc -ge $taskLastRunUtc.AddSeconds(-5)
+    if ($watchdogCompletedAtUtc -gt [DateTimeOffset]::UtcNow.AddMinutes(1)) {
+        $watchdogTelemetryMatchesTaskRun = $false
+    }
+}
+if ($watchdogStatusReadable -and -not $watchdogOutcomeHealthy) {
+    $issues.Add("watchdog-last-outcome-unhealthy")
+}
+if ($watchdogStatusReadable -and -not $watchdogTelemetryMatchesTaskRun) {
+    $issues.Add("watchdog-telemetry-stale")
+}
+
 $agentProcesses = @()
 $consoleChildCount = 0
 if ($executableExists) {
@@ -427,6 +516,17 @@ if ($agentProcesses.Count -ne 1) {
 }
 if ($consoleChildCount -ne 0) {
     $issues.Add("agent-console-child")
+}
+
+$watchdogProcessMatches =
+    $watchdogOutcomeHealthy -and
+    $null -ne $watchdogActiveProcessId -and
+    $agentProcesses.Count -eq 1 -and
+    [int]$watchdogActiveProcessId -eq [int]$agentProcesses[0].ProcessId
+if ($watchdogStatusReadable -and
+    $watchdogOutcomeHealthy -and
+    -not $watchdogProcessMatches) {
+    $issues.Add("watchdog-process-mismatch")
 }
 
 $health = $null
@@ -534,7 +634,7 @@ if ($apiReachable -and $null -ne $status -and
 
 $operatingSystem = Get-CimInstance Win32_OperatingSystem
 $report = [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 2
     product = "DefaultAppGuard Community"
     generatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
     privacy = [ordered]@{
@@ -612,6 +712,33 @@ $report = [ordered]@{
         lastResultDisposition = $taskLastResultDisposition
         triggers = $triggerSummaries
     }
+    watchdogTelemetry = [ordered]@{
+        present = Test-Path -LiteralPath $watchdogStatusPath -PathType Leaf
+        readable = $watchdogStatusReadable
+        schemaValid = $watchdogSchemaValid
+        outcome = $watchdogOutcome
+        exitCode = $watchdogExitCode
+        completedAtUtc = if ($null -ne $watchdogCompletedAtUtc) {
+            $watchdogCompletedAtUtc.ToString("O")
+        } else {
+            $null
+        }
+        completedAgeSeconds = $watchdogCompletedAgeSeconds
+        recoveryAttempted = $watchdogRecoveryAttempted
+        previousProcessId = $watchdogPreviousProcessId
+        activeProcessId = $watchdogActiveProcessId
+        activeProcessMatches = $watchdogProcessMatches
+        consecutiveRecoveryFailures = $watchdogConsecutiveFailures
+        nextRecoveryAllowedAtUtc = if (
+            $null -ne $watchdogNextRecoveryAllowedAtUtc) {
+            $watchdogNextRecoveryAllowedAtUtc.ToString("O")
+        } else {
+            $null
+        }
+        failureStage = $watchdogFailureStage
+        outcomeHealthy = $watchdogOutcomeHealthy
+        matchesLastTaskRun = $watchdogTelemetryMatchesTaskRun
+    }
     uninstallRegistration = [ordered]@{
         present = $uninstallEntryPresent
         keyMatchesInstallState = $uninstallKeyNameMatches
@@ -675,6 +802,9 @@ $report["overallHealthy"] =
     $taskActionMatches -and
     $taskEnabled -and
     $taskConfigurationHealthy -and
+    $watchdogOutcomeHealthy -and
+    $watchdogTelemetryMatchesTaskRun -and
+    $watchdogProcessMatches -and
     $uninstallRegistrationHealthy -and
     $agentProcesses.Count -eq 1 -and
     $consoleChildCount -eq 0 -and

@@ -71,6 +71,53 @@ $nodeCommand = (Get-Command $NodePath -ErrorAction Stop).Source
 $originalPath = $env:Path
 $nodeDirectory = [IO.Path]::GetDirectoryName($nodeCommand)
 $env:Path = "$nodeDirectory;$env:Path"
+$globalJsonPath = Join-Path $projectRoot "global.json"
+$globalJson = Get-Content `
+    -LiteralPath $globalJsonPath `
+    -Raw `
+    -Encoding UTF8 |
+    ConvertFrom-Json
+$expectedDotnetVersion = [string]$globalJson.sdk.version
+$expectedNodeVersion = [string]$packageMetadata.engines.node
+$expectedPackageManagerVersion = [string]$packageMetadata.engines.pnpm
+if ([string]$globalJson.sdk.rollForward -ne "disable" -or
+    [bool]$globalJson.sdk.allowPrerelease) {
+    throw "global.json must require an exact stable .NET SDK."
+}
+$nvmNodeVersion = (Get-Content `
+    -LiteralPath (Join-Path $projectRoot ".nvmrc") `
+    -Raw `
+    -Encoding UTF8).Trim()
+if ($nvmNodeVersion -ne $expectedNodeVersion) {
+    throw ".nvmrc does not match package.json engines.node."
+}
+Push-Location $projectRoot
+try {
+    $actualDotnetVersion = [string](& $dotnetCommand --version)
+    $actualNodeVersion = [string](& $nodeCommand -p "process.versions.node")
+    $actualPackageManagerVersion =
+        [string](& $packageManagerCommand --version)
+} finally {
+    Pop-Location
+}
+$actualDotnetVersion = $actualDotnetVersion.Trim()
+$actualNodeVersion = $actualNodeVersion.Trim()
+$actualPackageManagerVersion = $actualPackageManagerVersion.Trim()
+if ($actualDotnetVersion -ne $expectedDotnetVersion) {
+    throw (
+        "Release SDK mismatch: expected $expectedDotnetVersion, " +
+        "found $actualDotnetVersion.")
+}
+if ($actualNodeVersion -ne $expectedNodeVersion) {
+    throw (
+        "Release Node.js mismatch: expected $expectedNodeVersion, " +
+        "found $actualNodeVersion.")
+}
+if ($actualPackageManagerVersion -ne $expectedPackageManagerVersion) {
+    throw (
+        "Release pnpm mismatch: expected $expectedPackageManagerVersion, " +
+        "found $actualPackageManagerVersion.")
+}
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
     $stamp = [DateTimeOffset]::UtcNow.ToString("yyyyMMdd-HHmmss")
     $OutputRoot = Join-Path $projectRoot (
@@ -93,6 +140,9 @@ $mainTrx = Join-Path $evidenceDirectory "main-algorithm-tests.trx"
 $lifecycleEvidencePath = Join-Path $evidenceDirectory `
     "package-lifecycle.json"
 $lifecycleWorkRoot = Join-Path $releaseRoot "package-lifecycle-work"
+$watchdogBackoffEvidencePath = Join-Path $evidenceDirectory `
+    "watchdog-backoff.json"
+$watchdogBackoffWorkRoot = Join-Path $releaseRoot "watchdog-backoff-work"
 $sbomWorkingRoot = Join-Path $evidenceDirectory "sbom-work"
 $sbomComponentRoot = Join-Path $releaseRoot "sbom-component-work"
 $sbomValidationPath = Join-Path $evidenceDirectory `
@@ -294,6 +344,31 @@ if ($RequireSigned -and @(
     throw "This release requires timestamped Authenticode signatures."
 }
 
+$watchdogBackoffResult = & (Join-Path $projectRoot `
+    "tests\Test-WatchdogBackoff.ps1") `
+    -PackageDirectory $packageDirectory `
+    -WorkRoot $watchdogBackoffWorkRoot `
+    -EvidencePath $watchdogBackoffEvidencePath
+if (-not [bool]$watchdogBackoffResult.Passed) {
+    throw "The exact release package watchdog backoff test did not pass."
+}
+$watchdogBackoffEvidence = Get-Content `
+    -LiteralPath $watchdogBackoffEvidencePath `
+    -Raw `
+    -Encoding UTF8 |
+    ConvertFrom-Json
+if (-not [bool]$watchdogBackoffEvidence.passed -or
+    [int]$watchdogBackoffEvidence.firstAttempt.exitCode -ne 24 -or
+    [string]$watchdogBackoffEvidence.firstAttempt.outcome -ne "failed" -or
+    -not [bool]$watchdogBackoffEvidence.firstAttempt.failedProcessCleaned -or
+    [int]$watchdogBackoffEvidence.immediateRetry.exitCode -ne 0 -or
+    [string]$watchdogBackoffEvidence.immediateRetry.outcome -ne
+        "recovery-deferred" -or
+    -not [bool]$watchdogBackoffEvidence.immediateRetry.agentLaunchSuppressed -or
+    -not [bool]$watchdogBackoffEvidence.telemetryRedacted) {
+    throw "The exact release package lacks watchdog backoff evidence."
+}
+
 $lifecycleResult = & (Join-Path $projectRoot `
     "tests\Test-ReleasePackageLifecycle.ps1") `
     -PackageDirectory $packageDirectory `
@@ -316,6 +391,12 @@ if (-not [bool]$lifecycleEvidence.passed -or
     -not [bool]$lifecycleEvidence.rollback.installStateRestored -or
     -not [bool]$lifecycleEvidence.rollback.uninstallEntryRestored -or
     -not [bool]$lifecycleEvidence.watchdog.TaskConfigurationVerified -or
+    [string]$lifecycleEvidence.watchdog.TelemetryOutcome -ne "recovered" -or
+    -not [bool]$lifecycleEvidence.watchdog.TelemetryActiveProcessMatches -or
+    -not [bool]$lifecycleEvidence.watchdog.TelemetryRedacted -or
+    -not [bool]$lifecycleEvidence.diagnostics.watchdogTelemetryHealthy -or
+    -not [bool]$lifecycleEvidence.diagnostics.watchdogTelemetryMatchesTaskRun -or
+    -not [bool]$lifecycleEvidence.diagnostics.watchdogProcessMatches -or
     -not [bool]$lifecycleEvidence.uninstall.registrationRemoved) {
     throw "The exact release package lacks primary-algorithm lifecycle evidence."
 }
@@ -463,6 +544,14 @@ $evidenceFile = Join-Path $releaseRoot "release-gate.json"
     generatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
     operatingSystem = [Environment]::OSVersion.VersionString
     architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+    toolchain = [ordered]@{
+        dotnetSdk = $actualDotnetVersion
+        dotnetRollForward = [string]$globalJson.sdk.rollForward
+        dotnetPrereleaseAllowed = [bool]$globalJson.sdk.allowPrerelease
+        node = $actualNodeVersion
+        pnpm = $actualPackageManagerVersion
+        exactVersionsVerified = $true
+    }
     mainAlgorithm = [ordered]@{
         query = "IApplicationAssociationRegistration.QueryCurrentDefault"
         monitor = "RegNotifyChangeKeyValue"
@@ -494,6 +583,15 @@ $evidenceFile = Join-Path $releaseRoot "release-gate.json"
             [bool]$lifecycleEvidence.watchdog.AutomaticRestartVerified
         watchdogConfigurationVerified =
             [bool]$lifecycleEvidence.watchdog.TaskConfigurationVerified
+        watchdogRecoveryTelemetryVerified =
+            [string]$lifecycleEvidence.watchdog.TelemetryOutcome -eq
+                "recovered" -and
+            [bool]$lifecycleEvidence.watchdog.TelemetryActiveProcessMatches -and
+            [bool]$lifecycleEvidence.watchdog.TelemetryRedacted
+        watchdogRestartStormSuppressed =
+            [bool]$watchdogBackoffEvidence.passed -and
+            [bool]$watchdogBackoffEvidence.firstAttempt.failedProcessCleaned -and
+            [bool]$watchdogBackoffEvidence.immediateRetry.agentLaunchSuppressed
         diagnosticsHealthy =
             [bool]$lifecycleEvidence.diagnostics.overallHealthy
         uninstallRegistered =
@@ -551,6 +649,7 @@ $evidenceFile = Join-Path $releaseRoot "release-gate.json"
     EvidenceFile = $evidenceFile
     EvidenceDirectory = $evidenceDirectory
     LifecycleEvidenceFile = $lifecycleEvidencePath
+    WatchdogBackoffEvidenceFile = $watchdogBackoffEvidencePath
     SbomFile = $sbomPath
     SbomChecksumFile = $sbomChecksumPath
     SbomValidationFile = $sbomValidationPath

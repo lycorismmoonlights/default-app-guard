@@ -29,13 +29,28 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 22
+          node-version: 24.18.0
           cache: pnpm
 
       - name: Set up .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: 10.0.302
+
+      - name: Verify pinned toolchain
+        shell: pwsh
+        run: |
+          $metadata = Get-Content package.json -Raw | ConvertFrom-Json
+          $sdk = Get-Content global.json -Raw | ConvertFrom-Json
+          if ((dotnet --version) -ne [string]$sdk.sdk.version) {
+            throw "The active .NET SDK does not match global.json."
+          }
+          if ((node -p "process.versions.node") -ne [string]$metadata.engines.node) {
+            throw "The active Node.js version does not match package.json."
+          }
+          if ((pnpm --version) -ne [string]$metadata.engines.pnpm) {
+            throw "The active pnpm version does not match package.json."
+          }
 
       - name: Restore pinned build tools
         run: |

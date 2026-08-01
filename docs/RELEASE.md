@@ -27,21 +27,26 @@ DefaultAppGuard Agent running while the exact-package lifecycle gate executes.
 
 `packaging/Test-ReleaseGate.ps1`:
 
-1. Runs portable .NET tests.
-2. Runs the real COM and kernel-notification tests separately.
-3. Parses the TRX result and verifies every required main-algorithm test by
+1. Requires the exact repository-pinned .NET SDK, Node.js, and pnpm versions
+   and records them in release evidence.
+2. Runs portable .NET tests.
+3. Runs the real COM and kernel-notification tests separately.
+4. Parses the TRX result and verifies every required main-algorithm test by
    name.
-4. Builds and tests the frontend.
-5. parses every packaging PowerShell script.
-6. Produces a fresh self-contained Windows package and NativeAOT graphical
+5. Builds and tests the frontend.
+6. Parses every packaging PowerShell script.
+7. Produces a fresh self-contained Windows package and NativeAOT graphical
    Setup launcher. When signed mode is selected, it signs the fresh Agent,
    Setup launcher, and packaged PowerShell files before
    generating their integrity manifest.
-7. Parses the final Agent and Setup PE headers and requires the Windows GUI
+8. Parses the final Agent and Setup PE headers and requires the Windows GUI
    subsystem so scheduled starts and installation cannot create a console window.
-8. Verifies the generated per-file package manifest, including Setup, the
+9. Verifies the generated per-file package manifest, including Setup, the
    installer, uninstaller, diagnostics script, UI assets, and Agent executable.
-9. Executes Setup's exact-package verification, installs the package in an
+10. Forces an Agent startup failure against an occupied loopback port and
+    proves the watchdog cleans the failed process, writes redacted failure
+    telemetry, applies bounded backoff, and suppresses an immediate relaunch.
+11. Executes Setup's exact-package verification, installs the package in an
    isolated location, requires the readiness endpoint to report primary COM
    evidence for every declared format, and verifies the kernel notification
    before and after the short-lived native watchdog recovers a terminated
@@ -50,12 +55,12 @@ DefaultAppGuard Agent running while the exact-package lifecycle gate executes.
    diagnostics, Windows Installed apps registration, execution of the exact
    registered hidden uninstall command, clean removal, and no shortcut
    ownership violation.
-10. Generates an SPDX 2.2 SBOM with the pinned Microsoft SBOM Tool and validates
+12. Generates an SPDX 2.2 SBOM with the pinned Microsoft SBOM Tool and validates
     all package file hashes and detected dependencies. Component detection uses
     a clean staging set of lock files, project files, and restored dependency
     graphs so previous release artifacts cannot contaminate the SBOM.
-11. Writes SHA-256 files and machine-readable release evidence.
-12. Verifies the Authenticode status of the Agent, Setup, all packaged PowerShell
+13. Writes SHA-256 files and machine-readable release evidence.
+14. Verifies the Authenticode status of the Agent, Setup, all packaged PowerShell
     scripts, and the package module. Mixed or invalid signatures always fail.
     `-RequireSigned` additionally requires every file to have a valid,
     timestamped signature from one certificate.
@@ -76,7 +81,8 @@ subsystem.
 4. Review the attached ZIP, checksum, evidence JSON, and artifact attestation.
    Confirm that `codeSigning.policy`, `codeSigning.status`, and every file
    record match the selected workflow policy. Review the SPDX SBOM, its
-   checksum, `packageLifecycle`, and `sbom.validationResult` as well.
+   checksum, `packageLifecycle`, `toolchain`, `watchdog-backoff.json`, and
+   `sbom.validationResult` as well.
 5. Confirm lifecycle evidence reports both early and late-stage rollback,
    including exact install-state and uninstall-entry restoration.
 6. Keep the result marked as a prerelease while the project remains alpha.
