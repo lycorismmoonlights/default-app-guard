@@ -60,6 +60,11 @@ test("release metadata and risk notice stay version-aligned", async () => {
   assert.ok(notice.includes("scheduledTask.configurationHealthy"));
   assert.ok(notice.includes("任务通常应显示为"));
   assert.ok(notice.includes("task should show Ready"));
+  assert.ok(notice.includes("GitHub artifact attestation"));
+  assert.ok(notice.includes("candidate-build.json"));
+  assert.ok(notice.includes("release-gate.json"));
+  assert.ok(notice.includes("primarySnapshotCount"));
+  assert.ok(notice.includes("failedReadCount"));
 });
 
 test("published package includes the bilingual risk notice", async () => {
@@ -156,9 +161,15 @@ test("graphical setup verifies before its process-only script policy", async () 
 });
 
 test("GitHub Actions use immutable action revisions", async () => {
+  const ciWorkflow = await read(".github/workflows/ci.yml");
+  const releaseWorkflow = await read(".github/workflows/release.yml");
+  const candidateWorkflow = await read(
+    ".github/workflows/release-candidate.yml",
+  );
   const workflows = [
-    await read(".github/workflows/ci.yml"),
-    await read(".github/workflows/release.yml"),
+    ciWorkflow,
+    releaseWorkflow,
+    candidateWorkflow,
   ];
 
   for (const workflow of workflows) {
@@ -172,16 +183,65 @@ test("GitHub Actions use immutable action revisions", async () => {
     assert.ok(workflow.includes("persist-credentials: false"));
   }
 
-  const releaseWorkflow = workflows[1];
-  assert.ok(workflows[0].includes("node-version: 24.18.0"));
-  assert.ok(workflows[0].includes("dotnet-version: 10.0.302"));
-  assert.ok(workflows[1].includes("node-version: 24.18.0"));
-  assert.ok(workflows[1].includes("dotnet-version: 10.0.302"));
+  assert.ok(ciWorkflow.includes("node-version: 24.18.0"));
+  assert.ok(ciWorkflow.includes("dotnet-version: 10.0.302"));
+  assert.ok(releaseWorkflow.includes("node-version: 24.18.0"));
+  assert.ok(releaseWorkflow.includes("dotnet-version: 10.0.302"));
+  assert.ok(candidateWorkflow.includes("node-version: 24.18.0"));
+  assert.ok(candidateWorkflow.includes("dotnet-version: 10.0.302"));
   assert.match(releaseWorkflow, /default:\s*require-signed/);
   assert.ok(releaseWorkflow.includes("SIGNING_STATUS:"));
   assert.equal(
     releaseWorkflow.includes("$signingStatus = '${{ steps.gate.outputs"),
     false,
+  );
+  assert.ok(candidateWorkflow.includes("attestations: write"));
+  assert.ok(candidateWorkflow.includes("id-token: write"));
+  assert.ok(candidateWorkflow.includes("actions/attest@"));
+  assert.equal(
+    [...candidateWorkflow.matchAll(/actions\/attest@/g)].length,
+    3,
+  );
+  assert.ok(candidateWorkflow.includes("candidate-build.json"));
+  assert.ok(candidateWorkflow.includes("sbom-validation.json"));
+  assert.ok(candidateWorkflow.includes("retention-days: 30"));
+  assert.equal(candidateWorkflow.includes("gh release create"), false);
+});
+
+test("candidate promotion requires provenance and exact-package main evidence", async () => {
+  const promotion = await read(
+    "packaging/Promote-ReleaseCandidate.ps1",
+  );
+  const releaseGate = await read("packaging/Test-ReleaseGate.ps1");
+
+  assert.ok(promotion.includes('"attestation", "verify"'));
+  assert.ok(promotion.includes('"--signer-workflow"'));
+  assert.ok(promotion.includes('"--source-digest"'));
+  assert.ok(promotion.includes('"--source-ref", "refs/heads/main"'));
+  assert.ok(promotion.includes('"--deny-self-hosted-runners"'));
+  assert.ok(promotion.includes("Promotion requires a clean checkout"));
+  assert.ok(promotion.includes("sourceCommit -eq $ExpectedCommit"));
+  assert.ok(promotion.includes("Get-CheckedSha256"));
+  assert.ok(promotion.includes("Expand-CheckedArchive"));
+  assert.ok(promotion.includes("Test-DagPackageIntegrity"));
+  assert.ok(promotion.includes("Test-WatchdogBackoff.ps1"));
+  assert.ok(promotion.includes("Test-ReleasePackageLifecycle.ps1"));
+  assert.ok(
+    promotion.includes(
+      "IApplicationAssociationRegistration.QueryCurrentDefault",
+    ),
+  );
+  assert.ok(promotion.includes("RegNotifyChangeKeyValue"));
+  assert.ok(promotion.includes("primarySnapshotCount -eq 34"));
+  assert.ok(promotion.includes("failedReadCount -eq 0"));
+  assert.ok(promotion.includes("exactAttestedArchivePromoted = $true"));
+  assert.ok(promotion.includes('policy = "unsigned-alpha"'));
+  assert.ok(promotion.includes('status = "unsigned"'));
+  assert.ok(releaseGate.includes("$packageMetadata = Get-Content"));
+  assert.ok(
+    releaseGate.includes(
+      "$expectedNodeVersion = [string]$packageMetadata.engines.node",
+    ),
   );
 });
 

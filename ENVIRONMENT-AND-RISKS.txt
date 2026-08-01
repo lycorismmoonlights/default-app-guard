@@ -456,6 +456,23 @@ retain LICENSE.md, NOTICE, and this notice file.
   门禁会失败，不允许使用悄然滚动的新工具链发布。
 - 这些证据用于提高构建可追溯性和发现发布过程错误，不代表软件在所有电脑上
   都不会出现兼容性问题，也不能代替 Windows Authenticode 发布者签名。
+- 对于 0.1.8 的未签名候选包，ZIP、SBOM 和 candidate-build.json 由 GitHub
+  托管的 Windows 构建任务生成并分别附加 GitHub artifact attestation（构建来源
+  证明）。发布维护者随后必须在配置了真实 Microsoft Media Player 默认关联的
+  Windows 电脑上，对完全相同的 ZIP 运行本地主算法晋级门禁；该门禁不会重新
+  构建程序，并会再次检查来源提交、main 分支、文件哈希、安全解压、34 项主 COM
+  查询、真实注册表通知、自动恢复、失败退避、回滚、诊断和卸载。
+- 普通用户不需要自行运行晋级脚本。下载页面应同时提供 candidate-build.json、
+  release-gate.json、package-lifecycle.json 和 watchdog-backoff.json。缺少这些
+  文件、release-gate.json 的 passed 不是 true、主算法不是
+  IApplicationAssociationRegistration.QueryCurrentDefault 和
+  RegNotifyChangeKeyValue、primarySnapshotCount 不是 34 或 failedReadCount 不是 0
+  时，不应把该附件视为通过本项目发布门禁。
+- GitHub 构建来源证明只能说明某个附件由指定仓库、工作流和提交生成；本机门禁
+  证据只能说明维护者记录的测试通过。两者都不会让 Windows 显示“已验证的发布者”，
+  也不能阻止有权控制项目账号或发布页面的人替换说明。它们不能代替可信的
+  Authenticode 代码签名。用户仍应只从官方 Releases 页面下载、核对 SHA-256、
+  保持安全软件开启，并把本版本视为未签名 alpha。
 - 项目已经具备使用 Windows 证书存储或兼容 HSM 进行发布签名的构建入口；但是
   本提示对应的 0.1.8 仍是未签名 alpha。只有当 GitHub 发布说明明确写明“已签名”、
   列出签名者，且 release-gate.json 显示所有受检文件签名有效并已加时间戳时，
@@ -479,6 +496,29 @@ English:
 - This evidence improves build traceability and catches release-process
   failures. It does not guarantee compatibility on every computer and does not
   replace a trusted Windows Authenticode publisher signature.
+- For the unsigned 0.1.8 candidate, a GitHub-hosted Windows build creates the
+  ZIP, SBOM, and candidate-build.json and attaches a separate GitHub artifact
+  attestation to each. A maintainer must then run the local main-algorithm
+  promotion gate on a Windows computer whose real default associations target
+  Microsoft Media Player. That gate does not rebuild the program. It rechecks
+  the source commit, main ref, hashes, safe extraction, all 34 primary COM
+  queries, real registry notification, recovery, failure backoff, rollback,
+  diagnostics, and uninstall against the exact same ZIP.
+- End users do not need to run the promotion script. The download page should
+  also provide candidate-build.json, release-gate.json, package-lifecycle.json,
+  and watchdog-backoff.json. Do not treat an asset as release-gate approved if
+  these files are missing, release-gate.json does not say `passed: true`, the
+  main algorithms are not IApplicationAssociationRegistration.QueryCurrentDefault
+  and RegNotifyChangeKeyValue, primarySnapshotCount is not 34, or
+  failedReadCount is not zero.
+- GitHub build provenance only states that an artifact came from the named
+  repository, workflow, and commit. Local gate evidence only records the
+  maintainer's validation result. Neither makes Windows display a verified
+  publisher, and neither protects against an account or release-page owner who
+  can replace the surrounding description. They do not replace trusted
+  Authenticode signing. Download only from the official Releases page, verify
+  SHA-256, keep security software enabled, and continue to treat this version
+  as an unsigned alpha.
 - The build now supports release signing through the Windows certificate store
   or a compatible HSM. However, version 0.1.8 covered by this notice remains an
   unsigned alpha. Treat a future version as signed only when its GitHub release

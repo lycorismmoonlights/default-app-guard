@@ -1,12 +1,18 @@
 # Release Process
 
-## Two distinct gates
+## Three distinct gates
 
 The hosted `CI` workflow checks the frontend, PowerShell syntax, portable .NET
 behavior, and a release-shaped package built on a clean GitHub Windows runner.
 That package check compiles and executes the graphical Setup verifier. It
 deliberately excludes tests that require a real Windows
 default-app state. A green hosted CI run is not a release approval.
+
+The hosted `Release Candidate` workflow builds one unsigned archive on a
+GitHub-hosted Windows runner, validates its package manifest and SPDX SBOM,
+records the exact pinned toolchain, and creates GitHub artifact attestations
+for the archive, SBOM, and `candidate-build.json`. It does not publish a
+release and it cannot approve the main algorithm by itself.
 
 The manual `Release` workflow runs on a dedicated self-hosted Windows runner
 with these labels:
@@ -22,6 +28,14 @@ That runner must have Microsoft Media Player installed and selected for every
 declared video format. It must be dedicated to trusted release commits and
 must never run pull-request code from forks. It must not have another
 DefaultAppGuard Agent running while the exact-package lifecycle gate executes.
+
+When that runner is unavailable, an unsigned alpha may instead use
+`packaging/Promote-ReleaseCandidate.ps1` on the dedicated validation computer.
+The script verifies the GitHub attestations, exact source commit, `main` ref,
+hosted-runner policy, checksums, safe ZIP structure, package manifest, SBOM,
+unsigned status, and graphical PE subsystem. It then runs the occupied-port
+watchdog test and full lifecycle test against the extracted bytes from that
+same attested archive. It never rebuilds the package locally.
 
 ## Release gate
 
@@ -72,6 +86,8 @@ subsystem.
 
 ## Publishing
 
+### Signed release path
+
 1. Merge the intended release commit into protected `main`.
 2. Confirm the dedicated runner is online and its default associations are
    healthy.
@@ -90,5 +106,37 @@ subsystem.
 The workflow creates the `v<version>` tag and GitHub prerelease only after the
 main-algorithm gate succeeds.
 
-A manual release is a fallback only. It cannot receive GitHub build provenance
-from the release workflow and must state that limitation in its release notes.
+### Attested unsigned-alpha path
+
+Use this fallback only while Authenticode signing is unavailable:
+
+1. Merge the reviewed release commit into protected `main` and record its full
+   commit SHA.
+2. Dispatch `Release Candidate` for the version in `package.json`.
+3. Confirm the workflow is green, then download its single candidate artifact
+   without renaming or editing any file.
+4. Check out that exact commit with no tracked local changes. On the dedicated
+   Windows validation computer, stop the production Agent and run:
+
+```powershell
+.\packaging\Promote-ReleaseCandidate.ps1 `
+  -CandidateDirectory F:\path\to\downloaded-candidate `
+  -Version 0.1.8 `
+  -ExpectedCommit <full-main-commit-sha>
+```
+
+5. Require `release-gate.json`, `package-lifecycle.json`, and
+   `watchdog-backoff.json` to report `passed: true`. In particular, require 34
+   primary snapshots, zero failed reads, both real monitor checks, recovery,
+   rollback, diagnostics, and clean uninstall.
+6. Publish the original candidate ZIP, its checksum, the original SBOM and its
+   checksum, `candidate-build.json`, `release-gate.json`,
+   `package-lifecycle.json`, and `watchdog-backoff.json`. Target the exact
+   attested commit and mark the release as a prerelease.
+7. Redownload the release assets, compare their hashes with the promoted files,
+   and verify the ZIP and SBOM attestations again.
+
+The GitHub attestations prove which hosted workflow and source commit built the
+candidate. The local evidence proves that the exact attested archive passed the
+real default-app environment. Neither is a Windows publisher identity or a
+substitute for Authenticode. Release notes must prominently say `unsigned`.

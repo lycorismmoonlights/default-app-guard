@@ -59,6 +59,13 @@ arguments, current-user privilege, triggers, execution limit and restart
 settings, automatic recovery, diagnostics, and clean uninstall before
 publication.
 
+For unsigned alpha fallback releases, GitHub builds and attests one immutable
+candidate archive. A separate Windows validation computer verifies those
+attestations and runs the real 34-format primary COM and registry-notification
+lifecycle against the exact archive without rebuilding it. The release remains
+blocked unless both the hosted build evidence and local main-algorithm evidence
+pass.
+
 See [docs/USER-GUIDE.md](docs/USER-GUIDE.md) for installation, use,
 diagnostics, and uninstallation.
 
@@ -146,6 +153,9 @@ versioned bilingual environment and risk notice. See
   certificate available through the Windows certificate store or an attached
   HSM before the package manifest is generated. Version 0.1.8 remains an
   unsigned alpha unless its release notes explicitly state otherwise.
+- Unsigned fallback candidates carry GitHub build attestations for the ZIP,
+  SBOM, and build record. These establish build provenance but do not replace a
+  trusted Windows Authenticode publisher signature.
 
 See [docs/RELEASE.md](docs/RELEASE.md) for the GitHub release gate and
 [docs/CODE-SIGNING.md](docs/CODE-SIGNING.md) for the SignPath Foundation and
