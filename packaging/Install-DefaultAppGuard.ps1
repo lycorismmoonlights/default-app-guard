@@ -223,6 +223,10 @@ function Wait-AgentReady {
                 $lastFailure = "Bounded operational logging is unavailable."
                 continue
             }
+            if ([int64]$health.MaximumAuditAgeSeconds -le 0) {
+                $lastFailure = "Health endpoint did not publish an audit freshness limit."
+                continue
+            }
             if (-not ([string]$health.Version).StartsWith(
                     "$ExpectedVersion.",
                     [StringComparison]::Ordinal)) {
@@ -279,8 +283,19 @@ function Wait-AgentReady {
                 continue
             }
             if ([int]$readiness.AuditedExtensionCount -le 0 -or
-                [int]$readiness.PrimarySnapshotCount -le 0) {
+                [int]$readiness.PrimarySnapshotCount -ne
+                    [int]$readiness.AuditedExtensionCount -or
+                [int]$readiness.FailedReadCount -ne 0) {
                 $lastFailure = "Readiness did not produce primary query evidence."
+                continue
+            }
+            if (-not [bool]$readiness.AuditFresh -or
+                [int64]$readiness.AuditAgeSeconds -lt 0 -or
+                [int64]$readiness.MaximumAuditAgeSeconds -ne
+                    [int64]$health.MaximumAuditAgeSeconds -or
+                [int64]$readiness.AuditAgeSeconds -gt
+                    [int64]$readiness.MaximumAuditAgeSeconds) {
+                $lastFailure = "Readiness reported stale primary query evidence."
                 continue
             }
 
@@ -823,6 +838,10 @@ try {
         AuditedExtensionCount = $agent.Readiness.AuditedExtensionCount
         PrimarySnapshotCount = $agent.Readiness.PrimarySnapshotCount
         FailedReadCount = $agent.Readiness.FailedReadCount
+        AuditFresh = $agent.Readiness.AuditFresh
+        AuditAgeSeconds = $agent.Readiness.AuditAgeSeconds
+        MaximumAuditAgeSeconds =
+            $agent.Readiness.MaximumAuditAgeSeconds
         HealthyCount = $agent.Readiness.HealthyCount
         DriftCount = $agent.Readiness.DriftCount
         PackageIntegrityVerified = $true

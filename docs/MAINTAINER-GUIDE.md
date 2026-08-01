@@ -10,7 +10,7 @@ Run all of the following on Windows:
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.11 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.12 `
   -PackageManagerPath pnpm
 ```
 
@@ -26,7 +26,7 @@ and promote those exact bytes on the dedicated validation computer:
 ```powershell
 .\packaging\Promote-ReleaseCandidate.ps1 `
   -CandidateDirectory F:\path\to\release-candidate `
-  -Version 0.1.11 `
+  -Version 0.1.12 `
   -ExpectedCommit <full-main-commit-sha>
 ```
 
@@ -42,7 +42,7 @@ report `codeSigning.status` as `unsigned`. Any release described as signed must
 run:
 
 ```powershell
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.11 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.12 `
   -PackageManagerPath pnpm `
   -SigningCertificateThumbprint $env:DAG_SIGNING_CERTIFICATE_THUMBPRINT `
   -TimestampServer $env:DAG_TIMESTAMP_SERVER `
@@ -71,7 +71,9 @@ The required signals are:
 - The post-notification audit checks each protected extension individually.
 - Registry evidence never replaces a failed COM result.
 - `/api/readiness` resolves Microsoft Media Player and reports evidence from
-  the primary COM query before an install transaction can commit.
+  the primary COM query before an install transaction can commit. It also
+  requires that evidence to be no older than the bounded audit-freshness
+  threshold published by `/api/health`.
 - `/api/health` reports an available `WindowsForms.NotifyIcon` channel. This
   channel consumes audit results and must never substitute for primary evidence.
 - `/api/health` reports a writable `Serilog.Sinks.File` channel using CLEF,
@@ -116,6 +118,8 @@ Verify:
 7. Killing the installed process produces a different PID after the repeated
    watchdog trigger, followed by a fresh 34-format startup audit; the watchdog
    task returns to `Ready` while the replacement Agent remains running.
+   The watchdog must reject a live HTTP process when its primary COM evidence
+   is stale, incomplete, or contains any failed read.
 8. Deliberately failed upgrades before and after readiness restore the previous
    package version, task definition, exact install-state file, uninstall entry,
    process, and healthy audit.

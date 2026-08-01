@@ -160,6 +160,9 @@ test("graphical setup verifies before its process-only script policy", async () 
   assert.ok(watchdog.includes("Process.GetProcessById(processId)"));
   assert.ok(watchdog.includes("ShouldDeferRecovery"));
   assert.ok(watchdog.includes("StopFailedLaunch"));
+  assert.ok(watchdog.includes('new Uri(agentUri, "api/readiness")'));
+  assert.ok(watchdog.includes("TryMatchReadiness"));
+  assert.ok(watchdog.includes('"auditFresh"'));
   assert.ok(telemetry.includes('@"Software\\DefaultAppGuard\\Watchdog"'));
   assert.ok(telemetry.includes('RegistryValueName = "StatusJson"'));
   assert.ok(telemetry.includes("Registry.CurrentUser.CreateSubKey"));
@@ -242,6 +245,8 @@ test("candidate promotion requires provenance and exact-package main evidence", 
   assert.ok(promotion.includes("RegNotifyChangeKeyValue"));
   assert.ok(promotion.includes("primarySnapshotCount -eq 34"));
   assert.ok(promotion.includes("failedReadCount -eq 0"));
+  assert.ok(promotion.includes("mainAlgorithm.auditFresh"));
+  assert.ok(promotion.includes("watchdog.ReadinessFresh"));
   assert.ok(promotion.includes("WindowsForms.NotifyIcon"));
   assert.ok(promotion.includes("configurationRoundTripVerified"));
   assert.ok(promotion.includes("operationalLogs.diagnosticsHealthy"));
@@ -338,6 +343,9 @@ test("diagnostics are packaged, redacted, and inspect the primary algorithm", as
   assert.ok(diagnostics.includes("operational-log-roll-threshold-exceeded"));
   assert.ok(diagnostics.includes("overshootAllowanceBytes"));
   assert.ok(diagnostics.includes("$operationalLogFile.Refresh()"));
+  assert.ok(diagnostics.includes("association-audit-stale"));
+  assert.ok(diagnostics.includes("auditFreshnessAvailable"));
+  assert.ok(diagnostics.includes("schemaVersion = 5"));
   assert.equal(
     diagnostics.includes('"expected-ignore-new-while-running"'),
     false,

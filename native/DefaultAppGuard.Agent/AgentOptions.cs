@@ -9,6 +9,22 @@ public sealed record AgentOptions(
     bool OpenUi,
     IReadOnlyList<string> AllowedOrigins)
 {
+    private static readonly TimeSpan MinimumAuditGracePeriod =
+        TimeSpan.FromSeconds(30);
+
+    public TimeSpan MaximumAuditAge
+    {
+        get
+        {
+            var proportionalGrace = TimeSpan.FromTicks(
+                PeriodicAuditInterval.Ticks / 4);
+            var grace = proportionalGrace > MinimumAuditGracePeriod
+                ? proportionalGrace
+                : MinimumAuditGracePeriod;
+            return PeriodicAuditInterval + grace;
+        }
+    }
+
     public static AgentOptions Parse(string[] args)
     {
         var url = "http://127.0.0.1:51873";
@@ -79,10 +95,11 @@ public sealed record AgentOptions(
 
     private static TimeSpan ParsePositiveInterval(string value)
     {
-        if (!int.TryParse(value, out var seconds) || seconds <= 0)
+        if (!int.TryParse(value, out var seconds) ||
+            seconds is <= 0 or > 86400)
         {
             throw new ArgumentException(
-                "--audit-interval-seconds must be a positive integer.");
+                "--audit-interval-seconds must be an integer from 1 to 86400.");
         }
 
         return TimeSpan.FromSeconds(seconds);

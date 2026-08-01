@@ -335,7 +335,21 @@ internal static class WatchdogRunner
                             expectedVersion,
                             out var processId))
                     {
-                        return new WatchdogHealth(true, processId);
+                        using var readinessResponse = await client.GetAsync(
+                            new Uri(agentUri, "api/readiness"));
+                        if (readinessResponse.IsSuccessStatusCode)
+                        {
+                            await using var readinessStream =
+                                await readinessResponse.Content
+                                    .ReadAsStreamAsync();
+                            using var readinessDocument =
+                                await JsonDocument.ParseAsync(readinessStream);
+                            if (TryMatchReadiness(
+                                    readinessDocument.RootElement))
+                            {
+                                return new WatchdogHealth(true, processId);
+                            }
+                        }
                     }
                 }
             }
@@ -410,13 +424,70 @@ internal static class WatchdogRunner
         }
     }
 
+    internal static bool TryMatchReadiness(JsonElement readiness)
+    {
+        return TryGetBoolean(readiness, "ready", out var ready) &&
+            ready &&
+            TryGetString(readiness, "code", out var code) &&
+            code == "ready" &&
+            TryGetString(
+                readiness,
+                "serviceState",
+                out var serviceState) &&
+            serviceState == "running" &&
+            TryGetString(readiness, "query", out var query) &&
+            query == ExpectedQuery &&
+            TryGetString(readiness, "monitor", out var monitor) &&
+            monitor == ExpectedMonitor &&
+            TryGetString(
+                readiness,
+                "targetProgId",
+                out _) &&
+            TryGetString(
+                readiness,
+                "targetPackageId",
+                out _) &&
+            TryGetInt32(
+                readiness,
+                "auditedExtensionCount",
+                out var auditedExtensionCount) &&
+            auditedExtensionCount > 0 &&
+            TryGetInt32(
+                readiness,
+                "primarySnapshotCount",
+                out var primarySnapshotCount) &&
+            primarySnapshotCount == auditedExtensionCount &&
+            TryGetInt32(
+                readiness,
+                "failedReadCount",
+                out var failedReadCount) &&
+            failedReadCount == 0 &&
+            TryGetBoolean(
+                readiness,
+                "auditFresh",
+                out var auditFresh) &&
+            auditFresh &&
+            TryGetInt64(
+                readiness,
+                "auditAgeSeconds",
+                out var auditAgeSeconds) &&
+            auditAgeSeconds >= 0 &&
+            TryGetInt64(
+                readiness,
+                "maximumAuditAgeSeconds",
+                out var maximumAuditAgeSeconds) &&
+            maximumAuditAgeSeconds > 0 &&
+            auditAgeSeconds <= maximumAuditAgeSeconds;
+    }
+
     private static bool TryGetString(
         JsonElement element,
         string propertyName,
         out string value)
     {
         value = string.Empty;
-        if (!element.TryGetProperty(propertyName, out var property) ||
+        if (element.ValueKind != JsonValueKind.Object ||
+            !element.TryGetProperty(propertyName, out var property) ||
             property.ValueKind != JsonValueKind.String)
         {
             return false;
@@ -432,7 +503,8 @@ internal static class WatchdogRunner
         out bool value)
     {
         value = false;
-        if (!element.TryGetProperty(propertyName, out var property) ||
+        if (element.ValueKind != JsonValueKind.Object ||
+            !element.TryGetProperty(propertyName, out var property) ||
             property.ValueKind is not (
                 JsonValueKind.True or JsonValueKind.False))
         {
@@ -441,6 +513,28 @@ internal static class WatchdogRunner
 
         value = property.GetBoolean();
         return true;
+    }
+
+    private static bool TryGetInt32(
+        JsonElement element,
+        string propertyName,
+        out int value)
+    {
+        value = 0;
+        return element.ValueKind == JsonValueKind.Object &&
+            element.TryGetProperty(propertyName, out var property) &&
+            property.TryGetInt32(out value);
+    }
+
+    private static bool TryGetInt64(
+        JsonElement element,
+        string propertyName,
+        out long value)
+    {
+        value = 0;
+        return element.ValueKind == JsonValueKind.Object &&
+            element.TryGetProperty(propertyName, out var property) &&
+            property.TryGetInt64(out value);
     }
 
     private static void WriteRecoveryFailure(

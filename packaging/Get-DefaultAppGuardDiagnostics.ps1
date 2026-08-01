@@ -546,6 +546,10 @@ $status = $null
 $readiness = $null
 $apiReachable = $false
 $readinessReady = $false
+$auditFreshnessAvailable = $false
+$auditFresh = $false
+$auditAgeSeconds = $null
+$maximumAuditAgeSeconds = $null
 try {
     $agentUri = [Uri]$agentUrl
     if (-not $agentUri.IsLoopback -or
@@ -563,12 +567,47 @@ try {
     $issues.Add("agent-api-unreachable")
 }
 if ($apiReachable) {
+    $auditedAtUtc = [DateTimeOffset]::MinValue
+    $auditedAtText = if ($null -ne $status.Audit) {
+        [string]$status.Audit.AuditedAtUtc
+    } else {
+        ""
+    }
+    $maximumAuditAgeSeconds = [int64]$health.MaximumAuditAgeSeconds
+    if ($maximumAuditAgeSeconds -gt 0 -and
+        [DateTimeOffset]::TryParse(
+            $auditedAtText,
+            [ref]$auditedAtUtc)) {
+        $auditAgeSeconds = [int64][Math]::Ceiling(
+            ([DateTimeOffset]::UtcNow - $auditedAtUtc).TotalSeconds)
+        if ($auditAgeSeconds -lt 0) {
+            $auditAgeSeconds = 0
+        }
+        $auditFreshnessAvailable = $true
+        $auditFresh = $auditAgeSeconds -le $maximumAuditAgeSeconds
+        if (-not $auditFresh) {
+            $issues.Add("association-audit-stale")
+        }
+    } else {
+        $issues.Add("association-audit-freshness-unavailable")
+    }
+
     try {
         $readiness = Invoke-RestMethod `
             -Uri "$($agentUrl.TrimEnd('/'))/api/readiness" `
             -TimeoutSec 2
         $readinessReady = [bool]$readiness.Ready -and
-            $readiness.Code -eq "ready"
+            $readiness.Code -eq "ready" -and
+            [bool]$readiness.AuditFresh -and
+            [int64]$readiness.AuditAgeSeconds -ge 0 -and
+            [int64]$readiness.MaximumAuditAgeSeconds -eq
+                $maximumAuditAgeSeconds -and
+            [int64]$readiness.AuditAgeSeconds -le
+                [int64]$readiness.MaximumAuditAgeSeconds -and
+            [int]$readiness.AuditedExtensionCount -gt 0 -and
+            [int]$readiness.PrimarySnapshotCount -eq
+                [int]$readiness.AuditedExtensionCount -and
+            [int]$readiness.FailedReadCount -eq 0
         if (-not $readinessReady) {
             $issues.Add("agent-not-ready")
         }
@@ -744,7 +783,7 @@ if ($operationalLogLargestFileBytes -gt
 
 $operatingSystem = Get-CimInstance Win32_OperatingSystem
 $report = [ordered]@{
-    schemaVersion = 4
+    schemaVersion = 5
     product = "DefaultAppGuard Community"
     generatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
     privacy = [ordered]@{
@@ -895,6 +934,10 @@ $report = [ordered]@{
         } else {
             0
         }
+        auditFreshnessAvailable = $auditFreshnessAvailable
+        auditFresh = $auditFresh
+        auditAgeSeconds = $auditAgeSeconds
+        maximumAuditAgeSeconds = $maximumAuditAgeSeconds
         query = $queryAlgorithm
         monitor = $monitorAlgorithm
         auditHealthy = $auditHealthy
@@ -948,6 +991,8 @@ $report["overallHealthy"] =
     $notificationsAvailable -and
     $operationalLogsHealthy -and
     $readinessReady -and
+    $auditFreshnessAvailable -and
+    $auditFresh -and
     $auditHealthy -and
     $driftCount -eq 0
 

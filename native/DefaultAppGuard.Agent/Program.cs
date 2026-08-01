@@ -108,6 +108,8 @@ try
             ProcessMode = "background-no-console",
             PeriodicReadbackSeconds =
                 (int)options.PeriodicAuditInterval.TotalSeconds,
+            MaximumAuditAgeSeconds =
+                (int)options.MaximumAuditAge.TotalSeconds,
             PackagedUi = packagedUiAvailable,
             NotificationChannel = notificationStatus.Channel,
             NotificationsAvailable = notificationStatus.Available,
@@ -130,7 +132,9 @@ try
 
     app.MapGet("/api/readiness", (AgentRuntimeState state) =>
     {
-        var readiness = AgentReadinessEvaluator.Evaluate(state.Snapshot());
+        var readiness = AgentReadinessEvaluator.Evaluate(
+            state.Snapshot(),
+            options.MaximumAuditAge);
         return readiness.Ready
             ? Results.Ok(readiness)
             : Results.Json(readiness, statusCode: StatusCodes.Status503ServiceUnavailable);

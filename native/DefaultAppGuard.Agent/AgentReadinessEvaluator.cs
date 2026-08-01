@@ -15,6 +15,10 @@ public sealed record AgentReadiness(
     int FailedReadCount,
     int HealthyCount,
     int DriftCount,
+    bool AuditFresh,
+    long AuditAgeSeconds,
+    long MaximumAuditAgeSeconds,
+    DateTimeOffset? AuditedAtUtc,
     string? LastError,
     DateTimeOffset UpdatedAtUtc);
 
@@ -24,12 +28,30 @@ public static class AgentReadinessEvaluator
         "IApplicationAssociationRegistration.QueryCurrentDefault";
     public const string PrimaryMonitor = "RegNotifyChangeKeyValue";
 
-    public static AgentReadiness Evaluate(AgentStatus status)
+    public static AgentReadiness Evaluate(
+        AgentStatus status,
+        TimeSpan maximumAuditAge,
+        DateTimeOffset? now = null)
     {
         ArgumentNullException.ThrowIfNull(status);
+        if (maximumAuditAge <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumAuditAge),
+                "Maximum audit age must be positive.");
+        }
 
         var audit = status.Audit;
         var items = audit?.Items ?? [];
+        var evaluatedAtUtc = now ?? DateTimeOffset.UtcNow;
+        var auditAge = audit is null
+            ? TimeSpan.MaxValue
+            : evaluatedAtUtc - audit.AuditedAtUtc;
+        if (auditAge < TimeSpan.Zero)
+        {
+            auditAge = TimeSpan.Zero;
+        }
+        var auditFresh = audit is not null && auditAge <= maximumAuditAge;
         var primarySnapshotCount = items.Count(item =>
             string.Equals(
                 item.Snapshot?.QuerySource,
@@ -48,7 +70,8 @@ public static class AgentReadinessEvaluator
             audit,
             primarySnapshotCount,
             nonPrimarySnapshotCount,
-            failedReadCount);
+            failedReadCount,
+            auditFresh);
 
         return new AgentReadiness(
             code == "ready",
@@ -63,6 +86,12 @@ public static class AgentReadinessEvaluator
             failedReadCount,
             audit?.HealthyCount ?? 0,
             audit?.DriftCount ?? 0,
+            auditFresh,
+            audit is null
+                ? -1
+                : (long)Math.Ceiling(auditAge.TotalSeconds),
+            (long)Math.Ceiling(maximumAuditAge.TotalSeconds),
+            audit?.AuditedAtUtc,
             status.LastError,
             status.UpdatedAtUtc);
     }
@@ -72,7 +101,8 @@ public static class AgentReadinessEvaluator
         AssociationAuditResult? audit,
         int primarySnapshotCount,
         int nonPrimarySnapshotCount,
-        int failedReadCount)
+        int failedReadCount,
+        bool auditFresh)
     {
         if (!string.Equals(
                 status.QueryAlgorithm,
@@ -133,6 +163,11 @@ public static class AgentReadinessEvaluator
         if (failedReadCount != 0)
         {
             return "primary-query-read-failed";
+        }
+
+        if (!auditFresh)
+        {
+            return "audit-stale";
         }
 
         return primarySnapshotCount == audit.Items.Count
