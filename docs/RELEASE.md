@@ -3,14 +3,19 @@
 ## Three distinct gates
 
 The hosted `CI` workflow checks the frontend, PowerShell syntax, portable .NET
-behavior, and a release-shaped package built on a clean GitHub Windows runner.
-That package check compiles and executes the graphical Setup verifier. It
-deliberately excludes tests that require a real Windows
-default-app state. A green hosted CI run is not a release approval.
+behavior, and a release-shaped package independently on the explicit
+`windows-2022` and `windows-2025` GitHub-hosted labels. Each job records the
+requested label, actual image family, image version, OS build, and architecture
+as a retained artifact. The package check compiles and executes the graphical
+Setup verifier. These are Windows Server build-compatibility checks; they
+deliberately exclude tests that require a real Windows desktop default-app
+state. A green hosted CI matrix is not a release approval.
 
-The hosted `Release Candidate` workflow builds one unsigned archive on a
-GitHub-hosted Windows runner, validates its package manifest and SPDX SBOM,
-records the exact pinned toolchain, and creates GitHub artifact attestations
+The hosted `Release Candidate` workflow builds one unsigned archive on the
+explicit `windows-2025` GitHub-hosted label, validates the actual image family,
+image version, OS build and x64 architecture, then validates its package
+manifest and SPDX SBOM, records the runner and exact pinned toolchain, and
+creates GitHub artifact attestations
 for the archive, SBOM, and `candidate-build.json`. It does not publish a
 release and it cannot approve the main algorithm by itself.
 
@@ -128,11 +133,13 @@ Use this fallback only while Authenticode signing is unavailable:
 ```powershell
 .\packaging\Promote-ReleaseCandidate.ps1 `
   -CandidateDirectory F:\path\to\downloaded-candidate `
-  -Version 0.1.14 `
+  -Version 0.1.15 `
   -ExpectedCommit <full-main-commit-sha>
 ```
 
-5. Require `release-gate.json`, `package-lifecycle.json`, and
+5. Require candidate evidence schema 2 to name `windows-2025`, the actual
+   `win25` image family and its non-empty image version. Also require
+   `release-gate.json`, `package-lifecycle.json`, and
    `watchdog-backoff.json` to report `passed: true`. In particular, require 34
    fresh primary snapshots, zero failed reads, both real monitor checks,
    freshness-aware watchdog recovery, exact-package configuration corruption
@@ -148,6 +155,8 @@ Use this fallback only while Authenticode signing is unavailable:
    and verify the ZIP and SBOM attestations again.
 
 The GitHub attestations prove which hosted workflow and source commit built the
-candidate. The local evidence proves that the exact attested archive passed the
-real default-app environment. Neither is a Windows publisher identity or a
-substitute for Authenticode. Release notes must prominently say `unsigned`.
+candidate. The recorded runner image makes image drift visible but does not pin
+GitHub's underlying weekly image revision. The local evidence proves that the
+exact attested archive passed the real default-app environment. Neither is a
+Windows publisher identity or a substitute for Authenticode. Release notes
+must prominently say `unsigned`.

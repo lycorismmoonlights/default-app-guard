@@ -228,10 +228,21 @@ test("GitHub Actions use immutable action revisions", async () => {
 
   assert.ok(ciWorkflow.includes("node-version: 24.18.0"));
   assert.ok(ciWorkflow.includes("dotnet-version: 10.0.302"));
+  assert.ok(ciWorkflow.includes("Portable validation (${{ matrix.runner }})"));
+  assert.ok(ciWorkflow.includes("windows-2022"));
+  assert.ok(ciWorkflow.includes("windows-2025"));
+  assert.equal(ciWorkflow.includes("runs-on: windows-latest"), false);
+  assert.ok(ciWorkflow.includes("Test-HostedWindowsRunner.ps1"));
+  assert.ok(ciWorkflow.includes("runner-compatibility-${{ matrix.runner }}"));
   assert.ok(releaseWorkflow.includes("node-version: 24.18.0"));
   assert.ok(releaseWorkflow.includes("dotnet-version: 10.0.302"));
   assert.ok(candidateWorkflow.includes("node-version: 24.18.0"));
   assert.ok(candidateWorkflow.includes("dotnet-version: 10.0.302"));
+  assert.ok(candidateWorkflow.includes("runs-on: windows-2025"));
+  assert.equal(candidateWorkflow.includes("runs-on: windows-latest"), false);
+  assert.ok(candidateWorkflow.includes("Test-HostedWindowsRunner.ps1"));
+  assert.ok(candidateWorkflow.includes("runner-compatibility-windows-2025.json"));
+  assert.ok(candidateWorkflow.includes("schemaVersion = 2"));
   assert.match(releaseWorkflow, /default:\s*require-signed/);
   assert.ok(releaseWorkflow.includes("SIGNING_STATUS:"));
   assert.equal(
@@ -287,12 +298,33 @@ test("candidate promotion requires provenance and exact-package main evidence", 
   assert.ok(promotion.includes("exactAttestedArchivePromoted = $true"));
   assert.ok(promotion.includes('policy = "unsigned-alpha"'));
   assert.ok(promotion.includes('status = "unsigned"'));
+  assert.ok(promotion.includes("runner.requestedLabel"));
+  assert.ok(promotion.includes('runner.imageOS -like "win25*"'));
+  assert.ok(promotion.includes("runner.imageVersion"));
+  assert.ok(promotion.includes("runner.operatingSystemBuild"));
+  assert.ok(promotion.includes("runner = $candidateEvidence.runner"));
   assert.ok(releaseGate.includes("$packageMetadata = Get-Content"));
   assert.ok(
     releaseGate.includes(
       "$expectedNodeVersion = [string]$packageMetadata.engines.node",
     ),
   );
+});
+
+test("hosted Windows evidence rejects runner-label drift", async () => {
+  const runnerCheck = await read("tests/Test-HostedWindowsRunner.ps1");
+
+  assert.ok(
+    runnerCheck.includes('[ValidateSet("windows-2022", "windows-2025")]'),
+  );
+  assert.ok(runnerCheck.includes('ImagePrefix = "win22"'));
+  assert.ok(runnerCheck.includes("OsBuild = 20348"));
+  assert.ok(runnerCheck.includes('ImagePrefix = "win25"'));
+  assert.ok(runnerCheck.includes("OsBuild = 26100"));
+  assert.ok(runnerCheck.includes('$env:GITHUB_ACTIONS -ne "true"'));
+  assert.ok(runnerCheck.includes('$env:RUNNER_ARCH -ne "X64"'));
+  assert.ok(runnerCheck.includes("$env:ImageVersion"));
+  assert.ok(runnerCheck.includes("validationPassed = $true"));
 });
 
 test("installer validates, stages, and can roll back an upgrade", async () => {

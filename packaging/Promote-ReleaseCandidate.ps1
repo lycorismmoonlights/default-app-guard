@@ -229,7 +229,7 @@ $sbomValidation = Get-Content `
     -Encoding UTF8 |
     ConvertFrom-Json
 
-Assert-True ([int]$candidateEvidence.schemaVersion -eq 1) `
+Assert-True ([int]$candidateEvidence.schemaVersion -eq 2) `
     "Candidate evidence schema is unsupported."
 Assert-True ([string]$candidateEvidence.product -eq
     "DefaultAppGuard Community") `
@@ -245,8 +245,24 @@ Assert-True ([string]$candidateEvidence.commit -eq $ExpectedCommit) `
 Assert-True ([string]$candidateEvidence.workflow -eq
     ".github/workflows/release-candidate.yml") `
     "Candidate evidence names another workflow."
-Assert-True ([bool]$candidateEvidence.runner.hosted) `
-    "Candidate evidence does not identify a GitHub-hosted runner."
+Assert-True ([string]$candidateEvidence.runner.requestedLabel -eq
+    "windows-2025") `
+    "Candidate was not built with the required Windows runner label."
+Assert-True ([string]$candidateEvidence.runner.imageOS -like "win25*") `
+    "Candidate did not run on a Windows 2025 runner image."
+Assert-True (-not [string]::IsNullOrWhiteSpace(
+    [string]$candidateEvidence.runner.imageVersion)) `
+    "Candidate runner image version is missing."
+Assert-True ([string]$candidateEvidence.runner.runnerOS -eq "Windows") `
+    "Candidate runner operating-system family is not Windows."
+Assert-True ([string]$candidateEvidence.runner.runnerArchitecture -eq
+    "X64") `
+    "Candidate runner architecture is not x64."
+Assert-True ([int]$candidateEvidence.runner.operatingSystemBuild -eq
+    26100) `
+    "Candidate runner does not use the expected Windows 2025 OS build."
+Assert-True ([bool]$candidateEvidence.runner.validationPassed) `
+    "Candidate runner identity validation did not pass."
 Assert-True ([string]$candidateEvidence.toolchain.dotnetSdk -eq "10.0.302") `
     "Candidate used another .NET SDK."
 Assert-True ([string]$candidateEvidence.toolchain.node -eq "24.18.0") `
@@ -483,7 +499,7 @@ Assert-True ([bool]$lifecycleEvidence.passed -and
 
 $releaseGatePath = Join-Path $promotionRoot "release-gate.json"
 [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 2
     product = "DefaultAppGuard Community"
     version = $Version
     commit = $ExpectedCommit
@@ -496,6 +512,7 @@ $releaseGatePath = Join-Path $promotionRoot "release-gate.json"
         runId = [string]$candidateEvidence.runId
         hostedRunnerRequired = $true
         selfHostedAttestationsDenied = $true
+        runner = $candidateEvidence.runner
         archiveAttestationCount = $archiveAttestation.AttestationCount
         sbomAttestationCount = $sbomAttestation.AttestationCount
         buildEvidenceAttestationCount =
