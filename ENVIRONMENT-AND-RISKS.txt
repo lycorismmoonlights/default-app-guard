@@ -1,7 +1,7 @@
 DefaultAppGuard Community
 环境配置要求与风险提示 / Environment Requirements and Risk Notice
 
-适用版本 / Applies to version: 0.1.10
+适用版本 / Applies to version: 0.1.11
 更新日期 / Updated: 2026-08-01
 
 ============================================================
@@ -60,7 +60,7 @@ DefaultAppGuard Community
 
 3.1 本版本的签名状态
 
-- 适用本提示文本的 0.1.10 版本是“未签名 alpha 版本”。
+- 适用本提示文本的 0.1.11 版本是“未签名 alpha 版本”。
 - DefaultAppGuard.Agent.exe、DefaultAppGuard.Setup.exe、Install-DefaultAppGuard.ps1、
   Uninstall-DefaultAppGuard.ps1、Get-DefaultAppGuardDiagnostics.ps1 和
   DefaultAppGuard.Package.psm1 均没有受 Windows 信任的发布者签名。
@@ -90,7 +90,7 @@ DefaultAppGuard Community
 3) 同时下载对应的 .sha256 文件，并核对 ZIP 的 SHA-256。可以在 ZIP
    所在文件夹打开 PowerShell，运行：
 
-   Get-FileHash .\DefaultAppGuard-0.1.10-win-x64.zip -Algorithm SHA256
+   Get-FileHash .\DefaultAppGuard-0.1.11-win-x64.zip -Algorithm SHA256
 
    输出的 64 位哈希必须与 .sha256 文件完全一致。任何一位不同都不要运行。
 4) 完整解压 ZIP 后再安装，不要从压缩包预览窗口直接运行脚本。
@@ -287,7 +287,7 @@ English
 
 3.1 Signing status of this version
 
-- Version 0.1.10 covered by this notice is an unsigned alpha release.
+- Version 0.1.11 covered by this notice is an unsigned alpha release.
 - DefaultAppGuard.Agent.exe, DefaultAppGuard.Setup.exe, Install-DefaultAppGuard.ps1,
   Uninstall-DefaultAppGuard.ps1, Get-DefaultAppGuardDiagnostics.ps1, and
   DefaultAppGuard.Package.psm1 do not have a publisher signature trusted by
@@ -324,7 +324,7 @@ Consider installing this unsigned alpha only when every item below is true:
 3) Download the matching .sha256 file and verify the ZIP. Open PowerShell in
    the folder containing the ZIP and run:
 
-   Get-FileHash .\DefaultAppGuard-0.1.10-win-x64.zip -Algorithm SHA256
+   Get-FileHash .\DefaultAppGuard-0.1.11-win-x64.zip -Algorithm SHA256
 
    The 64-character hash must match the .sha256 file exactly. Do not run the
    package when even one character is different.
@@ -508,7 +508,10 @@ license text, and this notice file.
 
 中文：
 
-- 0.1.10 的发布附件包含 SPDX 2.2 软件物料清单（SBOM）及其 SHA-256。
+- 0.1.11 在诊断读取活动日志大小前显式刷新 Windows 文件元数据，避免刚启动或
+  正在写入的日志被缓存的 0 字节长度误判为日志故障。此修复只影响诊断准确性，
+  不改变主 COM 查询、RegNotifyChangeKeyValue 监控或默认应用数据。
+- 0.1.11 的发布附件包含 SPDX 2.2 软件物料清单（SBOM）及其 SHA-256。
   SBOM 使用固定版本的 Microsoft SBOM Tool 生成，并在发布门禁中逐文件验证。
 - 发布门禁会先运行无控制台图形安装器的确切包验证，再安装即将发布的软件包，
   并验证就绪端点、34 项主 COM 查询证据、真实注册表通知、
@@ -520,7 +523,7 @@ license text, and this notice file.
   门禁会失败，不允许使用悄然滚动的新工具链发布。
 - 这些证据用于提高构建可追溯性和发现发布过程错误，不代表软件在所有电脑上
   都不会出现兼容性问题，也不能代替 Windows Authenticode 发布者签名。
-- 对于 0.1.10 的未签名候选包，ZIP、SBOM 和 candidate-build.json 由 GitHub
+- 对于 0.1.11 的未签名候选包，ZIP、SBOM 和 candidate-build.json 由 GitHub
   托管的 Windows 构建任务生成并分别附加 GitHub artifact attestation（构建来源
   证明）。发布维护者随后必须在配置了真实 Microsoft Media Player 默认关联的
   Windows 电脑上，对完全相同的 ZIP 运行本地主算法晋级门禁；该门禁不会重新
@@ -538,13 +541,17 @@ license text, and this notice file.
   Authenticode 代码签名。用户仍应只从官方 Releases 页面下载、核对 SHA-256、
   保持安全软件开启，并把本版本视为未签名 alpha。
 - 项目已经具备使用 Windows 证书存储或兼容 HSM 进行发布签名的构建入口；但是
-  本提示对应的 0.1.10 仍是未签名 alpha。只有当 GitHub 发布说明明确写明“已签名”、
+  本提示对应的 0.1.11 仍是未签名 alpha。只有当 GitHub 发布说明明确写明“已签名”、
   列出签名者，且 release-gate.json 显示所有受检文件签名有效并已加时间戳时，
   才能把某个未来版本视为已签名版本。
 
 English:
 
-- Version 0.1.10 release assets include an SPDX 2.2 software bill of materials
+- Version 0.1.11 explicitly refreshes Windows file metadata before diagnostics
+  measure an active log. This prevents a cached zero-byte length from being
+  misreported as a logging failure. The fix does not change the primary COM
+  query, RegNotifyChangeKeyValue monitor, or default-association data.
+- Version 0.1.11 release assets include an SPDX 2.2 software bill of materials
   (SBOM) and its SHA-256. The pinned Microsoft SBOM Tool generates it, and the
   release gate validates every packaged file against it.
 - The release gate first runs the graphical no-console Setup verifier, then
@@ -563,7 +570,7 @@ English:
 - This evidence improves build traceability and catches release-process
   failures. It does not guarantee compatibility on every computer and does not
   replace a trusted Windows Authenticode publisher signature.
-- For the unsigned 0.1.10 candidate, a GitHub-hosted Windows build creates the
+- For the unsigned 0.1.11 candidate, a GitHub-hosted Windows build creates the
   ZIP, SBOM, and candidate-build.json and attaches a separate GitHub artifact
   attestation to each. A maintainer must then run the local main-algorithm
   promotion gate on a Windows computer whose real default associations target
@@ -587,7 +594,7 @@ English:
   SHA-256, keep security software enabled, and continue to treat this version
   as an unsigned alpha.
 - The build now supports release signing through the Windows certificate store
-  or a compatible HSM. However, version 0.1.10 covered by this notice remains an
+  or a compatible HSM. However, version 0.1.11 covered by this notice remains an
   unsigned alpha. Treat a future version as signed only when its GitHub release
   notes explicitly say so, name the signer, and release-gate.json reports valid,
   timestamped signatures for every checked file.

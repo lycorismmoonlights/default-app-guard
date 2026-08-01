@@ -10,7 +10,7 @@ Run all of the following on Windows:
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.10 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.11 `
   -PackageManagerPath pnpm
 ```
 
@@ -26,7 +26,7 @@ and promote those exact bytes on the dedicated validation computer:
 ```powershell
 .\packaging\Promote-ReleaseCandidate.ps1 `
   -CandidateDirectory F:\path\to\release-candidate `
-  -Version 0.1.10 `
+  -Version 0.1.11 `
   -ExpectedCommit <full-main-commit-sha>
 ```
 
@@ -42,7 +42,7 @@ report `codeSigning.status` as `unsigned`. Any release described as signed must
 run:
 
 ```powershell
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.10 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.11 `
   -PackageManagerPath pnpm `
   -SigningCertificateThumbprint $env:DAG_SIGNING_CERTIFICATE_THUMBPRINT `
   -TimestampServer $env:DAG_TIMESTAMP_SERVER `

@@ -126,7 +126,7 @@ Use this fallback only while Authenticode signing is unavailable:
 ```powershell
 .\packaging\Promote-ReleaseCandidate.ps1 `
   -CandidateDirectory F:\path\to\downloaded-candidate `
-  -Version 0.1.10 `
+  -Version 0.1.11 `
   -ExpectedCommit <full-main-commit-sha>
 ```
 
