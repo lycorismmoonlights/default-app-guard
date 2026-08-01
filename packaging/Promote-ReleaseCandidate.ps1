@@ -426,6 +426,15 @@ Assert-True ([bool]$lifecycleEvidence.passed -and
     [bool]$lifecycleEvidence.notifications.available -and
     [bool]$lifecycleEvidence.notifications.enabledByDefault -and
     [bool]$lifecycleEvidence.notifications.configurationRoundTripVerified -and
+    [string]$lifecycleEvidence.operationalLogs.channel -eq
+        "Serilog.Sinks.File" -and
+    [bool]$lifecycleEvidence.operationalLogs.available -and
+    [string]$lifecycleEvidence.operationalLogs.format -eq "CLEF" -and
+    [int64]$lifecycleEvidence.operationalLogs.fileSizeLimitBytes -eq 2MB -and
+    [int]$lifecycleEvidence.operationalLogs.retainedFileCountLimit -eq 7 -and
+    [bool]$lifecycleEvidence.operationalLogs.diagnosticsHealthy -and
+    [int]$lifecycleEvidence.operationalLogs.fileCount -ge 1 -and
+    [int64]$lifecycleEvidence.operationalLogs.totalBytes -gt 0 -and
     [bool]$lifecycleEvidence.rollback.passed -and
     [bool]$lifecycleEvidence.rollback.lateStagePassed -and
     [bool]$lifecycleEvidence.rollback.installStateRestored -and
@@ -438,6 +447,7 @@ Assert-True ([bool]$lifecycleEvidence.passed -and
     [int]$lifecycleEvidence.diagnostics.issueCount -eq 0 -and
     [bool]$lifecycleEvidence.diagnostics.loopbackOnly -and
     [int]$lifecycleEvidence.diagnostics.consoleChildCount -eq 0 -and
+    [bool]$lifecycleEvidence.diagnostics.operationalLogsHealthy -and
     [bool]$lifecycleEvidence.diagnostics.watchdogTelemetryHealthy -and
     [bool]$lifecycleEvidence.diagnostics.watchdogTelemetryMatchesTaskRun -and
     [bool]$lifecycleEvidence.diagnostics.watchdogProcessMatches -and
@@ -503,6 +513,7 @@ $releaseGatePath = Join-Path $promotionRoot "release-gate.json"
         exactReleasePackagePassed = [bool]$lifecycleEvidence.passed
         mainAlgorithm = $lifecycleEvidence.mainAlgorithm
         notifications = $lifecycleEvidence.notifications
+        operationalLogs = $lifecycleEvidence.operationalLogs
         rollback = $lifecycleEvidence.rollback
         watchdog = $lifecycleEvidence.watchdog
         diagnostics = $lifecycleEvidence.diagnostics

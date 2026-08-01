@@ -7,7 +7,8 @@ public sealed class AssociationAuditCoordinator(
     AssociationAuditService auditService,
     AgentRuntimeState state,
     AgentOptions options,
-    GuardConfigurationStore configurationStore)
+    GuardConfigurationStore configurationStore,
+    ILogger<AssociationAuditCoordinator> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -32,6 +33,15 @@ public sealed class AssociationAuditCoordinator(
                 cancellationToken);
             var snapshot = state.SetAudit(audit, reason, registryEvent);
             await WriteStateAsync(snapshot, cancellationToken);
+            logger.LogInformation(
+                "Association audit completed for {AuditReason}: " +
+                "healthy={AuditHealthy}, healthyCount={HealthyCount}, " +
+                "driftCount={DriftCount}, registryEvent={RegistryEvent}.",
+                reason,
+                audit.Healthy,
+                audit.HealthyCount,
+                audit.DriftCount,
+                registryEvent);
             return snapshot;
         }
         catch (Exception exception) when (
@@ -40,6 +50,10 @@ public sealed class AssociationAuditCoordinator(
             var snapshot = state.SetError(
                 $"{exception.GetType().Name}: {exception.Message}");
             await WriteStateAsync(snapshot, cancellationToken);
+            logger.LogError(
+                exception,
+                "Association audit failed for {AuditReason}.",
+                reason);
             throw;
         }
         finally

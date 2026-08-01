@@ -4,6 +4,7 @@ public sealed record AgentOptions(
     string Url,
     string StatePath,
     string ConfigurationPath,
+    string OperationalLogDirectory,
     TimeSpan PeriodicAuditInterval,
     bool OpenUi,
     IReadOnlyList<string> AllowedOrigins)
@@ -56,10 +57,17 @@ public sealed record AgentOptions(
                 nameof(args));
         }
 
+        var normalizedStatePath = Path.GetFullPath(statePath);
+        var stateDirectory = Path.GetDirectoryName(normalizedStatePath)
+            ?? throw new ArgumentException(
+                "Agent state path must have a parent directory.",
+                nameof(args));
+
         return new AgentOptions(
             url.TrimEnd('/'),
-            Path.GetFullPath(statePath),
+            normalizedStatePath,
             Path.GetFullPath(configurationPath),
+            Path.Combine(stateDirectory, "logs"),
             periodicAuditInterval,
             openUi,
             [

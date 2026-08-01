@@ -8,6 +8,10 @@ When a real audit finds drift, the background Agent can show a throttled
 Windows tray notification. The Settings page can disable alerts without
 disabling the COM query, registry monitor, or periodic readback.
 
+The Agent writes a bounded local CLEF operational log for troubleshooting.
+Logs are not uploaded, use a 2 MiB rolling threshold with seven retained files,
+and are never used as default-association evidence.
+
 The project is currently an alpha. It detects drift and opens Windows' supported
 Default Apps surface for user-driven repair. It does not silently overwrite
 `UserChoice`, bypass UCPD, or claim an unbreakable hard lock.
@@ -29,7 +33,7 @@ source review and advanced operation.
 The current alpha is unsigned. Verify the checksum before installation:
 
 ```powershell
-Get-FileHash .\DefaultAppGuard-0.1.9-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DefaultAppGuard-0.1.10-win-x64.zip -Algorithm SHA256
 ```
 
 Read [ENVIRONMENT-AND-RISKS.txt](ENVIRONMENT-AND-RISKS.txt) before
@@ -38,7 +42,7 @@ privacy boundary, known limitations, and license notice in Chinese and English.
 The release gate requires this file to be reviewed and version-matched for every
 release.
 
-Version 0.1.9 packages contain a per-file SHA-256 manifest. The graphical Setup
+Version 0.1.10 packages contain a per-file SHA-256 manifest. The graphical Setup
 launcher runs without a console or administrator elevation. Before starting
 PowerShell, native Setup code independently verifies the package manifest,
 file set, lengths, and SHA-256 hashes. Setup uses `ExecutionPolicy Bypass` only
@@ -47,7 +51,8 @@ download can run; it does not save or change the user or computer policy, and
 Group Policy still takes precedence. The transactional installer verifies the
 package again before stopping an existing Agent, stages the complete update,
 and restores the previous files and scheduled task if the new Agent fails its
-identity, primary-algorithm readiness, or no-console checks. Readiness requires
+identity, primary-algorithm readiness, no-console, notification, or bounded
+operational-log checks. Readiness requires
 Microsoft Media Player target resolution and primary COM-query evidence for
 every protected format; association drift itself does not block installation.
 Successful installation also creates a current-user entry in Windows
@@ -87,6 +92,8 @@ diagnostics, and uninstallation.
 7. Send repairs through the official Windows Default Apps UI.
 8. Present drift found by those primary algorithms through a best-effort
    `WindowsForms.NotifyIcon` alert; never use the notification layer as evidence.
+9. Persist bounded local operational events for diagnosis; never use a log
+   entry as query or monitor evidence.
 
 See [docs/ALGORITHM-DECISIONS.md](docs/ALGORITHM-DECISIONS.md) for rejected
 approaches and product boundaries.
@@ -119,7 +126,7 @@ build or verify the project, not to install it.
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.9 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.10 `
   -PackageManagerPath pnpm
 ```
 
@@ -143,8 +150,9 @@ product intentionally allows one instance per signed-in user.
 The script builds the React UI, a small NativeAOT graphical Setup launcher, and
 a compressed, self-contained `win-x64` Agent. The output includes installation
 and uninstallation scripts,
-the redacted diagnostics script, a per-file integrity manifest, and the
-versioned bilingual environment and risk notice. See
+the redacted diagnostics script, a per-file integrity manifest, third-party
+notices and license text, and the versioned bilingual environment and risk
+notice. See
 [docs/USER-GUIDE.md](docs/USER-GUIDE.md) and
 [docs/MAINTAINER-GUIDE.md](docs/MAINTAINER-GUIDE.md).
 
@@ -157,7 +165,7 @@ versioned bilingual environment and risk notice. See
   signed or invalidly signed release is rejected.
 - The `require-signed` path can sign the fresh payload with a code-signing
   certificate available through the Windows certificate store or an attached
-  HSM before the package manifest is generated. Version 0.1.9 remains an
+  HSM before the package manifest is generated. Version 0.1.10 remains an
   unsigned alpha unless its release notes explicitly state otherwise.
 - Unsigned fallback candidates carry GitHub build attestations for the ZIP,
   SBOM, and build record. These establish build provenance but do not replace a

@@ -11,6 +11,9 @@ public sealed class AgentOptionsTests
 
         Assert.Equal("http://127.0.0.1:51873", result.Url);
         Assert.Equal(TimeSpan.FromMinutes(15), result.PeriodicAuditInterval);
+        Assert.Equal(
+            Path.Combine(Path.GetDirectoryName(result.StatePath)!, "logs"),
+            result.OperationalLogDirectory);
         Assert.False(result.OpenUi);
     }
 
@@ -41,5 +44,20 @@ public sealed class AgentOptionsTests
         Assert.Throws<ArgumentException>(
             () => AgentOptions.Parse(
                 ["--url", "http://0.0.0.0:51873"]));
+    }
+
+    [Fact]
+    public void Parse_DerivesLogDirectoryFromCustomStateDirectory()
+    {
+        var statePath = Path.Combine(
+            Path.GetTempPath(),
+            Guid.NewGuid().ToString("N"),
+            "state.json");
+
+        var result = AgentOptions.Parse(["--state", statePath]);
+
+        Assert.Equal(
+            Path.Combine(Path.GetDirectoryName(statePath)!, "logs"),
+            result.OperationalLogDirectory);
     }
 }

@@ -40,8 +40,10 @@ Before changing an existing installation, the installer verifies every package
 file against `package-manifest.json` and prepares a complete staging directory.
 An upgrade is committed only after the new Agent reports the expected version
 and PID, no-console process mode, a resolved Microsoft Media Player target, and
-real primary COM-query evidence for every protected format. Existing association drift is
-reported to the user but does not make installation fail. A failed upgrade
+real primary COM-query evidence for every protected format. It also requires
+the system-notification channel and a real write to the bounded local
+operational log. Existing association drift is reported to the user but does
+not make installation fail. A failed upgrade
 restores the previous files, scheduled task, install-state file, shortcut, and
 standard uninstall registration.
 
@@ -100,17 +102,28 @@ watchdog recovery outcome and backoff state, loopback listener, console
 children, readiness, and the current main-algorithm audit. The report also
 checks the `WindowsForms.NotifyIcon` channel and records whether the user
 enabled alerts. A user-disabled preference is not a fault; an unavailable
-notification channel is. It does not include personal paths, registry exports,
-raw runtime file contents,
-or tokens. Review it before attaching it to an issue.
+notification channel is. It also verifies the operational-log channel, format,
+retention limits, file count, and aggregate byte counts without reading or
+including log contents. It does not include personal paths, registry exports,
+raw runtime file contents, log contents, or tokens. Review it before attaching
+it to an issue.
 
 The default runtime files are:
 
 ```text
 %LOCALAPPDATA%\DefaultAppGuard\runtime\agent-status.json
 %LOCALAPPDATA%\DefaultAppGuard\runtime\guard-configuration.json
+%LOCALAPPDATA%\DefaultAppGuard\runtime\logs\agent-YYYYMMDD.clef
 %LOCALAPPDATA%\DefaultAppGuard\install-state.json
 ```
+
+The `.clef` files contain structured local operational events such as startup,
+audit reason and counts, shutdown, and technical exceptions. They are never
+uploaded automatically. The Agent rolls by day and at 2 MiB, retaining at most
+seven files. Logs may still contain technical details such as an exception
+stack, so do not post raw log files publicly without reviewing and redacting
+them. The diagnostics JSON is the preferred first support attachment because
+it reports only constrained log metadata.
 
 The watchdog recovery summary is stored under the fixed current-user product
 key `HKCU\Software\DefaultAppGuard\Watchdog`. It is local troubleshooting
@@ -135,7 +148,8 @@ Advanced users can run the same uninstaller directly:
 & "$env:LOCALAPPDATA\Programs\DefaultAppGuard\Uninstall-DefaultAppGuard.ps1"
 ```
 
-Use `-KeepData` to retain the monitored-format configuration and last status.
+Use `-KeepData` to retain the monitored-format configuration, last status, and
+local operational logs.
 
 The uninstaller removes only a recognized installation containing the package
 manifest. It stops and unregisters the task before removing files.
@@ -143,8 +157,9 @@ manifest. It stops and unregisters the task before removing files.
 ## License
 
 DefaultAppGuard is provided under the PolyForm Noncommercial License 1.0.0.
-The package includes `LICENSE.md` and the required `NOTICE`. Commercial use is
-not granted.
+The package includes `LICENSE.md`, the required `NOTICE`,
+`THIRD-PARTY-NOTICES.md`, and the applicable third-party license text.
+Commercial use is not granted.
 
 ## Supported Claim
 

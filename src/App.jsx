@@ -67,6 +67,7 @@ const agentBaseUrl =
 function useAgentStatus() {
   const [status, setStatus] = useState(null);
   const [configuration, setConfiguration] = useState(null);
+  const [health, setHealth] = useState(null);
   const [error, setError] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -82,16 +83,20 @@ function useAgentStatus() {
   const refresh = useCallback(async (manual = false) => {
     setIsRefreshing(true);
     try {
-      const nextStatus = await request(
-        `/api/${manual ? "audit" : "status"}`,
-        manual
-          ? {
-              method: "POST",
-              headers: { "X-DefaultAppGuard-Client": "local-ui" },
-            }
-          : undefined,
-      );
+      const [nextStatus, nextHealth] = await Promise.all([
+        request(
+          `/api/${manual ? "audit" : "status"}`,
+          manual
+            ? {
+                method: "POST",
+                headers: { "X-DefaultAppGuard-Client": "local-ui" },
+              }
+            : undefined,
+        ),
+        request("/api/health"),
+      ]);
       setStatus(nextStatus);
+      setHealth(nextHealth);
       setError("");
     } catch (requestError) {
       setError(requestError.message || "无法连接本地 Agent");
@@ -144,10 +149,12 @@ function useAgentStatus() {
     Promise.all([
       request("/api/status"),
       request("/api/config"),
+      request("/api/health"),
     ])
-      .then(([nextStatus, nextConfiguration]) => {
+      .then(([nextStatus, nextConfiguration, nextHealth]) => {
         setStatus(nextStatus);
         setConfiguration(nextConfiguration);
+        setHealth(nextHealth);
         setError("");
       })
       .catch((requestError) => {
@@ -160,6 +167,7 @@ function useAgentStatus() {
   return {
     status,
     configuration,
+    health,
     error,
     isRefreshing,
     refresh,
@@ -643,6 +651,7 @@ function HistoryPage({ agentError, agentStatus }) {
 }
 
 function SettingsPage({
+  agentHealth,
   agentStatus,
   configuration,
   isRefreshing,
@@ -650,6 +659,16 @@ function SettingsPage({
 }) {
   const notificationsEnabled =
     configuration?.notificationsEnabled === true;
+  const operationalLogSizeMiB = Math.round(
+    (agentHealth?.operationalLogFileSizeLimitBytes ?? 0) / (1024 * 1024),
+  );
+  const operationalLogDescription = !agentHealth
+    ? "未连接"
+    : !agentHealth.operationalLogChannel
+      ? "当前 Agent 版本不支持日志健康检查"
+      : agentHealth.operationalLogsAvailable
+        ? `${agentHealth.operationalLogFormat} · ${operationalLogSizeMiB} MiB 滚动 · 保留 ${agentHealth.operationalLogRetainedFileCountLimit} 个`
+        : "不可用，请运行诊断";
 
   const setNotificationsEnabled = async (enabled) => {
     await onSaveConfiguration({ notificationsEnabled: enabled });
@@ -667,7 +686,9 @@ function SettingsPage({
             <strong>系统通知</strong>
             <small>
               {notificationsEnabled
-                ? "默认应用发生偏移时提醒"
+                ? agentHealth?.notificationsAvailable === false
+                  ? "通知通道不可用"
+                  : "默认应用发生偏移时提醒"
                 : "已关闭"}
             </small>
           </span>
@@ -696,6 +717,12 @@ function SettingsPage({
             <small>{agentStatus?.monitorAlgorithm ?? "未连接"}</small>
           </span>
         </div>
+        <div className="setting-row">
+          <span>
+            <strong>本地运行日志</strong>
+            <small>{operationalLogDescription}</small>
+          </span>
+        </div>
       </div>
     </main>
   );
@@ -706,6 +733,7 @@ export function App() {
   const {
     status: agentStatus,
     configuration,
+    health: agentHealth,
     error: agentError,
     isRefreshing,
     refresh,
@@ -740,6 +768,7 @@ export function App() {
     if (activeSection === "settings") {
       return (
         <SettingsPage
+          agentHealth={agentHealth}
           agentStatus={agentStatus}
           configuration={configuration}
           isRefreshing={isRefreshing}
@@ -761,6 +790,7 @@ export function App() {
   }, [
     activeSection,
     agentError,
+    agentHealth,
     agentStatus,
     configuration,
     isRefreshing,

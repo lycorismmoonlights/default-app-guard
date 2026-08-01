@@ -155,6 +155,13 @@ try {
         -LiteralPath (Join-Path $projectRoot "NOTICE") `
         -Destination $outputPath
     Copy-Item `
+        -LiteralPath (Join-Path $projectRoot "THIRD-PARTY-NOTICES.md") `
+        -Destination $outputPath
+    Copy-Item `
+        -LiteralPath (Join-Path $projectRoot "licenses") `
+        -Destination $outputPath `
+        -Recurse
+    Copy-Item `
         -LiteralPath $riskNoticePath `
         -Destination $outputPath
 

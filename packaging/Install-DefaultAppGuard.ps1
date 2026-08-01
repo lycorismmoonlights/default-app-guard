@@ -214,6 +214,15 @@ function Wait-AgentReady {
                 $lastFailure = "System notification channel is unavailable."
                 continue
             }
+            if ($health.OperationalLogChannel -ne "Serilog.Sinks.File" -or
+                -not [bool]$health.OperationalLogsAvailable -or
+                $health.OperationalLogFormat -ne "CLEF" -or
+                [int64]$health.OperationalLogFileSizeLimitBytes -ne
+                    2MB -or
+                [int]$health.OperationalLogRetainedFileCountLimit -ne 7) {
+                $lastFailure = "Bounded operational logging is unavailable."
+                continue
+            }
             if (-not ([string]$health.Version).StartsWith(
                     "$ExpectedVersion.",
                     [StringComparison]::Ordinal)) {
@@ -800,6 +809,13 @@ try {
         NotificationChannel = $agent.Health.NotificationChannel
         NotificationsAvailable = $agent.Health.NotificationsAvailable
         NotificationsEnabled = $agent.Health.NotificationsEnabled
+        OperationalLogChannel = $agent.Health.OperationalLogChannel
+        OperationalLogsAvailable = $agent.Health.OperationalLogsAvailable
+        OperationalLogFormat = $agent.Health.OperationalLogFormat
+        OperationalLogFileSizeLimitBytes =
+            $agent.Health.OperationalLogFileSizeLimitBytes
+        OperationalLogRetainedFileCountLimit =
+            $agent.Health.OperationalLogRetainedFileCountLimit
         Ready = $agent.Readiness.Ready
         ReadinessCode = $agent.Readiness.Code
         TargetProgId = $agent.Readiness.TargetProgId

@@ -10,7 +10,7 @@ Run all of the following on Windows:
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.9 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.10 `
   -PackageManagerPath pnpm
 ```
 
@@ -26,7 +26,7 @@ and promote those exact bytes on the dedicated validation computer:
 ```powershell
 .\packaging\Promote-ReleaseCandidate.ps1 `
   -CandidateDirectory F:\path\to\release-candidate `
-  -Version 0.1.9 `
+  -Version 0.1.10 `
   -ExpectedCommit <full-main-commit-sha>
 ```
 
@@ -42,7 +42,7 @@ report `codeSigning.status` as `unsigned`. Any release described as signed must
 run:
 
 ```powershell
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.9 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.10 `
   -PackageManagerPath pnpm `
   -SigningCertificateThumbprint $env:DAG_SIGNING_CERTIFICATE_THUMBPRINT `
   -TimestampServer $env:DAG_TIMESTAMP_SERVER `
@@ -74,6 +74,9 @@ The required signals are:
   the primary COM query before an install transaction can commit.
 - `/api/health` reports an available `WindowsForms.NotifyIcon` channel. This
   channel consumes audit results and must never substitute for primary evidence.
+- `/api/health` reports a writable `Serilog.Sinks.File` channel using CLEF,
+  a 2 MiB file limit, and seven-file retention. Operational logs are
+  observability only and must never substitute for primary evidence.
 
 ## Installation Test
 
@@ -102,7 +105,8 @@ Verify:
    `TransactionalUpgrade: True`, `ProcessMode: background-no-console`, and
    `WatchdogTaskState: Ready`.
 2. `/api/health` reports the COM query, registry monitor, expected PID,
-   background process mode, and available `WindowsForms.NotifyIcon` channel.
+   background process mode, available `WindowsForms.NotifyIcon` channel, and
+   a writable bounded CLEF operational-log channel.
 3. `/api/status` reports all declared formats individually.
 4. A harmless subkey created below the current user's `FileExts` tree increases
    `registryEventCount`.
@@ -120,8 +124,9 @@ Verify:
    data directory.
 10. Toggling notifications off and on preserves all protected extensions, and
     diagnostics reports the channel available and enabled after restoration.
-11. `Get-DefaultAppGuardDiagnostics.ps1` reports no issues and does not include
-   personal paths or raw runtime contents.
+11. `Get-DefaultAppGuardDiagnostics.ps1` reports healthy operational-log
+    metadata and no issues, without including personal paths, raw runtime
+    contents, or log contents.
 12. Uninstallation leaves no task, process, install directory, data directory,
    or probe key.
 
