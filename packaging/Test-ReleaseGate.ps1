@@ -387,6 +387,7 @@ $lifecycleEvidence = Get-Content `
     -Encoding UTF8 |
     ConvertFrom-Json
 if (-not [bool]$lifecycleEvidence.passed -or
+    [int]$lifecycleEvidence.schemaVersion -ne 2 -or
     -not [bool]$lifecycleEvidence.mainAlgorithm.auditFresh -or
     [int64]$lifecycleEvidence.mainAlgorithm.auditAgeSeconds -lt 0 -or
     [int64]$lifecycleEvidence.mainAlgorithm.maximumAuditAgeSeconds -le 0 -or
@@ -413,6 +414,18 @@ if (-not [bool]$lifecycleEvidence.passed -or
     -not [bool]$lifecycleEvidence.rollback.lateStagePassed -or
     -not [bool]$lifecycleEvidence.rollback.installStateRestored -or
     -not [bool]$lifecycleEvidence.rollback.uninstallEntryRestored -or
+    -not [bool](
+        $lifecycleEvidence.configurationPersistence.backupAvailableAtInstall) -or
+    -not [bool](
+        $lifecycleEvidence.configurationPersistence.recoveryVerified) -or
+    [string]$lifecycleEvidence.configurationPersistence.recoveryCode -ne
+        "backup-restored" -or
+    -not [bool](
+        $lifecycleEvidence.configurationPersistence.settingsPreserved) -or
+    -not [bool](
+        $lifecycleEvidence.configurationPersistence.diagnosticsHealthy) -or
+    -not [bool](
+        $lifecycleEvidence.configurationPersistence.diagnosticsNoticePresent) -or
     -not [bool]$lifecycleEvidence.watchdog.TaskConfigurationVerified -or
     [string]$lifecycleEvidence.watchdog.TelemetryOutcome -ne "recovered" -or
     -not [bool]$lifecycleEvidence.watchdog.TelemetryActiveProcessMatches -or
@@ -644,6 +657,18 @@ $evidenceFile = Join-Path $releaseRoot "release-gate.json"
                 "recovered" -and
             [bool]$lifecycleEvidence.watchdog.TelemetryActiveProcessMatches -and
             [bool]$lifecycleEvidence.watchdog.TelemetryRedacted
+        configurationBackupAvailable =
+            [bool](
+                $lifecycleEvidence.configurationPersistence.backupAvailableAtInstall)
+        configurationRecoveryVerified =
+            [bool]$lifecycleEvidence.configurationPersistence.recoveryVerified
+        configurationSettingsPreserved =
+            [bool]$lifecycleEvidence.configurationPersistence.settingsPreserved
+        configurationRecoveryDiagnosticsHealthy =
+            [bool]$lifecycleEvidence.configurationPersistence.diagnosticsHealthy
+        configurationRecoveryNoticePresent =
+            [bool](
+                $lifecycleEvidence.configurationPersistence.diagnosticsNoticePresent)
         watchdogRestartStormSuppressed =
             [bool]$watchdogBackoffEvidence.passed -and
             [bool]$watchdogBackoffEvidence.firstAttempt.failedProcessCleaned -and

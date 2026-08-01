@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 
 namespace DefaultAppGuard.Setup;
@@ -65,6 +66,10 @@ internal static class WatchdogRunner
     private const string ExpectedProcessMode = "background-no-console";
     private const string ExpectedNotificationChannel =
         "WindowsForms.NotifyIcon";
+    private const string ExpectedConfigurationStorage =
+        "runtime/guard-configuration.json";
+    private const string ExpectedConfigurationBackupStorage =
+        "runtime/guard-configuration.json.bak";
 
     internal static int Run(WatchdogOptions options)
     {
@@ -401,7 +406,8 @@ internal static class WatchdogRunner
                 StringComparison.Ordinal) ||
             !health.TryGetProperty("processId", out var processIdElement) ||
             !processIdElement.TryGetInt32(out processId) ||
-            processId <= 0)
+            processId <= 0 ||
+            !TryMatchConfigurationPersistence(health))
         {
             return false;
         }
@@ -422,6 +428,54 @@ internal static class WatchdogRunner
         {
             return false;
         }
+    }
+
+    internal static bool TryMatchConfigurationPersistence(
+        JsonElement health)
+    {
+        if (!TryGetString(
+                health,
+                "configurationStorage",
+                out var storage) ||
+            storage != ExpectedConfigurationStorage ||
+            !TryGetString(
+                health,
+                "configurationBackupStorage",
+                out var backupStorage) ||
+            backupStorage != ExpectedConfigurationBackupStorage ||
+            !TryGetBoolean(
+                health,
+                "configurationBackupAvailable",
+                out var backupAvailable) ||
+            !backupAvailable ||
+            !TryGetBoolean(
+                health,
+                "configurationRecovered",
+                out var recovered) ||
+            !TryGetString(
+                health,
+                "configurationRecoveryCode",
+                out var recoveryCode))
+        {
+            return false;
+        }
+
+        if (recoveryCode == "none")
+        {
+            return !recovered;
+        }
+
+        return recovered &&
+            recoveryCode is "backup-restored" or "defaults-restored" &&
+            TryGetString(
+                health,
+                "configurationRecoveredAtUtc",
+                out var recoveredAtUtc) &&
+            DateTimeOffset.TryParse(
+                recoveredAtUtc,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind,
+                out _);
     }
 
     internal static bool TryMatchReadiness(JsonElement readiness)

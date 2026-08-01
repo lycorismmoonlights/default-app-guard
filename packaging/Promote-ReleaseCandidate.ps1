@@ -410,6 +410,7 @@ $lifecycleEvidence = Get-Content `
     -Encoding UTF8 |
     ConvertFrom-Json
 Assert-True ([bool]$lifecycleEvidence.passed -and
+    [int]$lifecycleEvidence.schemaVersion -eq 2 -and
     [bool]$lifecycleEvidence.package.exactManifestInstalled -and
     [string]$lifecycleEvidence.mainAlgorithm.query -eq
         "IApplicationAssociationRegistration.QueryCurrentDefault" -and
@@ -444,6 +445,15 @@ Assert-True ([bool]$lifecycleEvidence.passed -and
     [bool]$lifecycleEvidence.rollback.lateStagePassed -and
     [bool]$lifecycleEvidence.rollback.installStateRestored -and
     [bool]$lifecycleEvidence.rollback.uninstallEntryRestored -and
+    [bool](
+        $lifecycleEvidence.configurationPersistence.backupAvailableAtInstall) -and
+    [bool]$lifecycleEvidence.configurationPersistence.recoveryVerified -and
+    [string]$lifecycleEvidence.configurationPersistence.recoveryCode -eq
+        "backup-restored" -and
+    [bool]$lifecycleEvidence.configurationPersistence.settingsPreserved -and
+    [bool]$lifecycleEvidence.configurationPersistence.diagnosticsHealthy -and
+    [bool](
+        $lifecycleEvidence.configurationPersistence.diagnosticsNoticePresent) -and
     [bool]$lifecycleEvidence.watchdog.TaskConfigurationVerified -and
     [string]$lifecycleEvidence.watchdog.TelemetryOutcome -eq "recovered" -and
     [bool]$lifecycleEvidence.watchdog.TelemetryActiveProcessMatches -and
@@ -526,6 +536,8 @@ $releaseGatePath = Join-Path $promotionRoot "release-gate.json"
         notifications = $lifecycleEvidence.notifications
         operationalLogs = $lifecycleEvidence.operationalLogs
         rollback = $lifecycleEvidence.rollback
+        configurationPersistence =
+            $lifecycleEvidence.configurationPersistence
         watchdog = $lifecycleEvidence.watchdog
         diagnostics = $lifecycleEvidence.diagnostics
         uninstall = $lifecycleEvidence.uninstall

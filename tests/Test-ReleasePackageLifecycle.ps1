@@ -113,6 +113,22 @@ function Wait-AgentHealthy {
                 $lastFailure = "Agent operational logging is unavailable."
             } elseif ([int64]$health.MaximumAuditAgeSeconds -le 0) {
                 $lastFailure = "Agent did not publish an audit freshness limit."
+            } elseif ($health.ConfigurationStorage -ne
+                    "runtime/guard-configuration.json" -or
+                $health.ConfigurationBackupStorage -ne
+                    "runtime/guard-configuration.json.bak" -or
+                -not [bool]$health.ConfigurationBackupAvailable -or
+                -not (
+                    ([string]$health.ConfigurationRecoveryCode -eq "none" -and
+                        -not [bool]$health.ConfigurationRecovered) -or
+                    ([string]$health.ConfigurationRecoveryCode -in @(
+                            "backup-restored",
+                            "defaults-restored") -and
+                        [bool]$health.ConfigurationRecovered -and
+                        -not [string]::IsNullOrWhiteSpace(
+                            [string]$health.ConfigurationRecoveredAtUtc)))) {
+                $lastFailure =
+                    "Agent configuration persistence is unavailable."
             } elseif (-not ([string]$health.Version).StartsWith(
                     "$ExpectedVersion.",
                     [StringComparison]::Ordinal)) {
@@ -292,6 +308,8 @@ $nativeTamperProbe = $null
 $uninstallRegistrationVerified = $false
 $taskConfigurationVerified = $false
 $notificationConfigurationVerified = $false
+$configurationRecoveryVerified = $false
+$configurationSettingsPreserved = $false
 
 try {
     New-Item -ItemType Directory -Path $workPath | Out-Null
@@ -457,6 +475,14 @@ try {
         [int64]$installResult.AuditAgeSeconds -le
             [int64]$installResult.MaximumAuditAgeSeconds) `
         "The readiness gate accepted stale primary association evidence."
+    Assert-True ([bool]$installResult.ConfigurationBackupAvailable -and
+        $installResult.ConfigurationStorage -eq
+            "runtime/guard-configuration.json" -and
+        $installResult.ConfigurationBackupStorage -eq
+            "runtime/guard-configuration.json.bak" -and
+        -not [bool]$installResult.ConfigurationRecovered -and
+        $installResult.ConfigurationRecoveryCode -eq "none") `
+        "The fresh installation lacks a valid configuration backup."
     Assert-True ([bool]$installResult.UninstallRegistered) `
         "The candidate installer did not register standard uninstallation."
     Assert-True ($installResult.UninstallRegistryKeyName -eq
@@ -573,6 +599,25 @@ try {
     Assert-True ([bool]$rollbackResult.LateRollbackVerified) `
         "The packaged late-stage transactional rollback test failed."
 
+    $configurationPath = Join-Path $dataPath `
+        "runtime\guard-configuration.json"
+    $configurationBackupPath = "$configurationPath.bak"
+    $preparedConfiguration = Invoke-RestMethod `
+        -Uri "$agentUrl/api/config" `
+        -Method Put `
+        -Headers $localClientHeaders `
+        -ContentType "application/json" `
+        -Body '{"notificationsEnabled":true}' `
+        -TimeoutSec 2
+    Assert-True ([bool](
+        $preparedConfiguration.configuration.notificationsEnabled) -and
+        @(
+            $preparedConfiguration.configuration.protectedVideoExtensions
+        ).Count -eq $ExpectedExtensionCount) `
+        "The recovery fixture could not prepare the expected configuration."
+    Assert-True (Test-Path -LiteralPath $configurationBackupPath -PathType Leaf) `
+        "The installed candidate did not retain a configuration backup."
+
     $beforeWatchdog = Wait-AgentHealthy `
         -AgentUrl $agentUrl `
         -ExecutablePath $installedExecutable `
@@ -664,6 +709,11 @@ try {
         "The installed watchdog task did not return to Ready state."
     $taskConfigurationVerified = $true
 
+    Set-Content `
+        -LiteralPath $configurationPath `
+        -Value "{ invalid configuration" `
+        -Encoding UTF8 `
+        -NoNewline
     Stop-Process -Id $beforeWatchdog.ProcessId -Force
     Wait-Process -Id $beforeWatchdog.ProcessId -Timeout 10 `
         -ErrorAction SilentlyContinue
@@ -674,6 +724,33 @@ try {
         -DifferentFromProcessId $beforeWatchdog.ProcessId `
         -Deadline ([DateTime]::UtcNow.AddSeconds(
             $WatchdogTimeoutSeconds))
+    Assert-True ([bool]$afterWatchdog.Health.ConfigurationRecovered -and
+        [string]$afterWatchdog.Health.ConfigurationRecoveryCode -eq
+            "backup-restored" -and
+        [bool]$afterWatchdog.Health.ConfigurationBackupAvailable -and
+        -not [string]::IsNullOrWhiteSpace(
+            [string]$afterWatchdog.Health.ConfigurationRecoveredAtUtc)) `
+        "The installed Agent did not restore its last-known-good configuration."
+    $recoveredConfiguration = Invoke-RestMethod `
+        -Uri "$agentUrl/api/config" `
+        -TimeoutSec 2
+    $configurationSettingsPreserved =
+        [bool]$recoveredConfiguration.notificationsEnabled -and
+        @($recoveredConfiguration.protectedVideoExtensions).Count -eq
+            $ExpectedExtensionCount
+    Assert-True $configurationSettingsPreserved `
+        "Configuration recovery did not preserve the expected settings."
+    $restoredConfigurationOnDisk = Get-Content `
+        -LiteralPath $configurationPath `
+        -Raw `
+        -Encoding UTF8 |
+        ConvertFrom-Json
+    Assert-True ([int]$restoredConfigurationOnDisk.schemaVersion -eq 2 -and
+        [bool]$restoredConfigurationOnDisk.notificationsEnabled -and
+        @($restoredConfigurationOnDisk.protectedVideoExtensions).Count -eq
+            $ExpectedExtensionCount) `
+        "The recovered configuration file is not valid or complete."
+    $configurationRecoveryVerified = $true
     $recoveredTask = Wait-WatchdogTaskReady `
         -TaskName $taskName `
         -Deadline ([DateTime]::UtcNow.AddSeconds(20))
@@ -740,6 +817,9 @@ try {
             [int64]$afterWatchdog.Readiness.AuditAgeSeconds
         MaximumAuditAgeSeconds =
             [int64]$afterWatchdog.Readiness.MaximumAuditAgeSeconds
+        ConfigurationRecoveryCode =
+            [string]$afterWatchdog.Health.ConfigurationRecoveryCode
+        ConfigurationRecoveryVerified = $configurationRecoveryVerified
         AutomaticRestartVerified = $true
     }
 
@@ -780,8 +860,16 @@ try {
         "Diagnostics rejected the standard uninstall registration."
     Assert-True ([bool]$diagnosticsReport.scheduledTask.configurationHealthy) `
         "Diagnostics rejected the installed watchdog configuration."
-    Assert-True ([int]$diagnosticsReport.schemaVersion -eq 5) `
-        "Diagnostics did not use the freshness-aware schema."
+    Assert-True ([int]$diagnosticsReport.schemaVersion -eq 6) `
+        "Diagnostics did not use the configuration-recovery schema."
+    Assert-True ([bool]$diagnosticsReport.configurationPersistence.healthy -and
+        [bool]$diagnosticsReport.configurationPersistence.backupAvailable -and
+        [bool]$diagnosticsReport.configurationPersistence.recovered -and
+        [string]$diagnosticsReport.configurationPersistence.recoveryCode -eq
+            "backup-restored" -and
+        @($diagnosticsReport.noticeCodes) -contains
+            "configuration-backup-restored") `
+        "Diagnostics did not report the validated configuration recovery."
     Assert-True ([bool]$diagnosticsReport.mainAlgorithm.auditFreshnessAvailable -and
         [bool]$diagnosticsReport.mainAlgorithm.auditFresh -and
         [int64]$diagnosticsReport.mainAlgorithm.auditAgeSeconds -ge 0 -and
@@ -879,7 +967,7 @@ try {
         "Transaction directories remained after the package lifecycle."
 
     $evidence = [ordered]@{
-        schemaVersion = 1
+        schemaVersion = 2
         product = "DefaultAppGuard Community"
         version = $Version
         generatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
@@ -949,6 +1037,19 @@ try {
             restoredVersion = $rollbackResult.RestoredVersion
             transactionResidueCount = $rollbackResult.TransactionResidueCount
         }
+        configurationPersistence = [ordered]@{
+            backupAvailableAtInstall =
+                [bool]$installResult.ConfigurationBackupAvailable
+            recoveryVerified = $configurationRecoveryVerified
+            recoveryCode =
+                [string]$afterWatchdog.Health.ConfigurationRecoveryCode
+            settingsPreserved = $configurationSettingsPreserved
+            diagnosticsHealthy =
+                [bool]$diagnosticsReport.configurationPersistence.healthy
+            diagnosticsNoticePresent =
+                @($diagnosticsReport.noticeCodes) -contains
+                    "configuration-backup-restored"
+        }
         watchdog = $watchdogResult
         diagnostics = [ordered]@{
             overallHealthy = [bool]$diagnosticsResult.OverallHealthy
@@ -971,6 +1072,11 @@ try {
                 [bool]$diagnosticsReport.watchdogTelemetry.matchesLastTaskRun
             watchdogProcessMatches =
                 [bool]$diagnosticsReport.watchdogTelemetry.activeProcessMatches
+            configurationPersistenceHealthy =
+                [bool]$diagnosticsReport.configurationPersistence.healthy
+            configurationRecoveryNoticePresent =
+                @($diagnosticsReport.noticeCodes) -contains
+                    "configuration-backup-restored"
         }
         uninstall = [ordered]@{
             passed = $uninstalled

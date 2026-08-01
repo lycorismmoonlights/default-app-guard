@@ -33,6 +33,7 @@ $dataPath = Get-NormalizedPath $DataDirectory
 $outputFile = [IO.Path]::GetFullPath($OutputPath)
 $operationalLogDirectory = Join-Path $dataPath "runtime\logs"
 $issues = [Collections.Generic.List[string]]::new()
+$notices = [Collections.Generic.List[string]]::new()
 
 $installState = $null
 $installStatePath = Join-Path $dataPath "install-state.json"
@@ -550,6 +551,11 @@ $auditFreshnessAvailable = $false
 $auditFresh = $false
 $auditAgeSeconds = $null
 $maximumAuditAgeSeconds = $null
+$configurationPersistenceHealthy = $false
+$configurationBackupAvailable = $false
+$configurationRecovered = $false
+$configurationRecoveryCode = $null
+$configurationRecoveredAtUtc = $null
 try {
     $agentUri = [Uri]$agentUrl
     if (-not $agentUri.IsLoopback -or
@@ -567,6 +573,37 @@ try {
     $issues.Add("agent-api-unreachable")
 }
 if ($apiReachable) {
+    $configurationBackupAvailable =
+        [bool]$health.ConfigurationBackupAvailable
+    $configurationRecovered = [bool]$health.ConfigurationRecovered
+    $configurationRecoveryCode =
+        [string]$health.ConfigurationRecoveryCode
+    $configurationRecoveredAtUtc =
+        [string]$health.ConfigurationRecoveredAtUtc
+    $configurationPersistenceHealthy =
+        $health.ConfigurationStorage -eq
+            "runtime/guard-configuration.json" -and
+        $health.ConfigurationBackupStorage -eq
+            "runtime/guard-configuration.json.bak" -and
+        $configurationBackupAvailable -and
+        (($configurationRecoveryCode -eq "none" -and
+            -not $configurationRecovered) -or
+         ($configurationRecoveryCode -in @(
+                "backup-restored",
+                "defaults-restored") -and
+            $configurationRecovered -and
+            -not [string]::IsNullOrWhiteSpace(
+                $configurationRecoveredAtUtc)))
+    if (-not $configurationBackupAvailable) {
+        $issues.Add("configuration-backup-unavailable")
+    }
+    if (-not $configurationPersistenceHealthy) {
+        $issues.Add("configuration-persistence-unhealthy")
+    } elseif ($configurationRecovered) {
+        $notices.Add(
+            "configuration-$configurationRecoveryCode")
+    }
+
     $auditedAtUtc = [DateTimeOffset]::MinValue
     $auditedAtText = if ($null -ne $status.Audit) {
         [string]$status.Audit.AuditedAtUtc
@@ -783,7 +820,7 @@ if ($operationalLogLargestFileBytes -gt
 
 $operatingSystem = Get-CimInstance Win32_OperatingSystem
 $report = [ordered]@{
-    schemaVersion = 5
+    schemaVersion = 6
     product = "DefaultAppGuard Community"
     generatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
     privacy = [ordered]@{
@@ -947,6 +984,23 @@ $report = [ordered]@{
         processMode = $processMode
         hasRuntimeError = $hasRuntimeError
     }
+    configurationPersistence = [ordered]@{
+        storage = if ($null -ne $health) {
+            $health.ConfigurationStorage
+        } else {
+            $null
+        }
+        backupStorage = if ($null -ne $health) {
+            $health.ConfigurationBackupStorage
+        } else {
+            $null
+        }
+        backupAvailable = $configurationBackupAvailable
+        recovered = $configurationRecovered
+        recoveryCode = $configurationRecoveryCode
+        recoveredAtUtc = $configurationRecoveredAtUtc
+        healthy = $configurationPersistenceHealthy
+    }
     notifications = [ordered]@{
         channel = $notificationChannel
         available = $notificationsAvailable
@@ -971,6 +1025,7 @@ $report = [ordered]@{
         healthy = $operationalLogsHealthy
     }
     issueCodes = @($issues | Sort-Object -Unique)
+    noticeCodes = @($notices | Sort-Object -Unique)
 }
 $payloadPassed = $null -ne $payloadCheck -and [bool]$payloadCheck.Passed
 $report["overallHealthy"] =
@@ -990,6 +1045,7 @@ $report["overallHealthy"] =
     $apiProcessMatches -and
     $notificationsAvailable -and
     $operationalLogsHealthy -and
+    $configurationPersistenceHealthy -and
     $readinessReady -and
     $auditFreshnessAvailable -and
     $auditFresh -and

@@ -1,5 +1,6 @@
 using DefaultAppGuard.Agent;
 using DefaultAppGuard.Core;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace DefaultAppGuard.Tests;
 
@@ -46,6 +47,8 @@ public sealed class GuardConfigurationStoreTests : IDisposable
         Assert.Equal(
             result.ProtectedVideoExtensions,
             reloaded.ProtectedVideoExtensions);
+        Assert.True(File.Exists(BackupPath));
+        Assert.Empty(Directory.GetFiles(temporaryDirectory, "*.tmp"));
     }
 
     [Fact]
@@ -115,6 +118,107 @@ public sealed class GuardConfigurationStoreTests : IDisposable
         Assert.Contains("\"NotificationsEnabled\": true", persisted);
     }
 
+    [Fact]
+    public async Task InvalidPrimaryConfiguration_RestoresLastKnownGoodBackup()
+    {
+        var store = CreateStore();
+        await store.UpdateAsync(
+            new GuardConfigurationUpdate([".mp4"], false),
+            CancellationToken.None);
+        await store.UpdateAsync(
+            new GuardConfigurationUpdate([".mkv"], true),
+            CancellationToken.None);
+        File.WriteAllText(ConfigurationPath, "{ invalid json");
+
+        var recoveredStore = CreateStore();
+        var recovered = recoveredStore.Snapshot();
+        var persistence = recoveredStore.SnapshotPersistenceStatus();
+
+        Assert.Equal([".mp4"], recovered.ProtectedVideoExtensions);
+        Assert.False(recovered.NotificationsEnabled);
+        Assert.True(persistence.BackupAvailable);
+        Assert.True(persistence.Recovered);
+        Assert.Equal(
+            GuardConfigurationStore.BackupRestoredCode,
+            persistence.RecoveryCode);
+        Assert.NotNull(persistence.RecoveredAtUtc);
+        var persisted = CreateStore().Snapshot();
+        Assert.Equal(
+            recovered.ProtectedVideoExtensions,
+            persisted.ProtectedVideoExtensions);
+        Assert.Equal(
+            recovered.NotificationsEnabled,
+            persisted.NotificationsEnabled);
+    }
+
+    [Fact]
+    public void InvalidPrimaryAndBackup_RestoreSafeDefaults()
+    {
+        _ = CreateStore();
+        File.WriteAllText(ConfigurationPath, "{ invalid primary");
+        File.WriteAllText(BackupPath, "{ invalid backup");
+
+        var recoveredStore = CreateStore();
+        var recovered = recoveredStore.Snapshot();
+        var persistence = recoveredStore.SnapshotPersistenceStatus();
+
+        Assert.Equal(
+            AssociationConstants.VideoExtensions.Order(
+                StringComparer.OrdinalIgnoreCase),
+            recovered.ProtectedVideoExtensions);
+        Assert.True(recovered.NotificationsEnabled);
+        Assert.True(persistence.BackupAvailable);
+        Assert.True(persistence.Recovered);
+        Assert.Equal(
+            GuardConfigurationStore.DefaultsRestoredCode,
+            persistence.RecoveryCode);
+        Assert.NotNull(persistence.RecoveredAtUtc);
+    }
+
+    [Fact]
+    public void MissingPrimaryAndInvalidBackup_ReportSafeDefaultsRecovery()
+    {
+        _ = CreateStore();
+        File.Delete(ConfigurationPath);
+        File.WriteAllText(BackupPath, "{ invalid backup");
+
+        var recoveredStore = CreateStore();
+        var recovered = recoveredStore.Snapshot();
+        var persistence = recoveredStore.SnapshotPersistenceStatus();
+
+        Assert.Equal(
+            AssociationConstants.VideoExtensions.Order(
+                StringComparer.OrdinalIgnoreCase),
+            recovered.ProtectedVideoExtensions);
+        Assert.True(recovered.NotificationsEnabled);
+        Assert.True(persistence.BackupAvailable);
+        Assert.True(persistence.Recovered);
+        Assert.Equal(
+            GuardConfigurationStore.DefaultsRestoredCode,
+            persistence.RecoveryCode);
+        Assert.NotNull(persistence.RecoveredAtUtc);
+    }
+
+    [Fact]
+    public void UnreadablePrimary_DoesNotSilentlyResetConfiguration()
+    {
+        _ = CreateStore();
+        File.WriteAllText(ConfigurationPath, "{ invalid primary");
+
+        using (File.Open(
+                   ConfigurationPath,
+                   FileMode.Open,
+                   FileAccess.ReadWrite,
+                   FileShare.None))
+        {
+            Assert.Throws<IOException>(() => CreateStore());
+        }
+
+        Assert.Equal(
+            "{ invalid primary",
+            File.ReadAllText(ConfigurationPath));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(temporaryDirectory))
@@ -134,9 +238,13 @@ public sealed class GuardConfigurationStoreTests : IDisposable
             TimeSpan.FromMinutes(15),
             false,
             []);
-        return new GuardConfigurationStore(options);
+        return new GuardConfigurationStore(
+            options,
+            NullLogger<GuardConfigurationStore>.Instance);
     }
 
     private string ConfigurationPath =>
         Path.Combine(temporaryDirectory, "config.json");
+
+    private string BackupPath => ConfigurationPath + ".bak";
 }

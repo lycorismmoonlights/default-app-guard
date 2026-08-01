@@ -13,8 +13,23 @@ public sealed record GuardConfigurationUpdate(
     IReadOnlyList<string>? ProtectedVideoExtensions,
     bool? NotificationsEnabled);
 
+public sealed record GuardConfigurationPersistenceStatus(
+    string Storage,
+    string BackupStorage,
+    bool BackupAvailable,
+    bool Recovered,
+    string RecoveryCode,
+    DateTimeOffset? RecoveredAtUtc);
+
 public sealed class GuardConfigurationStore
 {
+    public const string StorageName = "runtime/guard-configuration.json";
+    public const string BackupStorageName =
+        "runtime/guard-configuration.json.bak";
+    public const string NoRecoveryCode = "none";
+    public const string BackupRestoredCode = "backup-restored";
+    public const string DefaultsRestoredCode = "defaults-restored";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -23,11 +38,25 @@ public sealed class GuardConfigurationStore
 
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly string path;
+    private readonly string backupPath;
+    private readonly ILogger<GuardConfigurationStore> logger;
     private GuardConfiguration current;
+    private GuardConfigurationPersistenceStatus persistenceStatus;
 
-    public GuardConfigurationStore(AgentOptions options)
+    public GuardConfigurationStore(
+        AgentOptions options,
+        ILogger<GuardConfigurationStore> logger)
     {
         path = options.ConfigurationPath;
+        backupPath = options.ConfigurationPath + ".bak";
+        this.logger = logger;
+        persistenceStatus = new GuardConfigurationPersistenceStatus(
+            StorageName,
+            BackupStorageName,
+            false,
+            false,
+            NoRecoveryCode,
+            null);
         current = LoadOrCreate();
     }
 
@@ -38,6 +67,15 @@ public sealed class GuardConfigurationStore
         {
             ProtectedVideoExtensions =
                 snapshot.ProtectedVideoExtensions.ToArray(),
+        };
+    }
+
+    public GuardConfigurationPersistenceStatus SnapshotPersistenceStatus()
+    {
+        var snapshot = Volatile.Read(ref persistenceStatus);
+        return snapshot with
+        {
+            BackupAvailable = File.Exists(backupPath),
         };
     }
 
@@ -55,7 +93,12 @@ public sealed class GuardConfigurationStore
                     existing.ProtectedVideoExtensions,
                 update.NotificationsEnabled ??
                     existing.NotificationsEnabled);
-            await WriteAtomicallyAsync(next, cancellationToken);
+            await DurableJsonFile.WriteAsync(
+                path,
+                next,
+                JsonOptions,
+                cancellationToken,
+                backupPath);
             Volatile.Write(ref current, next);
             return Snapshot();
         }
@@ -67,39 +110,160 @@ public sealed class GuardConfigurationStore
 
     private GuardConfiguration LoadOrCreate()
     {
-        if (!File.Exists(path))
+        var directory = Path.GetDirectoryName(path)
+            ?? throw new InvalidOperationException(
+                $"Configuration path has no directory: {path}");
+        Directory.CreateDirectory(directory);
+
+        if (File.Exists(path))
         {
-            var initial = Create(
-                AssociationConstants.VideoExtensions,
-                notificationsEnabled: true);
-            WriteAtomically(initial);
-            return initial;
+            if (TryReadValidated(path, out var configuration, out var migrated))
+            {
+                if (migrated)
+                {
+                    DurableJsonFile.Write(
+                        path,
+                        configuration,
+                        JsonOptions,
+                        backupPath);
+                }
+
+                EnsureValidBackup(configuration);
+                SetPersistenceStatus(NoRecoveryCode);
+                return configuration;
+            }
+
+            return RecoverInvalidPrimary();
         }
 
-        var parsed = JsonSerializer.Deserialize<GuardConfiguration>(
-            File.ReadAllText(path),
-            JsonOptions)
+        if (File.Exists(backupPath))
+        {
+            if (TryReadValidated(backupPath, out var backup, out _))
+            {
+                return RestoreFromBackup(backup);
+            }
+
+            return RestoreSafeDefaults();
+        }
+
+        var initial = Create(
+            AssociationConstants.VideoExtensions,
+            notificationsEnabled: true);
+        WritePrimaryAndBackup(initial);
+        SetPersistenceStatus(NoRecoveryCode);
+        return initial;
+    }
+
+    private bool TryReadValidated(
+        string sourcePath,
+        out GuardConfiguration configuration,
+        out bool migrated)
+    {
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<GuardConfiguration>(
+                File.ReadAllText(sourcePath),
+                JsonOptions)
             ?? throw new InvalidDataException(
-                $"Configuration file is empty: {path}");
-        if (parsed.SchemaVersion is not (1 or 2) ||
-            !string.Equals(
-                parsed.ProtectionMode,
-                "monitor",
-                StringComparison.Ordinal))
+                "Configuration file is empty.");
+            if (parsed.SchemaVersion is not (1 or 2) ||
+                !string.Equals(
+                    parsed.ProtectionMode,
+                    "monitor",
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    "Unsupported guard configuration schema or mode.");
+            }
+
+            migrated = parsed.SchemaVersion == 1;
+            configuration = Create(
+                parsed.ProtectedVideoExtensions,
+                migrated || parsed.NotificationsEnabled);
+            return true;
+        }
+        catch (Exception exception) when (
+            exception is JsonException or
+            InvalidDataException or
+            ArgumentException or
+            NotSupportedException)
         {
-            throw new InvalidDataException(
-                $"Unsupported guard configuration schema: {path}");
+            logger.LogWarning(
+                "A guard configuration copy failed validation: {ErrorType}.",
+                exception.GetType().Name);
+            configuration = null!;
+            migrated = false;
+            return false;
+        }
+    }
+
+    private GuardConfiguration RecoverInvalidPrimary()
+    {
+        if (File.Exists(backupPath) &&
+            TryReadValidated(backupPath, out var backup, out _))
+        {
+            return RestoreFromBackup(backup);
         }
 
-        var migrated = Create(
-            parsed.ProtectedVideoExtensions,
-            parsed.SchemaVersion == 1 || parsed.NotificationsEnabled);
-        if (parsed.SchemaVersion == 1)
+        return RestoreSafeDefaults();
+    }
+
+    private GuardConfiguration RestoreSafeDefaults()
+    {
+        var defaults = Create(
+            AssociationConstants.VideoExtensions,
+            notificationsEnabled: true);
+        WritePrimaryAndBackup(defaults);
+        SetPersistenceStatus(DefaultsRestoredCode);
+        logger.LogWarning(
+            "Guard configuration was restored to safe defaults because " +
+            "no valid primary or backup copy was available.");
+        return defaults;
+    }
+
+    private GuardConfiguration RestoreFromBackup(
+        GuardConfiguration configuration)
+    {
+        DurableJsonFile.Write(path, configuration, JsonOptions);
+        EnsureValidBackup(configuration);
+        SetPersistenceStatus(BackupRestoredCode);
+        logger.LogWarning(
+            "Guard configuration was restored from the last-known-good backup.");
+        return configuration;
+    }
+
+    private void EnsureValidBackup(GuardConfiguration configuration)
+    {
+        if (File.Exists(backupPath) &&
+            TryReadValidated(backupPath, out _, out _))
         {
-            WriteAtomically(migrated);
+            return;
         }
 
-        return migrated;
+        DurableJsonFile.Write(backupPath, configuration, JsonOptions);
+    }
+
+    private void WritePrimaryAndBackup(GuardConfiguration configuration)
+    {
+        DurableJsonFile.Write(path, configuration, JsonOptions);
+        DurableJsonFile.Write(backupPath, configuration, JsonOptions);
+    }
+
+    private void SetPersistenceStatus(string recoveryCode)
+    {
+        var recovered = !string.Equals(
+            recoveryCode,
+            NoRecoveryCode,
+            StringComparison.Ordinal);
+        Volatile.Write(
+            ref persistenceStatus,
+            new GuardConfigurationPersistenceStatus(
+                StorageName,
+                BackupStorageName,
+                File.Exists(backupPath),
+                recovered,
+                recoveryCode,
+                recovered ? DateTimeOffset.UtcNow : null));
     }
 
     private static GuardConfiguration Create(
@@ -138,66 +302,4 @@ public sealed class GuardConfigurationStore
             notificationsEnabled);
     }
 
-    private void WriteAtomically(GuardConfiguration configuration)
-    {
-        var directory = Path.GetDirectoryName(path)
-            ?? throw new InvalidOperationException(
-                $"Configuration path has no directory: {path}");
-        Directory.CreateDirectory(directory);
-        var temporaryPath = $"{path}.{Guid.NewGuid():N}.tmp";
-        try
-        {
-            File.WriteAllText(
-                temporaryPath,
-                JsonSerializer.Serialize(configuration, JsonOptions));
-            File.Move(temporaryPath, path, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(temporaryPath))
-            {
-                File.Delete(temporaryPath);
-            }
-        }
-    }
-
-    private async Task WriteAtomicallyAsync(
-        GuardConfiguration configuration,
-        CancellationToken cancellationToken)
-    {
-        var directory = Path.GetDirectoryName(path)
-            ?? throw new InvalidOperationException(
-                $"Configuration path has no directory: {path}");
-        Directory.CreateDirectory(directory);
-        var temporaryPath = $"{path}.{Guid.NewGuid():N}.tmp";
-
-        try
-        {
-            await using (var stream = new FileStream(
-                             temporaryPath,
-                             FileMode.CreateNew,
-                             FileAccess.Write,
-                             FileShare.None,
-                             16 * 1024,
-                             FileOptions.Asynchronous |
-                             FileOptions.WriteThrough))
-            {
-                await JsonSerializer.SerializeAsync(
-                    stream,
-                    configuration,
-                    JsonOptions,
-                    cancellationToken);
-                await stream.FlushAsync(cancellationToken);
-            }
-
-            File.Move(temporaryPath, path, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(temporaryPath))
-            {
-                File.Delete(temporaryPath);
-            }
-        }
-    }
 }

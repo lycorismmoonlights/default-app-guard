@@ -10,7 +10,7 @@ Run all of the following on Windows:
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.12 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.13 `
   -PackageManagerPath pnpm
 ```
 
@@ -26,7 +26,7 @@ and promote those exact bytes on the dedicated validation computer:
 ```powershell
 .\packaging\Promote-ReleaseCandidate.ps1 `
   -CandidateDirectory F:\path\to\release-candidate `
-  -Version 0.1.12 `
+  -Version 0.1.13 `
   -ExpectedCommit <full-main-commit-sha>
 ```
 
@@ -42,7 +42,7 @@ report `codeSigning.status` as `unsigned`. Any release described as signed must
 run:
 
 ```powershell
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.12 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.13 `
   -PackageManagerPath pnpm `
   -SigningCertificateThumbprint $env:DAG_SIGNING_CERTIFICATE_THUMBPRINT `
   -TimestampServer $env:DAG_TIMESTAMP_SERVER `
@@ -131,8 +131,15 @@ Verify:
 11. `Get-DefaultAppGuardDiagnostics.ps1` reports healthy operational-log
     metadata and no issues, without including personal paths, raw runtime
     contents, or log contents.
-12. Uninstallation leaves no task, process, install directory, data directory,
-   or probe key.
+12. Corrupting the exact installed primary configuration and terminating the
+    Agent causes the scheduled watchdog to start a new process that restores
+    the validated last-known-good backup. Health must report
+    `backup-restored`; diagnostics schema 6 must remain healthy and include the
+    `configuration-backup-restored` notice; all 34 settings and the subsequent
+    real `RegNotifyChangeKeyValue` monitor test must still pass. Permission,
+    sharing, and other I/O failures must not be accepted as content recovery.
+13. Uninstallation leaves no task, process, install directory, data directory,
+    or probe key.
 
 The lifecycle evidence is written to `package-lifecycle.json`. The gate also
 uses the pinned Microsoft SBOM Tool to generate an SPDX 2.2 document, requires
@@ -162,3 +169,7 @@ portable CI and the dedicated real-Windows main-algorithm release gate.
   https://learn.microsoft.com/windows/win32/taskschd/starting-an-executable-when-a-user-logs-on
 - Single-file deployment:
   https://learn.microsoft.com/dotnet/core/deploying/single-file/overview
+- File replacement with a backup:
+  https://learn.microsoft.com/dotnet/api/system.io.file.replace
+- Durable stream flushing:
+  https://learn.microsoft.com/dotnet/api/system.io.filestream.flush

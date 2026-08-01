@@ -108,6 +108,8 @@ test("published package includes the bilingual risk notice", async () => {
   assert.ok(releaseGate.includes("exactReleasePackagePassed"));
   assert.ok(releaseGate.includes("watchdogConfigurationVerified"));
   assert.ok(releaseGate.includes("watchdogRestartStormSuppressed"));
+  assert.ok(releaseGate.includes("configurationRecoveryVerified"));
+  assert.ok(releaseGate.includes("configurationSettingsPreserved"));
   assert.ok(releaseGate.includes("Test-WatchdogBackoff.ps1"));
   assert.ok(releaseGate.includes("exactVersionsVerified = $true"));
   assert.ok(releaseGate.includes('"tool", "run", "sbom-tool"'));
@@ -162,6 +164,7 @@ test("graphical setup verifies before its process-only script policy", async () 
   assert.ok(watchdog.includes("StopFailedLaunch"));
   assert.ok(watchdog.includes('new Uri(agentUri, "api/readiness")'));
   assert.ok(watchdog.includes("TryMatchReadiness"));
+  assert.ok(watchdog.includes("TryMatchConfigurationPersistence"));
   assert.ok(watchdog.includes('"auditFresh"'));
   assert.ok(telemetry.includes('@"Software\\DefaultAppGuard\\Watchdog"'));
   assert.ok(telemetry.includes('RegistryValueName = "StatusJson"'));
@@ -169,6 +172,31 @@ test("graphical setup verifies before its process-only script policy", async () 
   assert.ok(telemetry.includes("RegistryValueKind.String"));
   assert.equal(telemetry.includes("File.Move"), false);
   assert.ok(lifecycle.includes('TelemetryOutcome = [string]$watchdogStatus.outcome'));
+  assert.ok(lifecycle.includes('"{ invalid configuration"'));
+  assert.ok(lifecycle.includes('"backup-restored"'));
+});
+
+test("configuration persistence uses durable replacement and tested recovery", async () => {
+  const durableJson = await read(
+    "native/DefaultAppGuard.Agent/DurableJsonFile.cs",
+  );
+  const store = await read(
+    "native/DefaultAppGuard.Agent/GuardConfigurationStore.cs",
+  );
+  const lifecycle = await read("tests/Test-ReleasePackageLifecycle.ps1");
+  const releaseGate = await read("packaging/Test-ReleaseGate.ps1");
+  const promotion = await read("packaging/Promote-ReleaseCandidate.ps1");
+
+  assert.ok(durableJson.includes("FileOptions.WriteThrough"));
+  assert.ok(durableJson.includes("Flush(flushToDisk: true)"));
+  assert.ok(durableJson.includes("File.Replace("));
+  assert.ok(store.includes('"runtime/guard-configuration.json.bak"'));
+  assert.ok(store.includes('"backup-restored"'));
+  assert.ok(store.includes('"defaults-restored"'));
+  assert.ok(lifecycle.includes("configurationRecoveryVerified = $true"));
+  assert.ok(lifecycle.includes("configurationSettingsPreserved"));
+  assert.ok(releaseGate.includes("configurationPersistence.recoveryVerified"));
+  assert.ok(promotion.includes("configurationPersistence.recoveryVerified"));
 });
 
 test("GitHub Actions use immutable action revisions", async () => {
@@ -249,6 +277,7 @@ test("candidate promotion requires provenance and exact-package main evidence", 
   assert.ok(promotion.includes("watchdog.ReadinessFresh"));
   assert.ok(promotion.includes("WindowsForms.NotifyIcon"));
   assert.ok(promotion.includes("configurationRoundTripVerified"));
+  assert.ok(promotion.includes("configurationPersistence.recoveryVerified"));
   assert.ok(promotion.includes("operationalLogs.diagnosticsHealthy"));
   assert.ok(promotion.includes('"Serilog.Sinks.File"'));
   assert.ok(promotion.includes("exactAttestedArchivePromoted = $true"));
@@ -345,7 +374,12 @@ test("diagnostics are packaged, redacted, and inspect the primary algorithm", as
   assert.ok(diagnostics.includes("$operationalLogFile.Refresh()"));
   assert.ok(diagnostics.includes("association-audit-stale"));
   assert.ok(diagnostics.includes("auditFreshnessAvailable"));
-  assert.ok(diagnostics.includes("schemaVersion = 5"));
+  assert.ok(diagnostics.includes("configuration-backup-unavailable"));
+  assert.ok(diagnostics.includes("configuration-persistence-unhealthy"));
+  assert.ok(diagnostics.includes('"configuration-$configurationRecoveryCode"'));
+  assert.ok(diagnostics.includes("configurationPersistence = [ordered]@{"));
+  assert.ok(diagnostics.includes("noticeCodes"));
+  assert.ok(diagnostics.includes("schemaVersion = 6"));
   assert.equal(
     diagnostics.includes('"expected-ignore-new-while-running"'),
     false,
