@@ -639,6 +639,9 @@ license text, and this notice file.
   这有助于发现构建工具或打包流程在不同服务器版本上的问题，但它不是对普通用户
   Windows 11 桌面环境的测试，也不会查询用户电脑上的真实默认应用。两个 CI 任务
   即使都显示绿色，也不能代替下文的 34/34 主 COM 查询和真实注册表通知门禁。
+  Windows Server 2022 低于本软件要求的 Windows 11 build，因此该任务必须确认
+  Setup 以“不支持平台”退出码 4 拒绝安装；这不表示本软件支持 Server 2022。
+  Server 2025 任务则必须让 Setup 的确切包验证以退出码 0 完成。
 - 对于 0.1.15 的未签名候选包，ZIP、SBOM 和 candidate-build.json 由明确指定
   `windows-2025` 标签的 GitHub 托管任务生成。candidate-build.json schema 2 会记录
   请求标签、实际 `win25` 镜像族、不可为空的镜像版本、Windows Server 2025
@@ -707,7 +710,10 @@ English:
   packaging incompatibilities across those Server environments. It does not
   test a normal user's Windows 11 desktop default-app state. Two green CI jobs
   never replace the 34/34 primary COM audit and real registry-notification gate
-  described below.
+  described below. Windows Server 2022 is below the required Windows 11 build,
+  so that job must prove Setup rejects installation with unsupported-platform
+  exit code 4; this does not mean Server 2022 is supported. The Server 2025 job
+  requires Setup exact-package verification to finish with exit code 0.
 - For the unsigned 0.1.15 candidate, a GitHub-hosted build explicitly requests
   `windows-2025` and creates the
   ZIP, SBOM, and candidate-build.json and attaches a separate GitHub artifact

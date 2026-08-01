@@ -7,7 +7,11 @@ behavior, and a release-shaped package independently on the explicit
 `windows-2022` and `windows-2025` GitHub-hosted labels. Each job records the
 requested label, actual image family, image version, OS build, and architecture
 as a retained artifact. The package check compiles and executes the graphical
-Setup verifier. These are Windows Server build-compatibility checks; they
+Setup. On Server 2025, Setup must complete exact-package verification with exit
+code 0. Server 2022 is below the product's Windows 11 minimum build, so Setup
+must reject it with the documented unsupported-platform exit code 4 while the
+workflow still checks the package manifest and GUI subsystem independently.
+These are Windows Server build-compatibility checks; they
 deliberately exclude tests that require a real Windows desktop default-app
 state. A green hosted CI matrix is not a release approval.
 

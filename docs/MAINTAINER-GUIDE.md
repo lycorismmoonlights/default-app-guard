@@ -86,7 +86,10 @@ The required signals are:
 Hosted CI runs the portable suite separately on `windows-2022` and
 `windows-2025`. The retained JSON artifacts expose the actual weekly image
 revision used by each job. These Server jobs validate build and packaging
-compatibility only. Do not count them as any of the real COM or
+compatibility only. Server 2022 is intentionally not a supported installation
+platform: its job requires Setup to return unsupported-platform exit code 4,
+while Server 2025 requires exact-package verification exit code 0. Do not count
+either result as any of the real COM or
 `RegNotifyChangeKeyValue` signals above.
 
 ## Installation Test

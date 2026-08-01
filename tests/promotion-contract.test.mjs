@@ -234,6 +234,9 @@ test("GitHub Actions use immutable action revisions", async () => {
   assert.equal(ciWorkflow.includes("runs-on: windows-latest"), false);
   assert.ok(ciWorkflow.includes("Test-HostedWindowsRunner.ps1"));
   assert.ok(ciWorkflow.includes("runner-compatibility-${{ matrix.runner }}"));
+  assert.ok(ciWorkflow.includes('$expectedSetupExitCode = if ('));
+  assert.ok(ciWorkflow.includes('"${{ matrix.runner }}" -eq "windows-2022"'));
+  assert.ok(ciWorkflow.includes("$verification.ExitCode -ne $expectedSetupExitCode"));
   assert.ok(releaseWorkflow.includes("node-version: 24.18.0"));
   assert.ok(releaseWorkflow.includes("dotnet-version: 10.0.302"));
   assert.ok(candidateWorkflow.includes("node-version: 24.18.0"));
