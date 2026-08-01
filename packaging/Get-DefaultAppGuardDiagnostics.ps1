@@ -31,6 +31,7 @@ function Get-NormalizedPath {
 $installPath = Get-NormalizedPath $InstallDirectory
 $dataPath = Get-NormalizedPath $DataDirectory
 $outputFile = [IO.Path]::GetFullPath($OutputPath)
+$operationalLogDirectory = Join-Path $dataPath "runtime\logs"
 $issues = [Collections.Generic.List[string]]::new()
 
 $installState = $null
@@ -620,6 +621,13 @@ $processMode = $null
 $notificationChannel = $null
 $notificationsAvailable = $false
 $notificationsEnabled = $false
+$operationalLogChannel = $null
+$operationalLogsAvailable = $false
+$operationalLogFormat = $null
+$operationalLogStorage = $null
+$operationalLogFileSizeLimitBytes = 0L
+$operationalLogRetainedFileCountLimit = 0
+$operationalLogLastError = $null
 $hasRuntimeError = $false
 if ($apiReachable -and $null -ne $status -and
     $null -ne $status.audit) {
@@ -633,6 +641,17 @@ if ($apiReachable -and $null -ne $status -and
     $notificationChannel = [string]$health.NotificationChannel
     $notificationsAvailable = [bool]$health.NotificationsAvailable
     $notificationsEnabled = [bool]$health.NotificationsEnabled
+    $operationalLogChannel = [string]$health.OperationalLogChannel
+    $operationalLogsAvailable =
+        [bool]$health.OperationalLogsAvailable
+    $operationalLogFormat = [string]$health.OperationalLogFormat
+    $operationalLogStorage = [string]$health.OperationalLogStorage
+    $operationalLogFileSizeLimitBytes =
+        [int64]$health.OperationalLogFileSizeLimitBytes
+    $operationalLogRetainedFileCountLimit =
+        [int]$health.OperationalLogRetainedFileCountLimit
+    $operationalLogLastError =
+        $health.OperationalLogLastError
     $hasRuntimeError = $null -ne $status.lastError
     if ($queryAlgorithm -ne
         "IApplicationAssociationRegistration.QueryCurrentDefault" -or
@@ -651,19 +670,87 @@ if ($apiReachable -and $null -ne $status -and
     if (-not $notificationsAvailable) {
         $issues.Add("notification-channel-unavailable")
     }
+    if ($operationalLogChannel -ne "Serilog.Sinks.File" -or
+        -not $operationalLogsAvailable) {
+        $issues.Add("operational-log-channel-unavailable")
+    }
+    if ($operationalLogFormat -ne "CLEF" -or
+        $operationalLogStorage -ne "runtime/logs" -or
+        $operationalLogFileSizeLimitBytes -ne 2MB -or
+        $operationalLogRetainedFileCountLimit -ne 7) {
+        $issues.Add("operational-log-policy-unexpected")
+    }
 } elseif ($apiReachable) {
     $issues.Add("association-audit-unavailable")
 }
 
+$operationalLogFileCount = 0
+$operationalLogTotalBytes = 0L
+$operationalLogLargestFileBytes = 0L
+$operationalLogFilesReadable = $false
+$operationalLogRollThresholdBytes = 2MB
+# Serilog rolls before the next event after the threshold is reached, so the
+# event that crosses it can make the active file slightly larger.
+$operationalLogOvershootAllowanceBytes = 64KB
+try {
+    if (Test-Path -LiteralPath $operationalLogDirectory -PathType Container) {
+        $operationalLogFiles = @(
+            Get-ChildItem `
+                -LiteralPath $operationalLogDirectory `
+                -Filter "agent-*.clef" `
+                -File)
+        $operationalLogFileCount = $operationalLogFiles.Count
+        foreach ($operationalLogFile in $operationalLogFiles) {
+            $length = [int64]$operationalLogFile.Length
+            $operationalLogTotalBytes += $length
+            if ($length -gt $operationalLogLargestFileBytes) {
+                $operationalLogLargestFileBytes = $length
+            }
+        }
+        $operationalLogFilesReadable = $true
+    }
+} catch {
+    $issues.Add("operational-log-metadata-unreadable")
+}
+
+$operationalLogRetentionHealthy =
+    $operationalLogFilesReadable -and
+    $operationalLogFileCount -ge 1 -and
+    $operationalLogFileCount -le 7
+$operationalLogSizeHealthy =
+    $operationalLogFilesReadable -and
+    $operationalLogTotalBytes -gt 0 -and
+    $operationalLogLargestFileBytes -le
+        ($operationalLogRollThresholdBytes +
+            $operationalLogOvershootAllowanceBytes)
+$operationalLogsHealthy =
+    $operationalLogsAvailable -and
+    $null -eq $operationalLogLastError -and
+    $operationalLogRetentionHealthy -and
+    $operationalLogSizeHealthy
+if (-not $operationalLogFilesReadable -or
+    $operationalLogFileCount -lt 1) {
+    $issues.Add("operational-log-files-missing")
+}
+if ($operationalLogFileCount -gt 7) {
+    $issues.Add("operational-log-retention-exceeded")
+}
+if ($operationalLogLargestFileBytes -gt
+    ($operationalLogRollThresholdBytes +
+        $operationalLogOvershootAllowanceBytes)) {
+    $issues.Add("operational-log-roll-threshold-exceeded")
+}
+
 $operatingSystem = Get-CimInstance Win32_OperatingSystem
 $report = [ordered]@{
-    schemaVersion = 3
+    schemaVersion = 4
     product = "DefaultAppGuard Community"
     generatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
     privacy = [ordered]@{
         containsPersonalPaths = $false
         containsRegistryExports = $false
         containsRuntimeFileContents = $false
+        containsOperationalLogContents = $false
         containsTokens = $false
     }
     environment = [ordered]@{
@@ -821,6 +908,24 @@ $report = [ordered]@{
         available = $notificationsAvailable
         enabled = $notificationsEnabled
     }
+    operationalLogs = [ordered]@{
+        channel = $operationalLogChannel
+        available = $operationalLogsAvailable
+        format = $operationalLogFormat
+        storage = $operationalLogStorage
+        fileSizeLimitBytes = $operationalLogFileSizeLimitBytes
+        retainedFileCountLimit = $operationalLogRetainedFileCountLimit
+        lastErrorCode = $operationalLogLastError
+        fileMetadataReadable = $operationalLogFilesReadable
+        fileCount = $operationalLogFileCount
+        totalBytes = $operationalLogTotalBytes
+        largestFileBytes = $operationalLogLargestFileBytes
+        rollThresholdBytes = $operationalLogRollThresholdBytes
+        overshootAllowanceBytes = $operationalLogOvershootAllowanceBytes
+        retentionHealthy = $operationalLogRetentionHealthy
+        sizeHealthy = $operationalLogSizeHealthy
+        healthy = $operationalLogsHealthy
+    }
     issueCodes = @($issues | Sort-Object -Unique)
 }
 $payloadPassed = $null -ne $payloadCheck -and [bool]$payloadCheck.Passed
@@ -840,6 +945,7 @@ $report["overallHealthy"] =
     $loopbackOnly -and
     $apiProcessMatches -and
     $notificationsAvailable -and
+    $operationalLogsHealthy -and
     $readinessReady -and
     $auditHealthy -and
     $driftCount -eq 0

@@ -66,7 +66,8 @@ same attested archive. It never rebuilds the package locally.
     before and after the short-lived native watchdog recovers a terminated
     Agent and returns its task to `Ready`, a deliberately failed transactional
     upgrade and rollback, the `WindowsForms.NotifyIcon` channel, notification
-    preference round-trip without protected-scope loss,
+    preference round-trip without protected-scope loss, a real bounded CLEF
+    operational-log write and retention diagnostics,
    diagnostics, Windows Installed apps registration, execution of the exact
    registered hidden uninstall command, clean removal, and no shortcut
    ownership violation.
@@ -84,7 +85,9 @@ The gate fails if the COM query, Media Player resolver, effective plan, real
 `RegNotifyChangeKeyValue` notification, re-arm behavior, or full 34-format
 audit does not pass. It also fails if the final Agent uses the Windows Console
 subsystem, cannot initialize its notification channel, or loses protected
-formats while changing the notification preference.
+formats while changing the notification preference. It also fails when the
+installed Agent cannot create its bounded operational log or diagnostics find
+missing, oversized, or excess log files.
 
 ## Publishing
 
@@ -123,15 +126,15 @@ Use this fallback only while Authenticode signing is unavailable:
 ```powershell
 .\packaging\Promote-ReleaseCandidate.ps1 `
   -CandidateDirectory F:\path\to\downloaded-candidate `
-  -Version 0.1.9 `
+  -Version 0.1.10 `
   -ExpectedCommit <full-main-commit-sha>
 ```
 
 5. Require `release-gate.json`, `package-lifecycle.json`, and
    `watchdog-backoff.json` to report `passed: true`. In particular, require 34
    primary snapshots, zero failed reads, both real monitor checks, recovery,
-   notification-channel and preference round-trip evidence, rollback,
-   diagnostics, and clean uninstall.
+   notification-channel and preference round-trip evidence, bounded local-log
+   evidence, rollback, diagnostics, and clean uninstall.
 6. Publish the original candidate ZIP, its checksum, the original SBOM and its
    checksum, `candidate-build.json`, `release-gate.json`,
    `package-lifecycle.json`, and `watchdog-backoff.json`. Target the exact

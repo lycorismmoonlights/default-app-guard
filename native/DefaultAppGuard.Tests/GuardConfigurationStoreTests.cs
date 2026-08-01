@@ -130,6 +130,7 @@ public sealed class GuardConfigurationStoreTests : IDisposable
             "http://127.0.0.1:51873",
             Path.Combine(temporaryDirectory, "state.json"),
             ConfigurationPath,
+            Path.Combine(temporaryDirectory, "logs"),
             TimeSpan.FromMinutes(15),
             false,
             []);

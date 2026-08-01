@@ -395,6 +395,15 @@ if (-not [bool]$lifecycleEvidence.passed -or
     -not [bool]$lifecycleEvidence.notifications.enabledByDefault -or
     -not [bool](
         $lifecycleEvidence.notifications.configurationRoundTripVerified) -or
+    [string]$lifecycleEvidence.operationalLogs.channel -ne
+        "Serilog.Sinks.File" -or
+    -not [bool]$lifecycleEvidence.operationalLogs.available -or
+    [string]$lifecycleEvidence.operationalLogs.format -ne "CLEF" -or
+    [int64]$lifecycleEvidence.operationalLogs.fileSizeLimitBytes -ne 2MB -or
+    [int]$lifecycleEvidence.operationalLogs.retainedFileCountLimit -ne 7 -or
+    -not [bool]$lifecycleEvidence.operationalLogs.diagnosticsHealthy -or
+    [int]$lifecycleEvidence.operationalLogs.fileCount -lt 1 -or
+    [int64]$lifecycleEvidence.operationalLogs.totalBytes -lt 1 -or
     -not [bool]$lifecycleEvidence.install.uninstallRegistrationVerified -or
     -not [bool]$lifecycleEvidence.rollback.lateStagePassed -or
     -not [bool]$lifecycleEvidence.rollback.installStateRestored -or
@@ -580,6 +589,20 @@ $evidenceFile = Join-Path $releaseRoot "release-gate.json"
                 $lifecycleEvidence.notifications.configurationRoundTripVerified)
         passed = $true
     }
+    operationalLogs = [ordered]@{
+        channel = [string]$lifecycleEvidence.operationalLogs.channel
+        available = [bool]$lifecycleEvidence.operationalLogs.available
+        format = [string]$lifecycleEvidence.operationalLogs.format
+        fileSizeLimitBytes =
+            [int64]$lifecycleEvidence.operationalLogs.fileSizeLimitBytes
+        retainedFileCountLimit =
+            [int]$lifecycleEvidence.operationalLogs.retainedFileCountLimit
+        diagnosticsHealthy =
+            [bool]$lifecycleEvidence.operationalLogs.diagnosticsHealthy
+        fileCount = [int]$lifecycleEvidence.operationalLogs.fileCount
+        totalBytes = [int64]$lifecycleEvidence.operationalLogs.totalBytes
+        passed = $true
+    }
     process = [ordered]@{
         mode = "background-no-console"
         agentPeSubsystem = $peSubsystem
@@ -611,6 +634,8 @@ $evidenceFile = Join-Path $releaseRoot "release-gate.json"
             [bool]$watchdogBackoffEvidence.immediateRetry.agentLaunchSuppressed
         diagnosticsHealthy =
             [bool]$lifecycleEvidence.diagnostics.overallHealthy
+        operationalLogsHealthy =
+            [bool]$lifecycleEvidence.diagnostics.operationalLogsHealthy
         uninstallRegistered =
             [bool]$lifecycleEvidence.install.uninstallRegistrationVerified
         uninstallClean = [bool]$lifecycleEvidence.uninstall.passed

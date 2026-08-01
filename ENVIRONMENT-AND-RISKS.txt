@@ -1,7 +1,7 @@
 DefaultAppGuard Community
 环境配置要求与风险提示 / Environment Requirements and Risk Notice
 
-适用版本 / Applies to version: 0.1.9
+适用版本 / Applies to version: 0.1.10
 更新日期 / Updated: 2026-08-01
 
 ============================================================
@@ -24,6 +24,8 @@ DefaultAppGuard Community
 - 进程模式：Agent 使用无控制台的 Windows 后台子系统，不应弹出或常驻终端窗口。
 - 通知方式：Agent 在当前交互用户会话中使用 WindowsForms.NotifyIcon 提供托盘
   图标和系统气泡提醒。设置页可关闭提醒；关闭提醒不会停止后台检测。
+- 运行日志：Agent 在 runtime\logs 下保存 CLEF 结构化本地日志，按日期和
+  2 MiB 大小滚动，最多保留 7 个文件。日志不自动上传，也不作为默认应用判断证据。
 - 本地端口：Agent 仅监听 127.0.0.1:51873。
 - 运行时：发布包是自包含的，不需要单独安装 Node.js 或 .NET。
 - 仅供开发者复现构建：仓库固定使用 .NET SDK 10.0.302（.NET 10 LTS）、
@@ -58,7 +60,7 @@ DefaultAppGuard Community
 
 3.1 本版本的签名状态
 
-- 适用本提示文本的 0.1.9 版本是“未签名 alpha 版本”。
+- 适用本提示文本的 0.1.10 版本是“未签名 alpha 版本”。
 - DefaultAppGuard.Agent.exe、DefaultAppGuard.Setup.exe、Install-DefaultAppGuard.ps1、
   Uninstall-DefaultAppGuard.ps1、Get-DefaultAppGuardDiagnostics.ps1 和
   DefaultAppGuard.Package.psm1 均没有受 Windows 信任的发布者签名。
@@ -88,7 +90,7 @@ DefaultAppGuard Community
 3) 同时下载对应的 .sha256 文件，并核对 ZIP 的 SHA-256。可以在 ZIP
    所在文件夹打开 PowerShell，运行：
 
-   Get-FileHash .\DefaultAppGuard-0.1.9-win-x64.zip -Algorithm SHA256
+   Get-FileHash .\DefaultAppGuard-0.1.10-win-x64.zip -Algorithm SHA256
 
    输出的 64 位哈希必须与 .sha256 文件完全一致。任何一位不同都不要运行。
 4) 完整解压 ZIP 后再安装，不要从压缩包预览窗口直接运行脚本。
@@ -138,6 +140,8 @@ DefaultAppGuard Community
   判断默认应用，也不是主算法的保底替代。首次偏移和偏移集合变化会立即尝试
   提醒，同一组持续偏移最多每 30 分钟重复一次。
 - 程序只保存自己的监控范围、状态和安装信息。
+- 程序还保存启动、停止、审计原因与数量、异常等运行事件。日志仅用于排错，
+  不会替代主 COM 查询、注册表通知或任何一次真实审计结果。
 - 程序不会直接改写 UserChoice，不会绕过 UCPD，也不会静默强制恢复默认程序。
 - 需要修复时，程序会打开 Windows 官方“默认应用”设置，由用户确认修改。
 
@@ -158,6 +162,11 @@ DefaultAppGuard Community
 - 当前只保护视频扩展名，并且目标固定为本机动态解析到的 Microsoft Media Player。
 - 当前只支持单个登录用户实例；不同 Windows 用户需要分别安装和配置。
 - 后台 Agent 和计划任务会占用少量内存、CPU 和本地端口。
+- 本地运行日志通常约占 14 MiB 以内（2 MiB 滚动阈值，保留 7 个文件）。极少数
+  情况下，单条较大的异常事件可能使活动文件短暂超过阈值，因此该数值不是文件
+  系统硬上限。诊断允许 64 KiB 的正常滚动越界，超过后会报告风险。日志目录不可写时，安装器会拒绝
+  提交新安装；运行后发生写入故障时会在健康接口和诊断中报告，但不会因此让
+  仍可工作的主 COM 查询与 RegNotifyChangeKeyValue 监控进入反复重启。
 - Agent 是长期运行的后台进程；关闭应用页面不会停止监控。若出现 Agent
   控制台窗口，通常表示仍在运行 0.1.1 或更早版本，应升级并重新安装。
 - 计划任务运行的是短时看门狗，不再直接托管长期运行的 Agent。正常情况下，
@@ -183,8 +192,12 @@ DefaultAppGuard Community
 
 - 当前版本不包含向外发送的遥测、广告、云同步或主动外网请求。
 - 状态和配置默认保存在 %LOCALAPPDATA%\DefaultAppGuard 下。
+- 运行日志默认保存在 %LOCALAPPDATA%\DefaultAppGuard\runtime\logs。它们不会
+  自动上传，但异常堆栈可能含有技术路径或环境细节。不要直接公开原始日志；
+  分享前必须检查并删除个人路径、用户名、令牌或其他敏感信息。
 - Get-DefaultAppGuardDiagnostics.ps1 只生成经过约束的诊断摘要，不包含个人
-  路径、注册表导出、运行时文件原文或令牌；公开前仍应由用户自行复核报告。
+  路径、注册表导出、运行时文件或日志原文、或令牌；它只报告日志通道、文件
+  数量和字节数等元数据。公开前仍应由用户自行复核报告。
 - 报告问题时不要公开令牌、完整注册表导出、个人路径或 runtime 目录中的原始文件。
 - 安全问题请使用 GitHub 私密漏洞报告，不要在公开 Issue 中发布利用细节。
 
@@ -194,13 +207,13 @@ DefaultAppGuard Community
 
 & "$env:LOCALAPPDATA\Programs\DefaultAppGuard\Uninstall-DefaultAppGuard.ps1"
 
-使用 -KeepData 可以保留监控范围和最近状态。
+使用 -KeepData 可以保留监控范围、最近状态和本地运行日志。
 
 8. 许可
 
 本项目使用 PolyForm Noncommercial License 1.0.0，仅授予许可条款允许的
 非商业使用、修改和再分发权利。商业使用未获授权。再分发时必须保留
-LICENSE.md、NOTICE 和本提示文本。
+LICENSE.md、NOTICE、THIRD-PARTY-NOTICES.md、适用的第三方许可文本和本提示文本。
 
 ============================================================
 English
@@ -227,6 +240,9 @@ English
 - Notifications: the Agent uses WindowsForms.NotifyIcon in the current
   interactive user session for a tray icon and system balloon alerts. Alerts
   can be disabled in Settings without stopping background detection.
+- Operational logs: the Agent stores local CLEF events below runtime\logs,
+  rolling daily and at 2 MiB with at most seven retained files. Logs are not
+  uploaded automatically and are not default-association evidence.
 - Local port: the Agent listens only on 127.0.0.1:51873.
 - Runtime: the release package is self-contained and does not require a
   separate Node.js or .NET installation.
@@ -271,7 +287,7 @@ English
 
 3.1 Signing status of this version
 
-- Version 0.1.9 covered by this notice is an unsigned alpha release.
+- Version 0.1.10 covered by this notice is an unsigned alpha release.
 - DefaultAppGuard.Agent.exe, DefaultAppGuard.Setup.exe, Install-DefaultAppGuard.ps1,
   Uninstall-DefaultAppGuard.ps1, Get-DefaultAppGuardDiagnostics.ps1, and
   DefaultAppGuard.Package.psm1 do not have a publisher signature trusted by
@@ -308,7 +324,7 @@ Consider installing this unsigned alpha only when every item below is true:
 3) Download the matching .sha256 file and verify the ZIP. Open PowerShell in
    the folder containing the ZIP and run:
 
-   Get-FileHash .\DefaultAppGuard-0.1.9-win-x64.zip -Algorithm SHA256
+   Get-FileHash .\DefaultAppGuard-0.1.10-win-x64.zip -Algorithm SHA256
 
    The 64-character hash must match the .sha256 file exactly. Do not run the
    package when even one character is different.
@@ -377,6 +393,9 @@ or ask a trusted person with Windows security experience to inspect it.
   fallback algorithm. First drift and a changed drift set trigger an immediate
   attempt; unchanged persistent drift repeats no more than once per 30 minutes.
 - The application writes only its own monitored scope, status, and install data.
+- It also writes startup, shutdown, audit-reason and count, and exception
+  events. Logs are diagnostic only and never replace the primary COM query,
+  registry notification, or a real audit result.
 - It does not write UserChoice, bypass UCPD, or silently force a default app.
 - Repair opens the official Windows Default Apps surface for user approval.
 
@@ -408,6 +427,14 @@ or ask a trusted person with Windows security experience to inspect it.
   and configure the application separately.
 - The background Agent and scheduled task use a small amount of memory, CPU,
   and one loopback port.
+- Local operational logs normally remain near or below approximately 14 MiB:
+  seven retained files with a 2 MiB rolling threshold. A single large event can
+  rarely put the active file temporarily above that threshold, so it is not a
+  hard filesystem limit. Diagnostics allow 64 KiB of normal rolling overshoot
+  and report larger excesses. Setup rejects a new installation when the log cannot be
+  initialized. A later write failure is reported by health and diagnostics,
+  but does not make the watchdog repeatedly restart a still-working primary
+  COM-query and RegNotifyChangeKeyValue monitor loop.
 - The Agent is a long-running background process; closing the application page
   does not stop monitoring. A visible Agent console normally means version
   0.1.1 or earlier is still installed and should be upgraded.
@@ -444,9 +471,15 @@ or ask a trusted person with Windows security experience to inspect it.
 - The current version sends no telemetry outside the computer and contains no
   advertising, cloud sync, or proactive outbound network request.
 - Configuration and status are stored under %LOCALAPPDATA%\DefaultAppGuard.
+- Operational logs are stored by default below
+  %LOCALAPPDATA%\DefaultAppGuard\runtime\logs. They are never uploaded
+  automatically, but exception stacks may contain technical paths or
+  environment details. Do not publish raw logs without reviewing and removing
+  personal paths, usernames, tokens, and other sensitive data.
 - Get-DefaultAppGuardDiagnostics.ps1 produces a constrained diagnostic summary
-  without personal paths, registry exports, raw runtime file contents, or
-  tokens. Users should still review the report before publishing it.
+  without personal paths, registry exports, raw runtime or log contents, or
+  tokens. It reports only log-channel and file-count/byte-count metadata. Users
+  should still review the report before publishing it.
 - Do not publish tokens, full registry exports, personal paths, or raw runtime
   files in bug reports.
 - Report security issues through GitHub private vulnerability reporting rather
@@ -458,14 +491,16 @@ Run:
 
 & "$env:LOCALAPPDATA\Programs\DefaultAppGuard\Uninstall-DefaultAppGuard.ps1"
 
-Use -KeepData to retain the monitored scope and latest status.
+Use -KeepData to retain the monitored scope, latest status, and local
+operational logs.
 
 8. License
 
 This project is licensed under the PolyForm Noncommercial License 1.0.0.
 Use, modification, and redistribution are allowed only as granted for permitted
 noncommercial purposes. Commercial use is not granted. Redistributions must
-retain LICENSE.md, NOTICE, and this notice file.
+retain LICENSE.md, NOTICE, THIRD-PARTY-NOTICES.md, the applicable third-party
+license text, and this notice file.
 
 ============================================================
 发布证据补充 / Release evidence addendum
@@ -473,18 +508,19 @@ retain LICENSE.md, NOTICE, and this notice file.
 
 中文：
 
-- 0.1.9 的发布附件包含 SPDX 2.2 软件物料清单（SBOM）及其 SHA-256。
+- 0.1.10 的发布附件包含 SPDX 2.2 软件物料清单（SBOM）及其 SHA-256。
   SBOM 使用固定版本的 Microsoft SBOM Tool 生成，并在发布门禁中逐文件验证。
 - 发布门禁会先运行无控制台图形安装器的确切包验证，再安装即将发布的软件包，
   并验证就绪端点、34 项主 COM 查询证据、真实注册表通知、
   WindowsForms.NotifyIcon 通道可用性和通知开关的关闭/恢复往返、
+  真实 CLEF 日志写入、2 MiB/7 文件保留策略和仅元数据诊断、
   失败升级回滚、计划任务的参数/权限/触发器/单实例/重启配置、自动恢复、
   恢复记录、失败进程清理、重启风暴退避、无控制台运行、诊断健康和干净卸载。
 - 发布证据同时记录并核对精确的 .NET SDK、Node.js 和 pnpm 版本；版本不一致时
   门禁会失败，不允许使用悄然滚动的新工具链发布。
 - 这些证据用于提高构建可追溯性和发现发布过程错误，不代表软件在所有电脑上
   都不会出现兼容性问题，也不能代替 Windows Authenticode 发布者签名。
-- 对于 0.1.9 的未签名候选包，ZIP、SBOM 和 candidate-build.json 由 GitHub
+- 对于 0.1.10 的未签名候选包，ZIP、SBOM 和 candidate-build.json 由 GitHub
   托管的 Windows 构建任务生成并分别附加 GitHub artifact attestation（构建来源
   证明）。发布维护者随后必须在配置了真实 Microsoft Media Player 默认关联的
   Windows 电脑上，对完全相同的 ZIP 运行本地主算法晋级门禁；该门禁不会重新
@@ -502,20 +538,22 @@ retain LICENSE.md, NOTICE, and this notice file.
   Authenticode 代码签名。用户仍应只从官方 Releases 页面下载、核对 SHA-256、
   保持安全软件开启，并把本版本视为未签名 alpha。
 - 项目已经具备使用 Windows 证书存储或兼容 HSM 进行发布签名的构建入口；但是
-  本提示对应的 0.1.9 仍是未签名 alpha。只有当 GitHub 发布说明明确写明“已签名”、
+  本提示对应的 0.1.10 仍是未签名 alpha。只有当 GitHub 发布说明明确写明“已签名”、
   列出签名者，且 release-gate.json 显示所有受检文件签名有效并已加时间戳时，
   才能把某个未来版本视为已签名版本。
 
 English:
 
-- Version 0.1.9 release assets include an SPDX 2.2 software bill of materials
+- Version 0.1.10 release assets include an SPDX 2.2 software bill of materials
   (SBOM) and its SHA-256. The pinned Microsoft SBOM Tool generates it, and the
   release gate validates every packaged file against it.
 - The release gate first runs the graphical no-console Setup verifier, then
   installs the exact package and verifies readiness, primary COM evidence for
   all 34 formats, real registry notification, WindowsForms.NotifyIcon channel
   availability, notification-preference disable/restore round-trip, failed-upgrade
-  rollback, scheduled-task arguments, privilege, triggers, single-instance and
+  rollback, real CLEF log writing, 2 MiB/seven-file retention, metadata-only
+  log diagnostics,
+  scheduled-task arguments, privilege, triggers, single-instance and
   restart settings, automatic recovery, recovery telemetry, failed-process
   cleanup, restart-storm backoff, no-console operation, healthy diagnostics,
   and clean uninstall.
@@ -525,7 +563,7 @@ English:
 - This evidence improves build traceability and catches release-process
   failures. It does not guarantee compatibility on every computer and does not
   replace a trusted Windows Authenticode publisher signature.
-- For the unsigned 0.1.9 candidate, a GitHub-hosted Windows build creates the
+- For the unsigned 0.1.10 candidate, a GitHub-hosted Windows build creates the
   ZIP, SBOM, and candidate-build.json and attaches a separate GitHub artifact
   attestation to each. A maintainer must then run the local main-algorithm
   promotion gate on a Windows computer whose real default associations target
@@ -549,7 +587,7 @@ English:
   SHA-256, keep security software enabled, and continue to treat this version
   as an unsigned alpha.
 - The build now supports release signing through the Windows certificate store
-  or a compatible HSM. However, version 0.1.9 covered by this notice remains an
+  or a compatible HSM. However, version 0.1.10 covered by this notice remains an
   unsigned alpha. Treat a future version as signed only when its GitHub release
   notes explicitly say so, name the signer, and release-gate.json reports valid,
   timestamped signatures for every checked file.

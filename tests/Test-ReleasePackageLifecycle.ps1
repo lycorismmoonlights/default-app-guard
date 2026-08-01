@@ -104,6 +104,13 @@ function Wait-AgentHealthy {
                 "WindowsForms.NotifyIcon" -or
                 -not [bool]$health.NotificationsAvailable) {
                 $lastFailure = "Agent notification channel is unavailable."
+            } elseif ($health.OperationalLogChannel -ne
+                "Serilog.Sinks.File" -or
+                -not [bool]$health.OperationalLogsAvailable -or
+                $health.OperationalLogFormat -ne "CLEF" -or
+                [int64]$health.OperationalLogFileSizeLimitBytes -ne 2MB -or
+                [int]$health.OperationalLogRetainedFileCountLimit -ne 7) {
+                $lastFailure = "Agent operational logging is unavailable."
             } elseif (-not ([string]$health.Version).StartsWith(
                     "$ExpectedVersion.",
                     [StringComparison]::Ordinal)) {
@@ -184,6 +191,14 @@ Assert-True $packageCheck.Passed `
     "The release package failed integrity validation."
 Assert-True ($packageCheck.Manifest.version -eq $Version) `
     "The release package version does not match the requested version."
+Assert-True (Test-Path `
+    -LiteralPath (Join-Path $packagePath "THIRD-PARTY-NOTICES.md") `
+    -PathType Leaf) `
+    "The release package is missing third-party notices."
+Assert-True (Test-Path `
+    -LiteralPath (Join-Path $packagePath "licenses\Apache-2.0.txt") `
+    -PathType Leaf) `
+    "The release package is missing the Serilog license text."
 $setupExecutable = Join-Path $packagePath "DefaultAppGuard.Setup.exe"
 Assert-True (Test-Path -LiteralPath $setupExecutable -PathType Leaf) `
     "The release package is missing the graphical setup launcher."
@@ -393,6 +408,15 @@ try {
         "The installed candidate's notification channel was unavailable."
     Assert-True ([bool]$installResult.NotificationsEnabled) `
         "The installed candidate did not enable notifications by default."
+    Assert-True ($installResult.OperationalLogChannel -eq
+        "Serilog.Sinks.File") `
+        "The installed candidate reported another operational log channel."
+    Assert-True ([bool]$installResult.OperationalLogsAvailable) `
+        "The installed candidate could not write its operational log."
+    Assert-True ($installResult.OperationalLogFormat -eq "CLEF" -and
+        [int64]$installResult.OperationalLogFileSizeLimitBytes -eq 2MB -and
+        [int]$installResult.OperationalLogRetainedFileCountLimit -eq 7) `
+        "The installed candidate reported an unsafe log retention policy."
     Assert-True ([bool]$installResult.Ready) `
         "The installed candidate did not pass the readiness gate."
     Assert-True ($installResult.ReadinessCode -eq "ready") `
@@ -723,13 +747,25 @@ try {
         "Diagnostics rejected the standard uninstall registration."
     Assert-True ([bool]$diagnosticsReport.scheduledTask.configurationHealthy) `
         "Diagnostics rejected the installed watchdog configuration."
-    Assert-True ([int]$diagnosticsReport.schemaVersion -eq 3) `
-        "Diagnostics did not use the notification-aware schema."
+    Assert-True ([int]$diagnosticsReport.schemaVersion -eq 4) `
+        "Diagnostics did not use the operational-log-aware schema."
     Assert-True ($diagnosticsReport.notifications.channel -eq
         "WindowsForms.NotifyIcon" -and
         [bool]$diagnosticsReport.notifications.available -and
         [bool]$diagnosticsReport.notifications.enabled) `
         "Diagnostics rejected the notification channel."
+    Assert-True ($diagnosticsReport.operationalLogs.channel -eq
+        "Serilog.Sinks.File" -and
+        [bool]$diagnosticsReport.operationalLogs.available -and
+        [bool]$diagnosticsReport.operationalLogs.healthy -and
+        [int]$diagnosticsReport.operationalLogs.fileCount -ge 1 -and
+        [int64]$diagnosticsReport.operationalLogs.totalBytes -gt 0 -and
+        [int]$diagnosticsReport.operationalLogs.retainedFileCountLimit -eq 7 -and
+        [int64]$diagnosticsReport.operationalLogs.fileSizeLimitBytes -eq 2MB -and
+        [int64]$diagnosticsReport.operationalLogs.rollThresholdBytes -eq 2MB -and
+        [int64]$diagnosticsReport.operationalLogs.overshootAllowanceBytes -eq
+            64KB) `
+        "Diagnostics rejected bounded operational logging."
     Assert-True ([bool]$diagnosticsReport.watchdogTelemetry.outcomeHealthy) `
         "Diagnostics rejected the watchdog recovery outcome."
     Assert-True ([bool]$diagnosticsReport.watchdogTelemetry.matchesLastTaskRun) `
@@ -837,6 +873,19 @@ try {
             configurationRoundTripVerified =
                 $notificationConfigurationVerified
         }
+        operationalLogs = [ordered]@{
+            channel = $installResult.OperationalLogChannel
+            available = [bool]$installResult.OperationalLogsAvailable
+            format = $installResult.OperationalLogFormat
+            fileSizeLimitBytes =
+                [int64]$installResult.OperationalLogFileSizeLimitBytes
+            retainedFileCountLimit =
+                [int]$installResult.OperationalLogRetainedFileCountLimit
+            diagnosticsHealthy =
+                [bool]$diagnosticsReport.operationalLogs.healthy
+            fileCount = [int]$diagnosticsReport.operationalLogs.fileCount
+            totalBytes = [int64]$diagnosticsReport.operationalLogs.totalBytes
+        }
         mainAlgorithm = [ordered]@{
             query = $installResult.MainQuery
             monitor = $installResult.MainMonitor
@@ -868,6 +917,8 @@ try {
                 [bool]$diagnosticsReport.notifications.available
             notificationsEnabled =
                 [bool]$diagnosticsReport.notifications.enabled
+            operationalLogsHealthy =
+                [bool]$diagnosticsReport.operationalLogs.healthy
             watchdogTelemetryHealthy =
                 [bool]$diagnosticsReport.watchdogTelemetry.outcomeHealthy
             watchdogTelemetryMatchesTaskRun =

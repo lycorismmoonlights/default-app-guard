@@ -66,6 +66,9 @@ test("release metadata and risk notice stay version-aligned", async () => {
   assert.ok(notice.includes("primarySnapshotCount"));
   assert.ok(notice.includes("failedReadCount"));
   assert.ok(notice.includes("WindowsForms.NotifyIcon"));
+  assert.ok(notice.includes("CLEF"));
+  assert.ok(notice.includes("2 MiB"));
+  assert.ok(notice.includes("runtime\\logs"));
   assert.ok(notice.includes("专注助手"));
   assert.ok(notice.includes("Focus Assist"));
 });
@@ -87,6 +90,8 @@ test("published package includes the bilingual risk notice", async () => {
   assert.ok(publishScript.includes("sha256 = (Get-FileHash"));
   assert.ok(publishScript.includes('"DefaultAppGuard.Package.psm1"'));
   assert.ok(publishScript.includes('"Get-DefaultAppGuardDiagnostics.ps1"'));
+  assert.ok(publishScript.includes('"THIRD-PARTY-NOTICES.md"'));
+  assert.ok(publishScript.includes('"licenses"'));
   assert.ok(releaseGate.includes('"ENVIRONMENT-AND-RISKS.txt"'));
   assert.ok(releaseGate.includes("Test-DagPackageIntegrity"));
   assert.ok(releaseGate.includes("Get-DagPeSubsystem"));
@@ -239,6 +244,8 @@ test("candidate promotion requires provenance and exact-package main evidence", 
   assert.ok(promotion.includes("failedReadCount -eq 0"));
   assert.ok(promotion.includes("WindowsForms.NotifyIcon"));
   assert.ok(promotion.includes("configurationRoundTripVerified"));
+  assert.ok(promotion.includes("operationalLogs.diagnosticsHealthy"));
+  assert.ok(promotion.includes('"Serilog.Sinks.File"'));
   assert.ok(promotion.includes("exactAttestedArchivePromoted = $true"));
   assert.ok(promotion.includes('policy = "unsigned-alpha"'));
   assert.ok(promotion.includes('status = "unsigned"'));
@@ -276,6 +283,7 @@ test("installer validates, stages, and can roll back an upgrade", async () => {
   assert.ok(installer.includes("Health endpoint is not owned by the installed Agent"));
   assert.ok(installer.includes("ProcessMode -ne \"background-no-console\""));
   assert.ok(installer.includes("System notification channel is unavailable"));
+  assert.ok(installer.includes("Bounded operational logging is unavailable"));
   assert.ok(installer.includes("$replacementBackupPath"));
   assert.ok(installer.includes("$shouldManageShortcut"));
   assert.ok(installer.includes("Set-UninstallRegistryEntry"));
@@ -298,6 +306,7 @@ test("diagnostics are packaged, redacted, and inspect the primary algorithm", as
   assert.ok(diagnostics.includes("containsPersonalPaths = $false"));
   assert.ok(diagnostics.includes("containsRegistryExports = $false"));
   assert.ok(diagnostics.includes("containsRuntimeFileContents = $false"));
+  assert.ok(diagnostics.includes("containsOperationalLogContents = $false"));
   assert.ok(
     diagnostics.includes(
       "IApplicationAssociationRegistration.QueryCurrentDefault",
@@ -324,6 +333,10 @@ test("diagnostics are packaged, redacted, and inspect the primary algorithm", as
   assert.ok(diagnostics.includes("watchdogProcessMatches"));
   assert.ok(diagnostics.includes("notification-channel-unavailable"));
   assert.ok(diagnostics.includes("notifications = [ordered]@{"));
+  assert.ok(diagnostics.includes("operationalLogs = [ordered]@{"));
+  assert.ok(diagnostics.includes("operational-log-retention-exceeded"));
+  assert.ok(diagnostics.includes("operational-log-roll-threshold-exceeded"));
+  assert.ok(diagnostics.includes("overshootAllowanceBytes"));
   assert.equal(
     diagnostics.includes('"expected-ignore-new-while-running"'),
     false,
@@ -382,6 +395,9 @@ test("production UI exposes only implemented product capabilities", async () => 
   assert.ok(app.includes('includes("ms-resource:")'));
   assert.ok(app.includes("Agent 运行异常"));
   assert.ok(app.includes("系统通知"));
+  assert.ok(app.includes("operationalLogsAvailable"));
+  assert.ok(app.includes("operationalLogRetainedFileCountLimit"));
+  assert.ok(app.includes("本地运行日志"));
   assert.ok(app.includes('role="switch"'));
 });
 
