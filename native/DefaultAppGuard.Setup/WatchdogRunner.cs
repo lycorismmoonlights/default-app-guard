@@ -66,9 +66,17 @@ internal static class WatchdogRunner
 
     internal static int Run(WatchdogOptions options)
     {
+        var invokedAtUtc = DateTimeOffset.UtcNow;
+        var previousStatus = WatchdogTelemetry.TryRead();
+
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000) ||
             !Environment.Is64BitOperatingSystem)
         {
+            WriteStatus(
+                invokedAtUtc,
+                WatchdogTelemetry.UnsupportedOutcome,
+                exitCode: 4,
+                failureStage: "platform");
             return 4;
         }
 
@@ -80,26 +88,65 @@ internal static class WatchdogRunner
             return 0;
         }
 
+        var packageIntegrityPassed = false;
+        var recoveryAttempted = false;
+        int? previousProcessId = null;
+        var failureStage = "package-integrity";
         try
         {
             var packageDirectory = Path.GetFullPath(AppContext.BaseDirectory);
             var packageCheck = PackageIntegrityVerifier.Verify(packageDirectory);
             if (!packageCheck.Passed)
             {
+                WriteStatus(
+                    invokedAtUtc,
+                    WatchdogTelemetry.IntegrityFailedOutcome,
+                    exitCode: 20,
+                    failureStage: "package-integrity");
                 return 20;
             }
+            packageIntegrityPassed = true;
 
             var agentPath = Path.Combine(packageDirectory, AgentFileName);
-            if (IsHealthyAsync(
+            failureStage = "initial-health-check";
+            var initialHealth = GetHealthAsync(
                     options.AgentUri,
                     agentPath,
                     packageCheck.Version,
-                    TimeSpan.FromSeconds(5)).GetAwaiter().GetResult())
+                    TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
+            if (initialHealth.Healthy)
             {
+                WriteStatus(
+                    invokedAtUtc,
+                    WatchdogTelemetry.HealthyOutcome,
+                    exitCode: 0,
+                    packageIntegrityPassed: true,
+                    initialHealthPassed: true,
+                    activeProcessId: initialHealth.ProcessId);
                 return 0;
             }
 
-            StopUnhealthyAgents(agentPath);
+            var now = DateTimeOffset.UtcNow;
+            if (WatchdogTelemetry.ShouldDeferRecovery(previousStatus, now))
+            {
+                WriteStatus(
+                    invokedAtUtc,
+                    WatchdogTelemetry.DeferredOutcome,
+                    exitCode: 0,
+                    packageIntegrityPassed: true,
+                    consecutiveRecoveryFailures:
+                        previousStatus!.ConsecutiveRecoveryFailures,
+                    nextRecoveryAllowedAtUtc:
+                        previousStatus.NextRecoveryAllowedAtUtc,
+                    failureStage: "recovery-backoff");
+                return 0;
+            }
+
+            failureStage = "stop-unhealthy-agent";
+            previousProcessId = StopUnhealthyAgents(agentPath) ??
+                WatchdogTelemetry.GetLastHealthyProcessId(previousStatus);
+            recoveryAttempted = true;
+            failureStage = "agent-launch";
             var startInfo = new ProcessStartInfo(agentPath)
             {
                 UseShellExecute = true,
@@ -116,16 +163,42 @@ internal static class WatchdogRunner
             using var process = Process.Start(startInfo);
             if (process is null)
             {
+                WriteRecoveryFailure(
+                    invokedAtUtc,
+                    previousStatus,
+                    exitCode: 23,
+                    previousProcessId,
+                    failureStage: "agent-launch");
                 return 23;
             }
 
-            return IsHealthyAsync(
+            failureStage = "recovery-health-check";
+            var recoveredHealth = GetHealthAsync(
                     options.AgentUri,
                     agentPath,
                     packageCheck.Version,
-                    TimeSpan.FromSeconds(20)).GetAwaiter().GetResult()
-                ? 0
-                : 24;
+                    TimeSpan.FromSeconds(20)).GetAwaiter().GetResult();
+            if (recoveredHealth.Healthy)
+            {
+                WriteStatus(
+                    invokedAtUtc,
+                    WatchdogTelemetry.RecoveredOutcome,
+                    exitCode: 0,
+                    packageIntegrityPassed: true,
+                    recoveryAttempted: true,
+                    previousProcessId: previousProcessId,
+                    activeProcessId: recoveredHealth.ProcessId);
+                return 0;
+            }
+
+            StopFailedLaunch(process, agentPath);
+            WriteRecoveryFailure(
+                invokedAtUtc,
+                previousStatus,
+                exitCode: 24,
+                previousProcessId,
+                failureStage: "recovery-health-check");
+            return 24;
         }
         catch (Exception exception) when (
             exception is IOException or
@@ -135,6 +208,24 @@ internal static class WatchdogRunner
             HttpRequestException or
             TaskCanceledException)
         {
+            if (recoveryAttempted)
+            {
+                WriteRecoveryFailure(
+                    invokedAtUtc,
+                    previousStatus,
+                    exitCode: 25,
+                    previousProcessId: previousProcessId,
+                    failureStage: failureStage);
+            }
+            else
+            {
+                WriteStatus(
+                    invokedAtUtc,
+                    WatchdogTelemetry.FailedOutcome,
+                    exitCode: 25,
+                    packageIntegrityPassed: packageIntegrityPassed,
+                    failureStage: failureStage);
+            }
             return 25;
         }
         finally
@@ -155,8 +246,9 @@ internal static class WatchdogRunner
         }
     }
 
-    private static void StopUnhealthyAgents(string expectedPath)
+    private static int? StopUnhealthyAgents(string expectedPath)
     {
+        int? firstStoppedProcessId = null;
         foreach (var process in Process.GetProcessesByName(
                      Path.GetFileNameWithoutExtension(AgentFileName)))
         {
@@ -172,6 +264,7 @@ internal static class WatchdogRunner
                         continue;
                     }
 
+                    firstStoppedProcessId ??= process.Id;
                     process.Kill(entireProcessTree: false);
                     process.WaitForExit(5000);
                 }
@@ -184,9 +277,34 @@ internal static class WatchdogRunner
                 }
             }
         }
+
+        return firstStoppedProcessId;
     }
 
-    private static async Task<bool> IsHealthyAsync(
+    private static void StopFailedLaunch(Process process, string expectedPath)
+    {
+        try
+        {
+            if (!process.HasExited &&
+                string.Equals(
+                    process.MainModule?.FileName,
+                    expectedPath,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                process.Kill(entireProcessTree: false);
+                process.WaitForExit(5000);
+            }
+        }
+        catch (Exception exception) when (
+            exception is InvalidOperationException or
+            System.ComponentModel.Win32Exception or
+            NotSupportedException)
+        {
+            // The next scheduled health check still verifies the active owner.
+        }
+    }
+
+    private static async Task<WatchdogHealth> GetHealthAsync(
         Uri agentUri,
         string expectedPath,
         string? expectedVersion,
@@ -209,12 +327,13 @@ internal static class WatchdogRunner
                 {
                     await using var stream = await response.Content.ReadAsStreamAsync();
                     using var document = await JsonDocument.ParseAsync(stream);
-                    if (HealthMatches(
+                    if (TryMatchHealth(
                             document.RootElement,
                             expectedPath,
-                            expectedVersion))
+                            expectedVersion,
+                            out var processId))
                     {
-                        return true;
+                        return new WatchdogHealth(true, processId);
                     }
                 }
             }
@@ -231,14 +350,16 @@ internal static class WatchdogRunner
         }
         while (DateTime.UtcNow < deadline);
 
-        return false;
+        return new WatchdogHealth(false, null);
     }
 
-    private static bool HealthMatches(
+    private static bool TryMatchHealth(
         JsonElement health,
         string expectedPath,
-        string? expectedVersion)
+        string? expectedVersion,
+        out int processId)
     {
+        processId = 0;
         if (!TryGetString(health, "service", out var service) ||
             service != ExpectedService ||
             !TryGetString(health, "query", out var query) ||
@@ -253,7 +374,7 @@ internal static class WatchdogRunner
                 expectedVersion + ".",
                 StringComparison.Ordinal) ||
             !health.TryGetProperty("processId", out var processIdElement) ||
-            !processIdElement.TryGetInt32(out var processId) ||
+            !processIdElement.TryGetInt32(out processId) ||
             processId <= 0)
         {
             return false;
@@ -292,4 +413,61 @@ internal static class WatchdogRunner
         value = property.GetString() ?? string.Empty;
         return !string.IsNullOrWhiteSpace(value);
     }
+
+    private static void WriteRecoveryFailure(
+        DateTimeOffset invokedAtUtc,
+        WatchdogStatus? previousStatus,
+        int exitCode,
+        int? previousProcessId,
+        string failureStage)
+    {
+        var completedAtUtc = DateTimeOffset.UtcNow;
+        var failure = WatchdogTelemetry.NextRecoveryFailure(
+            previousStatus,
+            completedAtUtc);
+        WriteStatus(
+            invokedAtUtc,
+            WatchdogTelemetry.FailedOutcome,
+            exitCode,
+            packageIntegrityPassed: true,
+            recoveryAttempted: true,
+            previousProcessId: previousProcessId,
+            consecutiveRecoveryFailures: failure.FailureCount,
+            nextRecoveryAllowedAtUtc: failure.NextAllowedAtUtc,
+            failureStage: failureStage,
+            completedAtUtc: completedAtUtc);
+    }
+
+    private static void WriteStatus(
+        DateTimeOffset invokedAtUtc,
+        string outcome,
+        int exitCode,
+        bool packageIntegrityPassed = false,
+        bool initialHealthPassed = false,
+        bool recoveryAttempted = false,
+        int? previousProcessId = null,
+        int? activeProcessId = null,
+        int consecutiveRecoveryFailures = 0,
+        DateTimeOffset? nextRecoveryAllowedAtUtc = null,
+        string? failureStage = null,
+        DateTimeOffset? completedAtUtc = null)
+    {
+        WatchdogTelemetry.TryWrite(
+            new WatchdogStatus(
+                WatchdogTelemetry.SchemaVersion,
+                outcome,
+                invokedAtUtc,
+                completedAtUtc ?? DateTimeOffset.UtcNow,
+                exitCode,
+                packageIntegrityPassed,
+                initialHealthPassed,
+                recoveryAttempted,
+                previousProcessId,
+                activeProcessId,
+                consecutiveRecoveryFailures,
+                nextRecoveryAllowedAtUtc,
+                failureStage));
+    }
 }
+
+internal readonly record struct WatchdogHealth(bool Healthy, int? ProcessId);

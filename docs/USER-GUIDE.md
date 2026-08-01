@@ -87,8 +87,8 @@ The command writes a timestamped JSON report in the current directory. It
 checks package integrity, Agent and Setup signature status, the scheduled task,
 including its exact action, current-user privilege, triggers, single-instance
 and restart settings, standard uninstall registration, Agent process identity,
-loopback listener, console children, readiness, and the current main-algorithm
-audit. The report
+watchdog recovery outcome and backoff state, loopback listener, console
+children, readiness, and the current main-algorithm audit. The report
 does not include personal paths, registry exports, raw runtime file contents,
 or tokens. Review it before attaching it to an issue.
 
@@ -99,6 +99,15 @@ The default runtime files are:
 %LOCALAPPDATA%\DefaultAppGuard\runtime\guard-configuration.json
 %LOCALAPPDATA%\DefaultAppGuard\install-state.json
 ```
+
+The watchdog recovery summary is stored under the fixed current-user product
+key `HKCU\Software\DefaultAppGuard\Watchdog`. It is local troubleshooting
+state, not uploaded telemetry, and standard uninstall removes it unless data
+is deliberately kept. After repeated startup failures, it records a bounded
+delay before the next recovery attempt so the computer is not caught in a
+rapid restart loop. Non-technical users should run Setup again for repair if
+diagnostics report `watchdog-last-outcome-unhealthy` or
+`watchdog-telemetry-stale`.
 
 The scheduled task is named `DefaultAppGuard Agent`.
 

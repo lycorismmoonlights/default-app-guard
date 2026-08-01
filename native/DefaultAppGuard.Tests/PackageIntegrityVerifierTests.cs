@@ -24,7 +24,7 @@ public sealed class PackageIntegrityVerifierTests : IDisposable
         var result = PackageIntegrityVerifier.Verify(root);
 
         Assert.True(result.Passed);
-        Assert.Equal("0.1.7", result.Version);
+        Assert.Equal("1.2.3", result.Version);
         Assert.Equal(2, result.DeclaredFileCount);
         Assert.Equal(2, result.ActualFileCount);
         Assert.Empty(result.IssueCodes);
@@ -145,7 +145,7 @@ public sealed class PackageIntegrityVerifierTests : IDisposable
         {
             schemaVersion = 2,
             product = "DefaultAppGuard Community",
-            version = "0.1.7",
+            version = "1.2.3",
             processMode = "background-no-console",
             payload = entries.Select(entry => new
             {

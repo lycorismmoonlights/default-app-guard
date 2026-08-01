@@ -17,6 +17,8 @@ test("release metadata and risk notice stay version-aligned", async () => {
     "native/DefaultAppGuard.Setup/DefaultAppGuard.Setup.csproj",
   );
   const notice = await read("ENVIRONMENT-AND-RISKS.txt");
+  const globalJson = JSON.parse(await read("global.json"));
+  const nvmVersion = (await read(".nvmrc")).trim();
 
   assert.match(
     project,
@@ -28,6 +30,14 @@ test("release metadata and risk notice stay version-aligned", async () => {
   );
   assert.ok(project.includes("<OutputType>WinExe</OutputType>"));
   assert.ok(setupProject.includes("<OutputType>WinExe</OutputType>"));
+  assert.ok(project.includes("<TargetFramework>net10.0-windows</TargetFramework>"));
+  assert.ok(setupProject.includes("<TargetFramework>net10.0-windows</TargetFramework>"));
+  assert.equal(globalJson.sdk.version, "10.0.302");
+  assert.equal(globalJson.sdk.rollForward, "disable");
+  assert.equal(globalJson.sdk.allowPrerelease, false);
+  assert.equal(packageMetadata.engines.node, "24.18.0");
+  assert.equal(packageMetadata.engines.pnpm, "11.9.0");
+  assert.equal(nvmVersion, packageMetadata.engines.node);
   assert.ok(
     notice.includes(
       `适用版本 / Applies to version: ${packageMetadata.version}`,
@@ -84,6 +94,9 @@ test("published package includes the bilingual risk notice", async () => {
   assert.ok(releaseGate.includes("Test-ReleasePackageLifecycle.ps1"));
   assert.ok(releaseGate.includes("exactReleasePackagePassed"));
   assert.ok(releaseGate.includes("watchdogConfigurationVerified"));
+  assert.ok(releaseGate.includes("watchdogRestartStormSuppressed"));
+  assert.ok(releaseGate.includes("Test-WatchdogBackoff.ps1"));
+  assert.ok(releaseGate.includes("exactVersionsVerified = $true"));
   assert.ok(releaseGate.includes('"tool", "run", "sbom-tool"'));
   assert.ok(releaseGate.includes('"SPDX:2.2"'));
   assert.ok(releaseGate.includes("TotalPackagesInManifest"));
@@ -105,6 +118,9 @@ test("graphical setup verifies before its process-only script policy", async () 
   );
   const lifecycle = await read("tests/Test-ReleasePackageLifecycle.ps1");
   const watchdog = await read("native/DefaultAppGuard.Setup/WatchdogRunner.cs");
+  const telemetry = await read(
+    "native/DefaultAppGuard.Setup/WatchdogTelemetry.cs",
+  );
 
   const verificationIndex = setup.indexOf(
     "PackageIntegrityVerifier.Verify(packageDirectory)",
@@ -129,6 +145,14 @@ test("graphical setup verifies before its process-only script policy", async () 
   assert.ok(watchdog.includes("PackageIntegrityVerifier.Verify(packageDirectory)"));
   assert.ok(watchdog.includes("UseShellExecute = true"));
   assert.ok(watchdog.includes("Process.GetProcessById(processId)"));
+  assert.ok(watchdog.includes("ShouldDeferRecovery"));
+  assert.ok(watchdog.includes("StopFailedLaunch"));
+  assert.ok(telemetry.includes('@"Software\\DefaultAppGuard\\Watchdog"'));
+  assert.ok(telemetry.includes('RegistryValueName = "StatusJson"'));
+  assert.ok(telemetry.includes("Registry.CurrentUser.CreateSubKey"));
+  assert.ok(telemetry.includes("RegistryValueKind.String"));
+  assert.equal(telemetry.includes("File.Move"), false);
+  assert.ok(lifecycle.includes('TelemetryOutcome = [string]$watchdogStatus.outcome'));
 });
 
 test("GitHub Actions use immutable action revisions", async () => {
@@ -149,6 +173,10 @@ test("GitHub Actions use immutable action revisions", async () => {
   }
 
   const releaseWorkflow = workflows[1];
+  assert.ok(workflows[0].includes("node-version: 24.18.0"));
+  assert.ok(workflows[0].includes("dotnet-version: 10.0.302"));
+  assert.ok(workflows[1].includes("node-version: 24.18.0"));
+  assert.ok(workflows[1].includes("dotnet-version: 10.0.302"));
   assert.match(releaseWorkflow, /default:\s*require-signed/);
   assert.ok(releaseWorkflow.includes("SIGNING_STATUS:"));
   assert.equal(
@@ -223,6 +251,11 @@ test("diagnostics are packaged, redacted, and inspect the primary algorithm", as
   assert.ok(diagnostics.includes('$taskState -eq "Ready"'));
   assert.ok(diagnostics.includes('ExecutionTimeLimit -eq "PT1M"'));
   assert.ok(diagnostics.includes('"watchdog-running"'));
+  assert.ok(diagnostics.includes('"watchdog-telemetry-missing"'));
+  assert.ok(diagnostics.includes('"watchdog-last-outcome-unhealthy"'));
+  assert.ok(diagnostics.includes("watchdogTelemetry = [ordered]@{"));
+  assert.ok(diagnostics.includes('storage = "HKCU\\Software\\DefaultAppGuard'));
+  assert.ok(diagnostics.includes("watchdogProcessMatches"));
   assert.equal(
     diagnostics.includes('"expected-ignore-new-while-running"'),
     false,
@@ -251,6 +284,8 @@ test("uninstaller verifies ownership before removing task or directories", async
   assert.ok(uninstaller.includes("$null -ne $installState"));
   assert.ok(uninstaller.includes("DefaultAppGuard.Setup.exe"));
   assert.ok(uninstaller.includes('"--watchdog $expectedAgentArguments"'));
+  assert.ok(uninstaller.includes('"Software\\DefaultAppGuard\\Watchdog"'));
+  assert.ok(uninstaller.includes("WatchdogTelemetryRemoved"));
   assert.ok(ownershipIndex >= 0);
   assert.ok(unregisterIndex > ownershipIndex);
   assert.ok(removeInstallIndex > unregisterIndex);

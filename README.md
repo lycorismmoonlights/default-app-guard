@@ -25,7 +25,7 @@ source review and advanced operation.
 The current alpha is unsigned. Verify the checksum before installation:
 
 ```powershell
-Get-FileHash .\DefaultAppGuard-0.1.7-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DefaultAppGuard-0.1.8-win-x64.zip -Algorithm SHA256
 ```
 
 Read [ENVIRONMENT-AND-RISKS.txt](ENVIRONMENT-AND-RISKS.txt) before
@@ -34,7 +34,7 @@ privacy boundary, known limitations, and license notice in Chinese and English.
 The release gate requires this file to be reviewed and version-matched for every
 release.
 
-Version 0.1.7 packages contain a per-file SHA-256 manifest. The graphical Setup
+Version 0.1.8 packages contain a per-file SHA-256 manifest. The graphical Setup
 launcher runs without a console or administrator elevation. Before starting
 PowerShell, native Setup code independently verifies the package manifest,
 file set, lengths, and SHA-256 hashes. Setup uses `ExecutionPolicy Bypass` only
@@ -91,11 +91,22 @@ approaches and product boundaries.
 - `src`: React application.
 - `packaging`: self-contained publish, current-user install, and uninstall.
 
+## Build Toolchain
+
+Release builds use the exact versions recorded in the repository:
+
+- .NET SDK 10.0.302 from `global.json`, with roll-forward disabled.
+- Node.js 24.18.0 LTS from `.nvmrc` and `package.json`.
+- pnpm 11.9.0 from `packageManager` and `package.json`.
+
+The release package remains self-contained; these tools are required only to
+build or verify the project, not to install it.
+
 ## Verification
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.7 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.8 `
   -PackageManagerPath pnpm
 ```
 
@@ -104,8 +115,9 @@ separately and verifies their names in the test result. It requires Microsoft
 Media Player to be installed and configured for every declared video format.
 It also rejects a published Agent or Setup watchdog unless its PE subsystem is
 Windows GUI, which prevents a scheduled recovery check from opening a console
-window. Hosted CI
-alone is intentionally insufficient for a release. The dedicated release
+window. The gate additionally forces a failed startup, verifies process
+cleanup and bounded recovery backoff, and records the exact toolchain versions.
+Hosted CI alone is intentionally insufficient for a release. The dedicated release
 machine must not already be running another DefaultAppGuard Agent because the
 product intentionally allows one instance per signed-in user.
 
@@ -132,7 +144,7 @@ versioned bilingual environment and risk notice. See
   signed or invalidly signed release is rejected.
 - The `require-signed` path can sign the fresh payload with a code-signing
   certificate available through the Windows certificate store or an attached
-  HSM before the package manifest is generated. Version 0.1.7 remains an
+  HSM before the package manifest is generated. Version 0.1.8 remains an
   unsigned alpha unless its release notes explicitly state otherwise.
 
 See [docs/RELEASE.md](docs/RELEASE.md) for the GitHub release gate and

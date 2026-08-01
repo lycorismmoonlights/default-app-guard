@@ -203,6 +203,23 @@ if (-not [string]::IsNullOrWhiteSpace($shortcutPath) -and
     Remove-Item -LiteralPath $shortcutPath -Force
 }
 
+$watchdogTelemetryRemoved = $false
+if (-not $KeepData) {
+    [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree(
+        "Software\DefaultAppGuard\Watchdog",
+        $false)
+    $watchdogTelemetryKey =
+        [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
+            "Software\DefaultAppGuard\Watchdog")
+    try {
+        $watchdogTelemetryRemoved = $null -eq $watchdogTelemetryKey
+    } finally {
+        if ($null -ne $watchdogTelemetryKey) {
+            $watchdogTelemetryKey.Dispose()
+        }
+    }
+}
+
 if (-not $KeepData -and $null -ne $verifiedData) {
     Remove-DirectoryWithRetry $verifiedData
 }
@@ -221,5 +238,6 @@ if ($uninstallEntryPresent) {
     Uninstalled = $true
     TaskRemoved = $null -ne $task
     DataKept = [bool]$KeepData
+    WatchdogTelemetryRemoved = $watchdogTelemetryRemoved
     UninstallRegistrationRemoved = $uninstallEntryPresent
 }

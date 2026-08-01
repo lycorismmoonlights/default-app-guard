@@ -51,13 +51,13 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 22
+          node-version: 24.18.0
           cache: pnpm
 
       - name: Set up .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: 10.0.302
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
@@ -98,6 +98,7 @@ jobs:
           "evidence=$($result.EvidenceFile)" >> $env:GITHUB_OUTPUT
           "evidence_directory=$($result.EvidenceDirectory)" >> $env:GITHUB_OUTPUT
           "lifecycle_evidence=$($result.LifecycleEvidenceFile)" >> $env:GITHUB_OUTPUT
+          "watchdog_backoff_evidence=$($result.WatchdogBackoffEvidenceFile)" >> $env:GITHUB_OUTPUT
           "sbom=$($result.SbomFile)" >> $env:GITHUB_OUTPUT
           "sbom_checksum=$($result.SbomChecksumFile)" >> $env:GITHUB_OUTPUT
           "signing_status=$($result.CodeSigningStatus)" >> $env:GITHUB_OUTPUT
@@ -111,6 +112,7 @@ jobs:
             ${{ steps.gate.outputs.checksum }}
             ${{ steps.gate.outputs.evidence }}
             ${{ steps.gate.outputs.lifecycle_evidence }}
+            ${{ steps.gate.outputs.watchdog_backoff_evidence }}
             ${{ steps.gate.outputs.sbom }}
             ${{ steps.gate.outputs.sbom_checksum }}
             ${{ steps.gate.outputs.evidence_directory }}
@@ -140,6 +142,7 @@ jobs:
           CHECKSUM_PATH: ${{ steps.gate.outputs.checksum }}
           EVIDENCE_PATH: ${{ steps.gate.outputs.evidence }}
           LIFECYCLE_EVIDENCE_PATH: ${{ steps.gate.outputs.lifecycle_evidence }}
+          WATCHDOG_BACKOFF_EVIDENCE_PATH: ${{ steps.gate.outputs.watchdog_backoff_evidence }}
           SBOM_PATH: ${{ steps.gate.outputs.sbom }}
           SBOM_CHECKSUM_PATH: ${{ steps.gate.outputs.sbom_checksum }}
         run: |
@@ -154,6 +157,7 @@ jobs:
             $env:CHECKSUM_PATH `
             $env:EVIDENCE_PATH `
             $env:LIFECYCLE_EVIDENCE_PATH `
+            $env:WATCHDOG_BACKOFF_EVIDENCE_PATH `
             $env:SBOM_PATH `
             $env:SBOM_CHECKSUM_PATH `
             --target "$env:GITHUB_SHA" `

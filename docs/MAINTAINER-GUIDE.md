@@ -2,23 +2,29 @@
 
 ## Release Gate
 
+Use exactly .NET SDK 10.0.302, Node.js 24.18.0 LTS, and pnpm 11.9.0. The gate
+compares the active tools with `global.json`, `.nvmrc`, and `package.json` and
+fails on any mismatch.
+
 Run all of the following on Windows:
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.7 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.8 `
   -PackageManagerPath pnpm
 ```
 
 Do not accept a release based only on unit tests. The integration suite must
-exercise the real COM query and the real kernel registry notification.
+exercise the real COM query and the real kernel registry notification. It must
+also prove successful watchdog recovery and a forced failed-startup path that
+cleans the failed process and suppresses immediate restart loops.
 
 Unsigned alpha releases may omit `-RequireSigned`, but their evidence must
 report `codeSigning.status` as `unsigned`. Any release described as signed must
 run:
 
 ```powershell
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.7 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.8 `
   -PackageManagerPath pnpm `
   -SigningCertificateThumbprint $env:DAG_SIGNING_CERTIFICATE_THUMBPRINT `
   -TimestampServer $env:DAG_TIMESTAMP_SERVER `
