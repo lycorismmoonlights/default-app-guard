@@ -37,6 +37,30 @@ function Get-DagRelativePackagePath {
     return $normalizedPath.Substring($normalizedRoot.Length + 1)
 }
 
+function Get-DagFileFingerprint {
+    param([Parameter(Mandatory)][string]$Path)
+
+    $stream = [IO.File]::Open(
+        $Path,
+        [IO.FileMode]::Open,
+        [IO.FileAccess]::Read,
+        [IO.FileShare]::Read)
+    try {
+        $sha256 = [Security.Cryptography.SHA256]::Create()
+        try {
+            $hashBytes = $sha256.ComputeHash($stream)
+            return [pscustomobject]@{
+                Length = $stream.Length
+                Sha256 = [BitConverter]::ToString($hashBytes).Replace("-", "")
+            }
+        } finally {
+            $sha256.Dispose()
+        }
+    } finally {
+        $stream.Dispose()
+    }
+}
+
 function Get-DagPeSubsystem {
     param([Parameter(Mandatory)][string]$Path)
 
@@ -77,6 +101,7 @@ function Test-DagPackageIntegrity {
     $root = Get-DagNormalizedPath $PackageRoot
     $manifestPath = Join-Path $root "package-manifest.json"
     $issues = [Collections.Generic.List[string]]::new()
+    $invalidEntryDetails = [Collections.Generic.List[string]]::new()
     $manifest = $null
     $declaredFileCount = 0
     $actualFileCount = 0
@@ -126,6 +151,8 @@ function Test-DagPackageIntegrity {
 
         $declaredPaths = @{}
         foreach ($entry in $entries) {
+            $relativePath = "<unknown>"
+            $entryStage = "read-entry"
             try {
                 $relativePath = [string]$entry.path
                 if ([string]::IsNullOrWhiteSpace($relativePath) -or
@@ -134,44 +161,51 @@ function Test-DagPackageIntegrity {
                     continue
                 }
 
+                $entryStage = "normalize-path"
                 $candidate = [IO.Path]::GetFullPath(
                     (Join-Path $root $relativePath))
+                $entryStage = "check-containment"
                 if (-not (Test-DagPathWithin `
                         -Path $candidate `
                         -Parent $root)) {
                     $issues.Add("package-path-escape")
                     continue
                 }
+                $entryStage = "check-duplicate"
                 if ($declaredPaths.ContainsKey($relativePath)) {
                     $issues.Add("package-path-duplicate")
                     continue
                 }
                 $declaredPaths[$relativePath] = $true
 
+                $entryStage = "check-file"
                 if (-not (Test-Path `
                         -LiteralPath $candidate `
                         -PathType Leaf)) {
                     $issues.Add("package-file-missing")
                     continue
                 }
-                $file = Get-Item -LiteralPath $candidate
+                $entryStage = "fingerprint-file"
+                $fingerprint = Get-DagFileFingerprint -Path $candidate
+                $entryStage = "check-length"
                 if ($null -eq $entry.PSObject.Properties["length"] -or
-                    $file.Length -ne [long]$entry.length) {
+                    $fingerprint.Length -ne [long]$entry.length) {
                     $issues.Add("package-file-length")
                     continue
                 }
 
-                $actualHash = (Get-FileHash `
-                    -LiteralPath $candidate `
-                    -Algorithm SHA256).Hash
+                $entryStage = "check-hash"
                 if ($null -eq $entry.PSObject.Properties["sha256"] -or
-                    -not $actualHash.Equals(
+                    -not $fingerprint.Sha256.Equals(
                         [string]$entry.sha256,
                         [StringComparison]::OrdinalIgnoreCase)) {
                     $issues.Add("package-file-hash")
                 }
             } catch {
                 $issues.Add("package-entry-invalid")
+                $safeRelativePath = $relativePath -replace '[\r\n]', '?'
+                $invalidEntryDetails.Add(
+                    "$safeRelativePath [$entryStage/$($_.Exception.GetType().Name)]")
             }
         }
 
@@ -239,6 +273,9 @@ function Test-DagPackageIntegrity {
         DeclaredFileCount = $declaredFileCount
         ActualFileCount = $actualFileCount
         IssueCodes = $uniqueIssues
+        InvalidEntryDetails = @(
+            $invalidEntryDetails |
+                Sort-Object -Unique)
     }
 }
 
@@ -247,8 +284,13 @@ function Assert-DagPackageIntegrity {
 
     $result = Test-DagPackageIntegrity -PackageRoot $PackageRoot
     if (-not $result.Passed) {
+        $entryDetails = if ($result.InvalidEntryDetails.Count -gt 0) {
+            ". Invalid entries: $($result.InvalidEntryDetails -join '; ')"
+        } else {
+            ""
+        }
         throw "Package integrity verification failed: $(
-            $result.IssueCodes -join ', ')"
+            $result.IssueCodes -join ', ')$entryDetails"
     }
 
     return $result.Manifest

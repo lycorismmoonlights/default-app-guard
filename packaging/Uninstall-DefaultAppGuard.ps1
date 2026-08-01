@@ -5,6 +5,8 @@ param(
     [string]$DataDirectory = (
         Join-Path $env:LOCALAPPDATA "DefaultAppGuard"),
     [string]$TaskName = "DefaultAppGuard Agent",
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._ -]{0,79}$')]
+    [string]$UninstallRegistryKeyName = "DefaultAppGuard Community",
     [switch]$KeepData
 )
 
@@ -101,6 +103,15 @@ if (Test-Path -LiteralPath $dataPath -PathType Container) {
             [string]$installState.taskName -ne $TaskName) {
             throw "Refusing to remove data owned by another installation."
         }
+        $uninstallKeyProperty =
+            $installState.PSObject.Properties["uninstallRegistryKeyName"]
+        if ($null -ne $uninstallKeyProperty -and
+            -not [string]::IsNullOrWhiteSpace(
+                [string]$uninstallKeyProperty.Value) -and
+            [string]$uninstallKeyProperty.Value -ne
+                $UninstallRegistryKeyName) {
+            throw "Refusing to remove an uninstall entry owned by another installation."
+        }
     } elseif (-not $KeepData) {
         throw "Refusing to remove data without install-state.json."
     }
@@ -112,11 +123,49 @@ if (Test-Path -LiteralPath $dataPath -PathType Container) {
     }
 }
 
+$uninstallSubKeyPath = (
+    "Software\Microsoft\Windows\CurrentVersion\Uninstall\" +
+    $UninstallRegistryKeyName)
+$uninstallEntryPresent = $false
+$uninstallKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
+    $uninstallSubKeyPath)
+if ($null -ne $uninstallKey) {
+    try {
+        $registeredName = [string]$uninstallKey.GetValue("DisplayName")
+        $registeredLocation = [string]$uninstallKey.GetValue("InstallLocation")
+        if ($registeredName -ne "DefaultAppGuard Community" -or
+            [string]::IsNullOrWhiteSpace($registeredLocation) -or
+            (Get-NormalizedPath $registeredLocation) -ne $installPath) {
+            throw "Refusing to remove an uninstall entry owned by another product."
+        }
+        $uninstallEntryPresent = $true
+    } finally {
+        $uninstallKey.Dispose()
+    }
+}
+
 $task = Get-ScheduledTask -TaskName $TaskName `
     -ErrorAction SilentlyContinue
 if ($null -ne $task) {
-    $taskExecutable = Get-NormalizedPath $task.Actions[0].Execute
-    if ($taskExecutable -ne (Get-NormalizedPath $installedExecutable)) {
+    $taskActions = @($task.Actions)
+    $installedSetup = Join-Path $installPath "DefaultAppGuard.Setup.exe"
+    $taskOwned = $taskActions.Count -eq 1 -and
+        -not [string]::IsNullOrWhiteSpace($taskActions[0].Execute) -and
+        (Get-NormalizedPath $taskActions[0].Execute) -eq
+            (Get-NormalizedPath $installedSetup) -and
+        -not [string]::IsNullOrWhiteSpace($taskActions[0].WorkingDirectory) -and
+        (Get-NormalizedPath $taskActions[0].WorkingDirectory) -eq $installPath
+    if ($taskOwned -and $null -ne $installState) {
+        $runtimePath = Join-Path $dataPath "runtime"
+        $expectedAgentArguments = @(
+            "--url `"$([string]$installState.agentUrl)`""
+            "--state `"$(Join-Path $runtimePath "agent-status.json")`""
+            "--config `"$(Join-Path $runtimePath "guard-configuration.json")`""
+        ) -join " "
+        $taskOwned = [string]$taskActions[0].Arguments -eq
+            "--watchdog $expectedAgentArguments"
+    }
+    if (-not $taskOwned) {
         throw "Refusing to remove a scheduled task owned by another installation."
     }
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
@@ -154,16 +203,23 @@ if (-not [string]::IsNullOrWhiteSpace($shortcutPath) -and
     Remove-Item -LiteralPath $shortcutPath -Force
 }
 
+if (-not $KeepData -and $null -ne $verifiedData) {
+    Remove-DirectoryWithRetry $verifiedData
+}
+
 if ($null -ne $verifiedInstall) {
     Remove-DirectoryWithRetry $verifiedInstall
 }
 
-if (-not $KeepData -and $null -ne $verifiedData) {
-    Remove-DirectoryWithRetry $verifiedData
+if ($uninstallEntryPresent) {
+    [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree(
+        $uninstallSubKeyPath,
+        $false)
 }
 
 [pscustomobject]@{
     Uninstalled = $true
     TaskRemoved = $null -ne $task
     DataKept = [bool]$KeepData
+    UninstallRegistrationRemoved = $uninstallEntryPresent
 }

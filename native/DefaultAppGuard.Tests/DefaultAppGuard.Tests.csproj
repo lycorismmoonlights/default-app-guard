@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\DefaultAppGuard.Agent\DefaultAppGuard.Agent.csproj" />
     <ProjectReference Include="..\DefaultAppGuard.Core\DefaultAppGuard.Core.csproj" />
+    <ProjectReference Include="..\DefaultAppGuard.Setup\DefaultAppGuard.Setup.csproj" />
   </ItemGroup>
 
 </Project>

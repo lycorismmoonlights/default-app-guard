@@ -2,8 +2,10 @@
 
 ## Two distinct gates
 
-The hosted `CI` workflow checks the frontend, PowerShell syntax, and portable
-.NET behavior. It deliberately excludes tests that require a real Windows
+The hosted `CI` workflow checks the frontend, PowerShell syntax, portable .NET
+behavior, and a release-shaped package built on a clean GitHub Windows runner.
+That package check compiles and executes the graphical Setup verifier. It
+deliberately excludes tests that require a real Windows
 default-app state. A green hosted CI run is not a release approval.
 
 The manual `Release` workflow runs on a dedicated self-hosted Windows runner
@@ -31,23 +33,29 @@ DefaultAppGuard Agent running while the exact-package lifecycle gate executes.
    name.
 4. Builds and tests the frontend.
 5. parses every packaging PowerShell script.
-6. Produces a fresh self-contained Windows package. When signed mode is
-   selected, it signs the fresh Agent and packaged PowerShell files before
+6. Produces a fresh self-contained Windows package and NativeAOT graphical
+   Setup launcher. When signed mode is selected, it signs the fresh Agent,
+   Setup launcher, and packaged PowerShell files before
    generating their integrity manifest.
-7. Parses the final Agent PE header and requires the Windows GUI subsystem so
-   scheduled starts cannot create a console window.
-8. Verifies the generated per-file package manifest, including the installer,
-   uninstaller, diagnostics script, UI assets, and Agent executable.
-9. Installs the exact package in an isolated location and verifies the primary
-   COM query and kernel notification before and after an automatic watchdog
-   restart, a deliberately failed transactional upgrade and rollback,
-   diagnostics, clean uninstall, and no shortcut ownership violation.
+7. Parses the final Agent and Setup PE headers and requires the Windows GUI
+   subsystem so scheduled starts and installation cannot create a console window.
+8. Verifies the generated per-file package manifest, including Setup, the
+   installer, uninstaller, diagnostics script, UI assets, and Agent executable.
+9. Executes Setup's exact-package verification, installs the package in an
+   isolated location, requires the readiness endpoint to report primary COM
+   evidence for every declared format, and verifies the kernel notification
+   before and after the short-lived native watchdog recovers a terminated
+   Agent and returns its task to `Ready`, a deliberately failed transactional
+   upgrade and rollback,
+   diagnostics, Windows Installed apps registration, execution of the exact
+   registered hidden uninstall command, clean removal, and no shortcut
+   ownership violation.
 10. Generates an SPDX 2.2 SBOM with the pinned Microsoft SBOM Tool and validates
     all package file hashes and detected dependencies. Component detection uses
     a clean staging set of lock files, project files, and restored dependency
     graphs so previous release artifacts cannot contaminate the SBOM.
 11. Writes SHA-256 files and machine-readable release evidence.
-12. Verifies the Authenticode status of the Agent, all packaged PowerShell
+12. Verifies the Authenticode status of the Agent, Setup, all packaged PowerShell
     scripts, and the package module. Mixed or invalid signatures always fail.
     `-RequireSigned` additionally requires every file to have a valid,
     timestamped signature from one certificate.
@@ -63,13 +71,15 @@ subsystem.
 2. Confirm the dedicated runner is online and its default associations are
    healthy.
 3. Run the `Release` workflow with the version declared in `package.json`.
-   Select `unsigned-alpha` only while the release is explicitly an unsigned
-   prerelease. Select `require-signed` for any release represented as signed.
+   The workflow defaults to `require-signed`. Select `unsigned-alpha` only for
+   a deliberately unsigned prerelease that is clearly labeled as such.
 4. Review the attached ZIP, checksum, evidence JSON, and artifact attestation.
    Confirm that `codeSigning.policy`, `codeSigning.status`, and every file
    record match the selected workflow policy. Review the SPDX SBOM, its
    checksum, `packageLifecycle`, and `sbom.validationResult` as well.
-5. Keep the result marked as a prerelease while the project remains alpha.
+5. Confirm lifecycle evidence reports both early and late-stage rollback,
+   including exact install-state and uninstall-entry restoration.
+6. Keep the result marked as a prerelease while the project remains alpha.
 
 The workflow creates the `v<version>` tag and GitHub prerelease only after the
 main-algorithm gate succeeds.

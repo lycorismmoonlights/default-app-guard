@@ -1,6 +1,6 @@
 # Code Signing Plan
 
-The current 0.1.5 alpha package is unsigned unless its GitHub release notes
+The current 0.1.7 alpha package is unsigned unless its GitHub release notes
 explicitly state otherwise. A SHA-256 checksum proves file integrity
 after publication, but it does not establish a Windows publisher identity.
 
@@ -77,7 +77,7 @@ available to the dedicated Windows release account in `CurrentUser\My` or
 HSM-backed key), be currently valid, and contain the Code Signing EKU
 `1.3.6.1.5.5.7.3.3`.
 
-`Publish-Windows.ps1` signs the fresh executable, installer, uninstaller,
+`Publish-Windows.ps1` signs the fresh Agent, graphical Setup launcher, installer, uninstaller,
 diagnostics script, and package module before calculating the package manifest
 or ZIP hash. It requires SHA-256 and a timestamp for each file. The private key
 and any PIN must remain outside the repository; the certificate thumbprint and
@@ -86,6 +86,7 @@ timestamp URL are identifiers, not private keys.
 `packaging/Test-ReleaseGate.ps1` inspects the Authenticode status of:
 
 - `DefaultAppGuard.Agent.exe`;
+- `DefaultAppGuard.Setup.exe`;
 - `Install-DefaultAppGuard.ps1`;
 - `Uninstall-DefaultAppGuard.ps1`;
 - `Get-DefaultAppGuardDiagnostics.ps1`;

@@ -10,7 +10,11 @@ param(
     [int]$WatchdogIntervalMinutes = 5,
     [ValidateRange(5, 120)]
     [int]$HealthTimeoutSeconds = 20,
-    [switch]$NoStartMenuShortcut
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._ -]{0,79}$')]
+    [string]$UninstallRegistryKeyName = "DefaultAppGuard Community",
+    [switch]$NoStartMenuShortcut,
+    [switch]$VerifyOnly,
+    [string]$ResultPath
 )
 
 Set-StrictMode -Version Latest
@@ -100,7 +104,7 @@ function Remove-DirectoryWithRetry {
     }
 }
 
-function New-AgentScheduledTask {
+function New-WatchdogScheduledTask {
     param(
         [Parameter(Mandatory)][string]$ExecutablePath,
         [Parameter(Mandatory)][string]$WorkingDirectory,
@@ -133,7 +137,7 @@ function New-AgentScheduledTask {
         -MultipleInstances IgnoreNew `
         -RestartCount 3 `
         -RestartInterval (New-TimeSpan -Minutes 1) `
-        -ExecutionTimeLimit ([TimeSpan]::Zero
+        -ExecutionTimeLimit (New-TimeSpan -Minutes 1
         )
 
     return New-ScheduledTask `
@@ -142,10 +146,40 @@ function New-AgentScheduledTask {
         -Principal $principal `
         -Settings $settings `
         -Description (
-            "Monitors the current user's Windows default video applications.")
+            "Checks and recovers the current user's DefaultAppGuard Agent.")
 }
 
-function Wait-AgentHealthy {
+function Wait-WatchdogTaskReady {
+    param(
+        [Parameter(Mandatory)][string]$TaskName,
+        [Parameter(Mandatory)][int]$TimeoutSeconds
+    )
+
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $lastState = "Missing"
+    do {
+        $task = Get-ScheduledTask -TaskName $TaskName `
+            -ErrorAction SilentlyContinue
+        if ($null -ne $task) {
+            $lastState = [string]$task.State
+            if ($lastState -eq "Ready") {
+                $taskInfo = Get-ScheduledTaskInfo -TaskName $TaskName
+                if ([int64]$taskInfo.LastTaskResult -ne 0) {
+                    throw (
+                        "The watchdog task exited with result 0x{0:X8}." -f
+                        ([uint32]$taskInfo.LastTaskResult))
+                }
+                return $task
+            }
+        }
+
+        Start-Sleep -Milliseconds 250
+    } until ([DateTime]::UtcNow -ge $deadline)
+
+    throw "The watchdog task did not return to Ready state: $lastState"
+}
+
+function Wait-AgentReady {
     param(
         [Parameter(Mandatory)][string]$Url,
         [Parameter(Mandatory)][string]$ExecutablePath,
@@ -208,8 +242,37 @@ function Wait-AgentHealthy {
                 continue
             }
 
+            $readiness = Invoke-RestMethod `
+                -Uri "$Url/api/readiness" `
+                -TimeoutSec 1
+            if (-not [bool]$readiness.Ready -or
+                $readiness.Code -ne "ready") {
+                $lastFailure = (
+                    "Agent readiness check failed: " +
+                    [string]$readiness.Code)
+                continue
+            }
+            if ($readiness.Query -ne $health.Query -or
+                $readiness.Monitor -ne $health.Monitor) {
+                $lastFailure = "Readiness reported another algorithm."
+                continue
+            }
+            if ([string]::IsNullOrWhiteSpace(
+                    [string]$readiness.TargetProgId) -or
+                [string]::IsNullOrWhiteSpace(
+                    [string]$readiness.TargetPackageId)) {
+                $lastFailure = "Readiness did not resolve Microsoft Media Player."
+                continue
+            }
+            if ([int]$readiness.AuditedExtensionCount -le 0 -or
+                [int]$readiness.PrimarySnapshotCount -le 0) {
+                $lastFailure = "Readiness did not produce primary query evidence."
+                continue
+            }
+
             return [pscustomobject]@{
                 Health = $health
+                Readiness = $readiness
                 ProcessId = $processId
             }
         } catch {
@@ -217,7 +280,7 @@ function Wait-AgentHealthy {
         }
     } until ([DateTime]::UtcNow -ge $deadline)
 
-    throw "Agent did not become healthy: $lastFailure"
+    throw "Agent did not become ready: $lastFailure"
 }
 
 function Write-JsonAtomically {
@@ -257,13 +320,205 @@ function Write-JsonAtomically {
     }
 }
 
+function Get-UninstallRegistrySnapshot {
+    param([Parameter(Mandatory)][string]$SubKeyPath)
+
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($SubKeyPath)
+    if ($null -eq $key) {
+        return $null
+    }
+
+    try {
+        if ($key.SubKeyCount -ne 0) {
+            throw "Refusing to replace an uninstall key containing subkeys."
+        }
+
+        $values = @(
+            foreach ($name in $key.GetValueNames()) {
+                [pscustomobject]@{
+                    Name = $name
+                    Kind = [int]$key.GetValueKind($name)
+                    Value = $key.GetValue(
+                        $name,
+                        $null,
+                        [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+                }
+            }
+        )
+        return [pscustomobject]@{
+            Values = $values
+        }
+    } finally {
+        $key.Dispose()
+    }
+}
+
+function Get-UninstallSnapshotValue {
+    param(
+        $Snapshot,
+        [Parameter(Mandatory)][string]$Name
+    )
+
+    if ($null -eq $Snapshot) {
+        return $null
+    }
+    $entry = @($Snapshot.Values) |
+        Where-Object { $_.Name -eq $Name } |
+        Select-Object -First 1
+    if ($null -eq $entry) {
+        return $null
+    }
+    return $entry.Value
+}
+
+function Restore-UninstallRegistrySnapshot {
+    param(
+        [Parameter(Mandatory)][string]$SubKeyPath,
+        $Snapshot
+    )
+
+    [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree(
+        $SubKeyPath,
+        $false)
+    if ($null -eq $Snapshot) {
+        return
+    }
+
+    $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($SubKeyPath)
+    if ($null -eq $key) {
+        throw "Could not restore the previous uninstall registry key."
+    }
+    try {
+        foreach ($entry in @($Snapshot.Values)) {
+            $key.SetValue(
+                [string]$entry.Name,
+                $entry.Value,
+                [Microsoft.Win32.RegistryValueKind]([int]$entry.Kind))
+        }
+    } finally {
+        $key.Dispose()
+    }
+}
+
+function ConvertTo-WindowsCommandArgument {
+    param([Parameter(Mandatory)][string]$Value)
+
+    if ($Value.Contains('"') -or
+        $Value.Contains("`r") -or
+        $Value.Contains("`n")) {
+        throw "An uninstall command argument contains an unsupported character."
+    }
+    return '"' + $Value + '"'
+}
+
+function Set-UninstallRegistryEntry {
+    param(
+        [Parameter(Mandatory)][string]$SubKeyPath,
+        [Parameter(Mandatory)][string]$Version,
+        [Parameter(Mandatory)][string]$InstallDirectory,
+        [Parameter(Mandatory)][string]$DataDirectory,
+        [Parameter(Mandatory)][string]$TaskName,
+        [Parameter(Mandatory)][string]$RegistryKeyName
+    )
+
+    $uninstallerPath = Join-Path $InstallDirectory `
+        "Uninstall-DefaultAppGuard.ps1"
+    $setupPath = Join-Path $InstallDirectory "DefaultAppGuard.Setup.exe"
+    if (-not (Test-Path -LiteralPath $uninstallerPath -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $setupPath -PathType Leaf)) {
+        throw "Installed uninstall components are missing."
+    }
+
+    $powerShellPath = Join-Path $env:SystemRoot `
+        "System32\WindowsPowerShell\v1.0\powershell.exe"
+    if (-not (Test-Path -LiteralPath $powerShellPath -PathType Leaf)) {
+        throw "Windows PowerShell is unavailable for uninstallation."
+    }
+
+    $commandParts = @(
+        (ConvertTo-WindowsCommandArgument $powerShellPath)
+        "-NoLogo"
+        "-NoProfile"
+        "-NonInteractive"
+        "-ExecutionPolicy Bypass"
+        "-WindowStyle Hidden"
+        "-File"
+        (ConvertTo-WindowsCommandArgument $uninstallerPath)
+        "-InstallDirectory"
+        (ConvertTo-WindowsCommandArgument $InstallDirectory)
+        "-DataDirectory"
+        (ConvertTo-WindowsCommandArgument $DataDirectory)
+        "-TaskName"
+        (ConvertTo-WindowsCommandArgument $TaskName)
+        "-UninstallRegistryKeyName"
+        (ConvertTo-WindowsCommandArgument $RegistryKeyName)
+    )
+    $uninstallCommand = $commandParts -join " "
+    $versionCore = $Version.Split("-")[0]
+    $parsedVersion = [Version]$versionCore
+    $sizeBytes = [long](
+        Get-ChildItem -LiteralPath $InstallDirectory -Recurse -File |
+            Measure-Object -Property Length -Sum).Sum
+    $estimatedSize = [int][Math]::Min(
+        [int]::MaxValue,
+        [Math]::Max(1, [Math]::Ceiling($sizeBytes / 1KB)))
+
+    [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree(
+        $SubKeyPath,
+        $false)
+    $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($SubKeyPath)
+    if ($null -eq $key) {
+        throw "Could not create the uninstall registry entry."
+    }
+    try {
+        $stringKind = [Microsoft.Win32.RegistryValueKind]::String
+        $dwordKind = [Microsoft.Win32.RegistryValueKind]::DWord
+        $key.SetValue("DisplayName", "DefaultAppGuard Community", $stringKind)
+        $key.SetValue("DisplayVersion", $Version, $stringKind)
+        $key.SetValue("Publisher", "DefaultAppGuard Community", $stringKind)
+        $key.SetValue("InstallLocation", $InstallDirectory, $stringKind)
+        $key.SetValue("DisplayIcon", "$setupPath,0", $stringKind)
+        $key.SetValue("UninstallString", $uninstallCommand, $stringKind)
+        $key.SetValue("QuietUninstallString", $uninstallCommand, $stringKind)
+        $key.SetValue("NoModify", 1, $dwordKind)
+        $key.SetValue("NoRepair", 1, $dwordKind)
+        $key.SetValue("EstimatedSize", $estimatedSize, $dwordKind)
+        $key.SetValue("InstallDate", (Get-Date -Format "yyyyMMdd"), $stringKind)
+        $key.SetValue("VersionMajor", $parsedVersion.Major, $dwordKind)
+        $key.SetValue("VersionMinor", $parsedVersion.Minor, $dwordKind)
+        $key.SetValue(
+            "URLInfoAbout",
+            "https://github.com/lycorismmoonlights/default-app-guard",
+            $stringKind)
+        $key.SetValue(
+            "Comments",
+            "Monitors Windows default video application associations.",
+            $stringKind)
+    } finally {
+        $key.Dispose()
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($TaskName)) {
     throw "TaskName cannot be empty."
+}
+if ($TaskName.Contains('"') -or
+    $TaskName.Contains("`r") -or
+    $TaskName.Contains("`n")) {
+    throw "TaskName contains an unsupported command-line character."
 }
 
 $sourceDirectory = Get-NormalizedPath $PSScriptRoot
 $installPath = Assert-SafeDirectoryPath $InstallDirectory
 $dataPath = Assert-SafeDirectoryPath $DataDirectory
+$resultFile = $null
+if (-not [string]::IsNullOrWhiteSpace($ResultPath)) {
+    $resultFile = [IO.Path]::GetFullPath($ResultPath)
+    if ((Test-IsPathWithin -Path $resultFile -Parent $installPath) -or
+        (Test-IsPathWithin -Path $resultFile -Parent $dataPath)) {
+        throw "ResultPath must be outside the managed installation directories."
+    }
+}
 if ($installPath -eq $dataPath -or
     (Test-IsPathWithin -Path $installPath -Parent $dataPath) -or
     (Test-IsPathWithin -Path $dataPath -Parent $installPath)) {
@@ -282,6 +537,14 @@ if ($agentUri.Scheme -ne "http" -or
 $AgentUrl = $AgentUrl.TrimEnd("/")
 
 $manifest = Assert-DagPackageIntegrity -PackageRoot $sourceDirectory
+if ($VerifyOnly) {
+    [pscustomobject]@{
+        PackageVerified = $true
+        Version = [string]$manifest.version
+        PackagePayloadFileCount = @($manifest.payload).Count
+    }
+    return
+}
 $installParent = Split-Path -Parent $installPath
 $installLeaf = Split-Path -Leaf $installPath
 $transactionId = [Guid]::NewGuid().ToString("N")
@@ -295,6 +558,7 @@ $runtimePath = Join-Path $dataPath "runtime"
 $statePath = Join-Path $runtimePath "agent-status.json"
 $configurationPath = Join-Path $runtimePath "guard-configuration.json"
 $installStatePath = Join-Path $dataPath "install-state.json"
+$installStateBackupPath = $null
 $previousInstallState = $null
 if (Test-Path -LiteralPath $installStatePath -PathType Leaf) {
     try {
@@ -326,13 +590,15 @@ if (Test-Path -LiteralPath $installPath -PathType Container) {
     }
 }
 
-$taskArguments = @(
+$agentArguments = @(
     "--url `"$AgentUrl`""
     "--state `"$statePath`""
     "--config `"$configurationPath`""
 ) -join " "
+$watchdogArguments = "--watchdog $agentArguments"
 $installedExecutable = Join-Path $installPath `
     ([string]$manifest.executable)
+$installedSetup = Join-Path $installPath "DefaultAppGuard.Setup.exe"
 $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $existingTask = Get-ScheduledTask -TaskName $TaskName `
     -ErrorAction SilentlyContinue
@@ -341,6 +607,27 @@ $existingTaskEnabled = $false
 if ($null -ne $existingTask) {
     $existingTaskXml = Export-ScheduledTask -TaskName $TaskName
     $existingTaskEnabled = [bool]$existingTask.Settings.Enabled
+}
+
+$uninstallSubKeyPath = (
+    "Software\Microsoft\Windows\CurrentVersion\Uninstall\" +
+    $UninstallRegistryKeyName)
+$uninstallRegistrySnapshot = Get-UninstallRegistrySnapshot `
+    -SubKeyPath $uninstallSubKeyPath
+if ($null -ne $uninstallRegistrySnapshot) {
+    $registeredName = [string](Get-UninstallSnapshotValue `
+        -Snapshot $uninstallRegistrySnapshot `
+        -Name "DisplayName")
+    $registeredLocation = [string](Get-UninstallSnapshotValue `
+        -Snapshot $uninstallRegistrySnapshot `
+        -Name "InstallLocation")
+    if ($registeredName -ne "DefaultAppGuard Community") {
+        throw "Refusing to replace an uninstall entry owned by another product."
+    }
+    if ([string]::IsNullOrWhiteSpace($registeredLocation) -or
+        (Get-NormalizedPath $registeredLocation) -ne $installPath) {
+        throw "Refusing to replace an uninstall entry owned by another installation."
+    }
 }
 
 $shortcutPath = Join-Path $env:APPDATA `
@@ -372,6 +659,13 @@ try {
     Get-ChildItem -LiteralPath $sourceDirectory -Force |
         Copy-Item -Destination $stagingPath -Recurse -Force
     [void](Assert-DagPackageIntegrity -PackageRoot $stagingPath)
+    if (Test-Path -LiteralPath $installStatePath -PathType Leaf) {
+        $installStateBackupPath = Join-Path ([IO.Path]::GetTempPath()) (
+            "DefaultAppGuard-install-state-$transactionId.json")
+        Copy-Item `
+            -LiteralPath $installStatePath `
+            -Destination $installStateBackupPath
+    }
     if ($shortcutPreviouslyExisted) {
         Copy-Item `
             -LiteralPath $shortcutPath `
@@ -385,11 +679,16 @@ try {
         (Test-Path -LiteralPath $shortcutBackupPath)) {
         Remove-Item -LiteralPath $shortcutBackupPath -Force
     }
+    if ($null -ne $installStateBackupPath -and
+        (Test-Path -LiteralPath $installStateBackupPath)) {
+        Remove-Item -LiteralPath $installStateBackupPath -Force
+    }
     throw
 }
 
 $swapCompleted = $false
 $transactionSucceeded = $false
+$installationResult = $null
 try {
     New-Item -ItemType Directory -Path $dataPath -Force | Out-Null
     New-Item -ItemType Directory -Path $runtimePath -Force | Out-Null
@@ -407,10 +706,10 @@ try {
     Move-Item -LiteralPath $stagingPath -Destination $installPath
     $swapCompleted = $true
 
-    $scheduledTask = New-AgentScheduledTask `
-        -ExecutablePath $installedExecutable `
+    $scheduledTask = New-WatchdogScheduledTask `
+        -ExecutablePath $installedSetup `
         -WorkingDirectory $installPath `
-        -Arguments $taskArguments `
+        -Arguments $watchdogArguments `
         -CurrentUser $currentUser `
         -IntervalMinutes $WatchdogIntervalMinutes
     Register-ScheduledTask `
@@ -419,10 +718,13 @@ try {
         -Force | Out-Null
     Start-ScheduledTask -TaskName $TaskName
 
-    $agent = Wait-AgentHealthy `
+    $agent = Wait-AgentReady `
         -Url $AgentUrl `
         -ExecutablePath $installedExecutable `
         -ExpectedVersion ([string]$manifest.version) `
+        -TimeoutSeconds $HealthTimeoutSeconds
+    $watchdogTask = Wait-WatchdogTaskReady `
+        -TaskName $TaskName `
         -TimeoutSeconds $HealthTimeoutSeconds
 
     if ($NoStartMenuShortcut) {
@@ -435,7 +737,7 @@ try {
         $shell = New-Object -ComObject WScript.Shell
         $shortcut = $shell.CreateShortcut($shortcutPath)
         $shortcut.TargetPath = $installedExecutable
-        $shortcut.Arguments = "--open-ui $taskArguments"
+        $shortcut.Arguments = "--open-ui $agentArguments"
         $shortcut.WorkingDirectory = $installPath
         $shortcut.Description = "Open DefaultAppGuard"
         $shortcut.WindowStyle = 7
@@ -458,6 +760,7 @@ try {
         agentUrl = $AgentUrl
         shortcutPath = $recordedShortcutPath
         watchdogIntervalMinutes = $WatchdogIntervalMinutes
+        uninstallRegistryKeyName = $UninstallRegistryKeyName
         packageManifestSha256 = (
             Get-FileHash `
                 -LiteralPath (
@@ -468,6 +771,50 @@ try {
         updatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
     }
     Write-JsonAtomically -Value $installState -Path $installStatePath
+
+    Set-UninstallRegistryEntry `
+        -SubKeyPath $uninstallSubKeyPath `
+        -Version ([string]$manifest.version) `
+        -InstallDirectory $installPath `
+        -DataDirectory $dataPath `
+        -TaskName $TaskName `
+        -RegistryKeyName $UninstallRegistryKeyName
+
+    $installationResult = [pscustomobject]@{
+        Installed = $true
+        TransactionalUpgrade = $true
+        InstallDirectory = $installPath
+        DataDirectory = $dataPath
+        TaskName = $TaskName
+        AgentUrl = $AgentUrl
+        Version = $agent.Health.Version
+        ProcessId = $agent.ProcessId
+        ProcessMode = $agent.Health.ProcessMode
+        MainQuery = $agent.Health.Query
+        MainMonitor = $agent.Health.Monitor
+        Ready = $agent.Readiness.Ready
+        ReadinessCode = $agent.Readiness.Code
+        TargetProgId = $agent.Readiness.TargetProgId
+        TargetPackageId = $agent.Readiness.TargetPackageId
+        AuditedExtensionCount = $agent.Readiness.AuditedExtensionCount
+        PrimarySnapshotCount = $agent.Readiness.PrimarySnapshotCount
+        FailedReadCount = $agent.Readiness.FailedReadCount
+        HealthyCount = $agent.Readiness.HealthyCount
+        DriftCount = $agent.Readiness.DriftCount
+        PackageIntegrityVerified = $true
+        PackagePayloadFileCount = @($manifest.payload).Count
+        WatchdogIntervalMinutes = $WatchdogIntervalMinutes
+        WatchdogTaskState = [string]$watchdogTask.State
+        UninstallRegistryKeyName = $UninstallRegistryKeyName
+        UninstallRegistered = $true
+    }
+    if ($null -ne $resultFile) {
+        New-Item `
+            -ItemType Directory `
+            -Path (Split-Path -Parent $resultFile) `
+            -Force | Out-Null
+        Write-JsonAtomically -Value $installationResult -Path $resultFile
+    }
     $transactionSucceeded = $true
 } catch {
     $installFailure = $_.Exception.Message
@@ -511,7 +858,21 @@ try {
             }
         }
 
-        if (-not $dataPathExisted -and
+        Restore-UninstallRegistrySnapshot `
+            -SubKeyPath $uninstallSubKeyPath `
+            -Snapshot $uninstallRegistrySnapshot
+
+        if ($dataPathExisted) {
+            if ($null -ne $installStateBackupPath -and
+                (Test-Path -LiteralPath $installStateBackupPath -PathType Leaf)) {
+                Copy-Item `
+                    -LiteralPath $installStateBackupPath `
+                    -Destination $installStatePath `
+                    -Force
+            } elseif (Test-Path -LiteralPath $installStatePath -PathType Leaf) {
+                Remove-Item -LiteralPath $installStatePath -Force
+            }
+        } elseif (
             (Test-Path -LiteralPath $dataPath -PathType Container)) {
             Remove-DirectoryWithRetry -Path $dataPath
         }
@@ -535,6 +896,10 @@ try {
         (Test-Path -LiteralPath $shortcutBackupPath)) {
         Remove-Item -LiteralPath $shortcutBackupPath -Force
     }
+    if ($null -ne $installStateBackupPath -and
+        (Test-Path -LiteralPath $installStateBackupPath)) {
+        Remove-Item -LiteralPath $installStateBackupPath -Force
+    }
 }
 
 if ($transactionSucceeded -and
@@ -546,19 +911,4 @@ if ($transactionSucceeded -and
     }
 }
 
-[pscustomobject]@{
-    Installed = $true
-    TransactionalUpgrade = $true
-    InstallDirectory = $installPath
-    DataDirectory = $dataPath
-    TaskName = $TaskName
-    AgentUrl = $AgentUrl
-    Version = $agent.Health.Version
-    ProcessId = $agent.ProcessId
-    ProcessMode = $agent.Health.ProcessMode
-    MainQuery = $agent.Health.Query
-    MainMonitor = $agent.Health.Monitor
-    PackageIntegrityVerified = $true
-    PackagePayloadFileCount = @($manifest.payload).Count
-    WatchdogIntervalMinutes = $WatchdogIntervalMinutes
-}
+$installationResult

@@ -13,13 +13,21 @@ test("release metadata and risk notice stay version-aligned", async () => {
   const project = await read(
     "native/DefaultAppGuard.Agent/DefaultAppGuard.Agent.csproj",
   );
+  const setupProject = await read(
+    "native/DefaultAppGuard.Setup/DefaultAppGuard.Setup.csproj",
+  );
   const notice = await read("ENVIRONMENT-AND-RISKS.txt");
 
   assert.match(
     project,
     new RegExp(`<Version>${packageMetadata.version.replaceAll(".", "\\.")}</Version>`),
   );
+  assert.match(
+    setupProject,
+    new RegExp(`<Version>${packageMetadata.version.replaceAll(".", "\\.")}</Version>`),
+  );
   assert.ok(project.includes("<OutputType>WinExe</OutputType>"));
+  assert.ok(setupProject.includes("<OutputType>WinExe</OutputType>"));
   assert.ok(
     notice.includes(
       `适用版本 / Applies to version: ${packageMetadata.version}`,
@@ -36,16 +44,24 @@ test("release metadata and risk notice stay version-aligned", async () => {
   assert.match(notice, /do not replace\s+Authenticode code signing/);
   assert.ok(notice.includes("不要把整台电脑的执行策略永久改为"));
   assert.ok(notice.includes("do not permanently change the computer-wide policy"));
+  assert.ok(notice.includes("已安装的应用"));
+  assert.ok(notice.includes("Windows Installed apps list"));
+  assert.ok(notice.includes("0x800710E0"));
+  assert.ok(notice.includes("scheduledTask.configurationHealthy"));
+  assert.ok(notice.includes("任务通常应显示为"));
+  assert.ok(notice.includes("task should show Ready"));
 });
 
 test("published package includes the bilingual risk notice", async () => {
   const publishScript = await read("packaging/Publish-Windows.ps1");
   const releaseGate = await read("packaging/Test-ReleaseGate.ps1");
+  const ciWorkflow = await read(".github/workflows/ci.yml");
   const releaseWorkflow = await read(".github/workflows/release.yml");
 
   assert.ok(publishScript.includes('"ENVIRONMENT-AND-RISKS.txt"'));
   assert.ok(publishScript.includes("environmentAndRisks"));
   assert.ok(publishScript.includes('processMode = "background-no-console"'));
+  assert.ok(publishScript.includes("Test-DagPackageIntegrity"));
   assert.ok(publishScript.includes("Get-PublishSigningCertificate"));
   assert.ok(publishScript.includes("Set-AuthenticodeSignature"));
   assert.ok(publishScript.includes("TimestampServer is required"));
@@ -67,6 +83,7 @@ test("published package includes the bilingual risk notice", async () => {
   assert.ok(releaseGate.includes("codeSigning = [ordered]@{"));
   assert.ok(releaseGate.includes("Test-ReleasePackageLifecycle.ps1"));
   assert.ok(releaseGate.includes("exactReleasePackagePassed"));
+  assert.ok(releaseGate.includes("watchdogConfigurationVerified"));
   assert.ok(releaseGate.includes('"tool", "run", "sbom-tool"'));
   assert.ok(releaseGate.includes('"SPDX:2.2"'));
   assert.ok(releaseGate.includes("TotalPackagesInManifest"));
@@ -77,6 +94,67 @@ test("published package includes the bilingual risk notice", async () => {
   assert.ok(releaseWorkflow.includes("signing_status="));
   assert.ok(releaseWorkflow.includes("Attest release SBOM"));
   assert.ok(releaseWorkflow.includes("sbom-path:"));
+  assert.ok(ciWorkflow.includes("RedirectStandardError"));
+  assert.ok(ciWorkflow.includes("setup-verify.stderr.txt"));
+});
+
+test("graphical setup verifies before its process-only script policy", async () => {
+  const setup = await read("native/DefaultAppGuard.Setup/Program.cs");
+  const verifier = await read(
+    "native/DefaultAppGuard.Setup/PackageIntegrityVerifier.cs",
+  );
+  const lifecycle = await read("tests/Test-ReleasePackageLifecycle.ps1");
+  const watchdog = await read("native/DefaultAppGuard.Setup/WatchdogRunner.cs");
+
+  const verificationIndex = setup.indexOf(
+    "PackageIntegrityVerifier.Verify(packageDirectory)",
+  );
+  const processStartIndex = setup.indexOf("Process.Start(startInfo)");
+  assert.ok(verificationIndex >= 0);
+  assert.ok(processStartIndex > verificationIndex);
+  assert.ok(setup.includes('startInfo.ArgumentList.Add("Bypass")'));
+  assert.ok(setup.includes("DefaultAppGuard-Setup-verify-install"));
+  assert.ok(setup.includes("DefaultAppGuard-Setup-verify-data"));
+  assert.ok(setup.includes("WatchdogRunner.Run(options.Watchdog)"));
+  assert.equal(setup.includes("Set-ExecutionPolicy"), false);
+  assert.ok(verifier.includes("SHA256.HashData(stream)"));
+  assert.ok(verifier.includes('issues.Add("package-file-undeclared")'));
+  assert.ok(verifier.includes('issues.Add("package-path-escape")'));
+  assert.ok(lifecycle.includes("PSExecutionPolicyPreference = \"Restricted\""));
+  assert.ok(lifecycle.includes("$env:LOCALAPPDATA = $null"));
+  assert.ok(lifecycle.includes("Native Setup did not reject"));
+  assert.ok(lifecycle.includes("tampered-script-executed.txt"));
+  assert.ok(lifecycle.includes('"--watchdog $expectedAgentArguments"'));
+  assert.ok(lifecycle.includes('$task.State -eq "Ready"'));
+  assert.ok(watchdog.includes("PackageIntegrityVerifier.Verify(packageDirectory)"));
+  assert.ok(watchdog.includes("UseShellExecute = true"));
+  assert.ok(watchdog.includes("Process.GetProcessById(processId)"));
+});
+
+test("GitHub Actions use immutable action revisions", async () => {
+  const workflows = [
+    await read(".github/workflows/ci.yml"),
+    await read(".github/workflows/release.yml"),
+  ];
+
+  for (const workflow of workflows) {
+    const actions = [...workflow.matchAll(/^\s*uses:\s*([^\s#]+)/gm)].map(
+      (match) => match[1],
+    );
+    assert.ok(actions.length > 0);
+    for (const action of actions) {
+      assert.match(action, /@[0-9a-f]{40}$/);
+    }
+    assert.ok(workflow.includes("persist-credentials: false"));
+  }
+
+  const releaseWorkflow = workflows[1];
+  assert.match(releaseWorkflow, /default:\s*require-signed/);
+  assert.ok(releaseWorkflow.includes("SIGNING_STATUS:"));
+  assert.equal(
+    releaseWorkflow.includes("$signingStatus = '${{ steps.gate.outputs"),
+    false,
+  );
 });
 
 test("installer validates, stages, and can roll back an upgrade", async () => {
@@ -106,6 +184,14 @@ test("installer validates, stages, and can roll back an upgrade", async () => {
   assert.ok(installer.includes("ProcessMode -ne \"background-no-console\""));
   assert.ok(installer.includes("$replacementBackupPath"));
   assert.ok(installer.includes("$shouldManageShortcut"));
+  assert.ok(installer.includes("Set-UninstallRegistryEntry"));
+  assert.ok(installer.includes("Restore-UninstallRegistrySnapshot"));
+  assert.ok(installer.includes("$installStateBackupPath"));
+  assert.ok(installer.includes("QuietUninstallString"));
+  assert.ok(installer.includes("-WindowStyle Hidden"));
+  assert.ok(installer.includes('$watchdogArguments = "--watchdog $agentArguments"'));
+  assert.ok(installer.includes("Wait-WatchdogTaskReady"));
+  assert.ok(installer.includes("DefaultAppGuard.Setup.exe"));
   assert.equal(installer.includes("[IO.File]::Replace($temporaryPath, $Path, $null)"), false);
 });
 
@@ -126,6 +212,25 @@ test("diagnostics are packaged, redacted, and inspect the primary algorithm", as
   assert.ok(diagnostics.includes('RegNotifyChangeKeyValue'));
   assert.ok(diagnostics.includes("consoleChildCount"));
   assert.ok(diagnostics.includes("loopbackOnly"));
+  assert.ok(diagnostics.includes("uninstallRegistration"));
+  assert.ok(diagnostics.includes("uninstall-registration-missing"));
+  assert.ok(diagnostics.includes("quiet-uninstall-missing"));
+  assert.ok(diagnostics.includes("task-principal-mismatch"));
+  assert.ok(diagnostics.includes("task-settings-mismatch"));
+  assert.ok(diagnostics.includes("task-triggers-mismatch"));
+  assert.ok(diagnostics.includes("configurationHealthy"));
+  assert.ok(diagnostics.includes('$taskActions[0].Execute) -eq $setupPath'));
+  assert.ok(diagnostics.includes('$taskState -eq "Ready"'));
+  assert.ok(diagnostics.includes('ExecutionTimeLimit -eq "PT1M"'));
+  assert.ok(diagnostics.includes('"watchdog-running"'));
+  assert.equal(
+    diagnostics.includes('"expected-ignore-new-while-running"'),
+    false,
+  );
+  const packageModule = await read("packaging/DefaultAppGuard.Package.psm1");
+  assert.ok(packageModule.includes("InvalidEntryDetails"));
+  assert.ok(packageModule.includes("$entryStage"));
+  assert.ok(packageModule.includes("Exception.GetType().Name"));
 });
 
 test("uninstaller verifies ownership before removing task or directories", async () => {
@@ -134,12 +239,23 @@ test("uninstaller verifies ownership before removing task or directories", async
     "Refusing to remove a scheduled task owned by another installation.",
   );
   const unregisterIndex = uninstaller.indexOf("Unregister-ScheduledTask");
+  const removeRegistrationIndex = uninstaller.lastIndexOf(
+    "DeleteSubKeyTree",
+  );
+  const removeInstallIndex = uninstaller.indexOf(
+    "Remove-DirectoryWithRetry $verifiedInstall",
+  );
 
   assert.ok(uninstaller.includes('product -ne "DefaultAppGuard Community"'));
   assert.ok(uninstaller.includes("data owned by another installation"));
   assert.ok(uninstaller.includes("$null -ne $installState"));
+  assert.ok(uninstaller.includes("DefaultAppGuard.Setup.exe"));
+  assert.ok(uninstaller.includes('"--watchdog $expectedAgentArguments"'));
   assert.ok(ownershipIndex >= 0);
   assert.ok(unregisterIndex > ownershipIndex);
+  assert.ok(removeInstallIndex > unregisterIndex);
+  assert.ok(removeRegistrationIndex > removeInstallIndex);
+  assert.ok(uninstaller.includes("UninstallRegistrationRemoved"));
 });
 
 test("production UI exposes only implemented product capabilities", async () => {

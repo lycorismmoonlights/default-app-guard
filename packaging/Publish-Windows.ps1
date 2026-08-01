@@ -85,6 +85,8 @@ if (Test-Path -LiteralPath $outputPath) {
 }
 
 New-Item -ItemType Directory -Path $outputPath | Out-Null
+$setupPublishPath = Join-Path (Split-Path -Parent $outputPath) (
+    ".DefaultAppGuard-setup-{0}" -f [Guid]::NewGuid().ToString("N"))
 
 $nodeCommand = Get-Command $NodePath -ErrorAction Stop
 $originalPath = $env:Path
@@ -109,6 +111,22 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Agent publish failed with exit code $LASTEXITCODE."
     }
+
+    dotnet publish `
+        "native\DefaultAppGuard.Setup\DefaultAppGuard.Setup.csproj" `
+        --configuration Release `
+        --runtime win-x64 `
+        --self-contained true `
+        -p:Version=$Version `
+        -p:DebugType=None `
+        -p:DebugSymbols=false `
+        --output $setupPublishPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "Setup publish failed with exit code $LASTEXITCODE."
+    }
+    Copy-Item `
+        -LiteralPath (Join-Path $setupPublishPath "DefaultAppGuard.Setup.exe") `
+        -Destination $outputPath
 
     $webRoot = Join-Path $outputPath "wwwroot"
     Copy-Item `
@@ -158,6 +176,7 @@ try {
             -Thumbprint $SigningCertificateThumbprint
         $filesToSign = @(
             "DefaultAppGuard.Agent.exe",
+            "DefaultAppGuard.Setup.exe",
             "Install-DefaultAppGuard.ps1",
             "Uninstall-DefaultAppGuard.ps1",
             "Get-DefaultAppGuardDiagnostics.ps1",
@@ -186,6 +205,9 @@ try {
 } finally {
     Pop-Location
     $env:Path = $originalPath
+    if (Test-Path -LiteralPath $setupPublishPath -PathType Container) {
+        Remove-Item -LiteralPath $setupPublishPath -Recurse -Force
+    }
 }
 
 $payload = @(

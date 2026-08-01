@@ -18,13 +18,14 @@ Default Apps surface for user-driven repair. It does not silently overwrite
 ## Download
 
 Download the versioned ZIP and its `.sha256` file from GitHub Releases. Extract
-the complete archive, review `Install-DefaultAppGuard.ps1`, and run it from
-PowerShell.
+the complete archive, read `ENVIRONMENT-AND-RISKS.txt`, and double-click
+`DefaultAppGuard.Setup.exe`. The PowerShell installer remains available for
+source review and advanced operation.
 
 The current alpha is unsigned. Verify the checksum before installation:
 
 ```powershell
-Get-FileHash .\DefaultAppGuard-0.1.5-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DefaultAppGuard-0.1.7-win-x64.zip -Algorithm SHA256
 ```
 
 Read [ENVIRONMENT-AND-RISKS.txt](ENVIRONMENT-AND-RISKS.txt) before
@@ -33,16 +34,30 @@ privacy boundary, known limitations, and license notice in Chinese and English.
 The release gate requires this file to be reviewed and version-matched for every
 release.
 
-Version 0.1.5 packages contain a per-file SHA-256 manifest. The installer
-verifies it before stopping an existing Agent, stages the complete update, and
-restores the previous files and scheduled task if the new Agent fails its
-identity, primary-algorithm, or no-console health checks.
+Version 0.1.7 packages contain a per-file SHA-256 manifest. The graphical Setup
+launcher runs without a console or administrator elevation. Before starting
+PowerShell, native Setup code independently verifies the package manifest,
+file set, lengths, and SHA-256 hashes. Setup uses `ExecutionPolicy Bypass` only
+for its hidden child process so a verified package extracted from a web
+download can run; it does not save or change the user or computer policy, and
+Group Policy still takes precedence. The transactional installer verifies the
+package again before stopping an existing Agent, stages the complete update,
+and restores the previous files and scheduled task if the new Agent fails its
+identity, primary-algorithm readiness, or no-console checks. Readiness requires
+Microsoft Media Player target resolution and primary COM-query evidence for
+every protected format; association drift itself does not block installation.
+Successful installation also creates a current-user entry in Windows
+**Installed apps** with a hidden, ownership-checked uninstall command. A late
+failure restores the previous package, task, install state, shortcut, and
+uninstall registration as one transaction.
 
 Release assets also include a Microsoft SBOM Tool-generated SPDX 2.2 software
 bill of materials and checksum. The release gate validates the SBOM against
 the exact package, then installs that package in isolation and verifies the
-real monitor, transactional rollback, automatic watchdog recovery, diagnostics,
-and clean uninstall before publication.
+real monitor, transactional rollback, the short-lived native watchdog's exact
+arguments, current-user privilege, triggers, execution limit and restart
+settings, automatic recovery, diagnostics, and clean uninstall before
+publication.
 
 See [docs/USER-GUIDE.md](docs/USER-GUIDE.md) for installation, use,
 diagnostics, and uninstallation.
@@ -69,6 +84,8 @@ approaches and product boundaries.
   registry notification.
 - `native/DefaultAppGuard.Agent`: loopback API, monitor worker, persisted
   configuration, and packaged UI host.
+- `native/DefaultAppGuard.Setup`: NativeAOT graphical package launcher and
+  short-lived no-console watchdog.
 - `native/DefaultAppGuard.Tests`: unit tests plus real Windows integration
   tests.
 - `src`: React application.
@@ -78,15 +95,16 @@ approaches and product boundaries.
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.5 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.7 `
   -PackageManagerPath pnpm
 ```
 
 The release gate runs the real COM and kernel registry-notification tests
 separately and verifies their names in the test result. It requires Microsoft
 Media Player to be installed and configured for every declared video format.
-It also rejects a published Agent unless its PE subsystem is Windows GUI, which
-prevents a scheduled watchdog start from opening a console window. Hosted CI
+It also rejects a published Agent or Setup watchdog unless its PE subsystem is
+Windows GUI, which prevents a scheduled recovery check from opening a console
+window. Hosted CI
 alone is intentionally insufficient for a release. The dedicated release
 machine must not already be running another DefaultAppGuard Agent because the
 product intentionally allows one instance per signed-in user.
@@ -97,8 +115,9 @@ product intentionally allows one instance per signed-in user.
 .\packaging\Publish-Windows.ps1 -CreateArchive
 ```
 
-The script builds the React UI and publishes a compressed, self-contained
-`win-x64` Agent. The output includes installation and uninstallation scripts,
+The script builds the React UI, a small NativeAOT graphical Setup launcher, and
+a compressed, self-contained `win-x64` Agent. The output includes installation
+and uninstallation scripts,
 the redacted diagnostics script, a per-file integrity manifest, and the
 versioned bilingual environment and risk notice. See
 [docs/USER-GUIDE.md](docs/USER-GUIDE.md) and
@@ -113,7 +132,7 @@ versioned bilingual environment and risk notice. See
   signed or invalidly signed release is rejected.
 - The `require-signed` path can sign the fresh payload with a code-signing
   certificate available through the Windows certificate store or an attached
-  HSM before the package manifest is generated. Version 0.1.5 remains an
+  HSM before the package manifest is generated. Version 0.1.7 remains an
   unsigned alpha unless its release notes explicitly state otherwise.
 
 See [docs/RELEASE.md](docs/RELEASE.md) for the GitHub release gate and

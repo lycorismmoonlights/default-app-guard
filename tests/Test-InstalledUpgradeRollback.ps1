@@ -7,6 +7,8 @@ param(
     [Parameter(Mandatory)]
     [string]$DataDirectory,
     [string]$TaskName = "DefaultAppGuard Agent",
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._ -]{0,79}$')]
+    [string]$UninstallRegistryKeyName = "DefaultAppGuard Community",
     [string]$ExistingAgentUrl = "http://127.0.0.1:51873",
     [string]$BlockedAgentUrl = "http://127.0.0.1:51874",
     [string]$ExpectedPreviousVersion
@@ -50,12 +52,38 @@ function Wait-ExistingAgentHealthy {
     throw "The previous Agent did not become healthy after rollback."
 }
 
+function Get-UninstallEntryFingerprint {
+    param([Parameter(Mandatory)][string]$SubKeyPath)
+
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($SubKeyPath)
+    if ($null -eq $key) {
+        throw "The uninstall registry entry is missing."
+    }
+    try {
+        return [ordered]@{
+            DisplayName = [string]$key.GetValue("DisplayName")
+            DisplayVersion = [string]$key.GetValue("DisplayVersion")
+            InstallLocation = [string]$key.GetValue("InstallLocation")
+            UninstallString = [string]$key.GetValue("UninstallString")
+            QuietUninstallString = [string]$key.GetValue("QuietUninstallString")
+            NoModify = [int]$key.GetValue("NoModify", 0)
+            NoRepair = [int]$key.GetValue("NoRepair", 0)
+        } | ConvertTo-Json -Compress
+    } finally {
+        $key.Dispose()
+    }
+}
+
 $packagePath = [IO.Path]::GetFullPath($PackageDirectory)
 $installPath = [IO.Path]::GetFullPath($InstallDirectory)
 $dataPath = [IO.Path]::GetFullPath($DataDirectory)
 $installerPath = Join-Path $packagePath "Install-DefaultAppGuard.ps1"
 $executablePath = Join-Path $installPath "DefaultAppGuard.Agent.exe"
 $manifestPath = Join-Path $installPath "package-manifest.json"
+$installStatePath = Join-Path $dataPath "install-state.json"
+$uninstallSubKeyPath = (
+    "Software\Microsoft\Windows\CurrentVersion\Uninstall\" +
+    $UninstallRegistryKeyName)
 if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
     throw "Candidate installer is missing."
 }
@@ -79,9 +107,14 @@ if (-not [string]::IsNullOrWhiteSpace($ExpectedPreviousVersion) -and
 $beforeHash = (Get-FileHash `
     -LiteralPath $executablePath `
     -Algorithm SHA256).Hash
+$beforeInstallStateHash = (Get-FileHash `
+    -LiteralPath $installStatePath `
+    -Algorithm SHA256).Hash
 $beforeTask = Get-ScheduledTask -TaskName $TaskName
 $beforeAction = $beforeTask.Actions[0].Execute
 $beforeArguments = $beforeTask.Actions[0].Arguments
+$beforeUninstallEntry = Get-UninstallEntryFingerprint `
+    -SubKeyPath $uninstallSubKeyPath
 $beforeProcess = Get-InstalledAgent -ExecutablePath $executablePath
 if (@($beforeProcess).Count -ne 1) {
     throw "Expected exactly one installed Agent before the rollback test."
@@ -104,6 +137,8 @@ $holder = Start-Process `
     -ArgumentList $helperArguments `
     -WindowStyle Hidden `
     -PassThru
+$lateFailureParent = Join-Path (Split-Path -Parent $dataPath) (
+    "late-rollback-result-parent-{0}" -f [Guid]::NewGuid().ToString("N"))
 
 try {
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
@@ -121,6 +156,7 @@ try {
             -InstallDirectory $installPath `
             -DataDirectory $dataPath `
             -TaskName $TaskName `
+            -UninstallRegistryKeyName $UninstallRegistryKeyName `
             -AgentUrl $BlockedAgentUrl `
             -WatchdogIntervalMinutes 5 `
             -HealthTimeoutSeconds 5 `
@@ -146,6 +182,8 @@ try {
         -LiteralPath $executablePath `
         -Algorithm SHA256).Hash
     $afterTask = Get-ScheduledTask -TaskName $TaskName
+    $afterUninstallEntry = Get-UninstallEntryFingerprint `
+        -SubKeyPath $uninstallSubKeyPath
     $afterProcess = Get-InstalledAgent -ExecutablePath $executablePath
     $transactionResidue = @(
         Get-ChildItem `
@@ -153,8 +191,9 @@ try {
             -Directory `
             -Force |
             Where-Object {
-                $_.Name -like ".DefaultAppGuard.installing-*" -or
-                $_.Name -like ".DefaultAppGuard.backup-*"
+                $installLeaf = Split-Path -Leaf $installPath
+                $_.Name -like ".$installLeaf.installing-*" -or
+                $_.Name -like ".$installLeaf.backup-*"
             })
 
     $checks = [ordered]@{
@@ -165,6 +204,8 @@ try {
             $afterTask.Actions[0].Execute -eq $beforeAction
         taskArgumentsRestored =
             $afterTask.Actions[0].Arguments -eq $beforeArguments
+        uninstallEntryRestored =
+            $afterUninstallEntry -eq $beforeUninstallEntry
         oneAgentRunning = @($afterProcess).Count -eq 1
         primaryQuery =
             $restored.Health.Query -eq
@@ -184,9 +225,92 @@ try {
         throw "Rollback checks failed: $($failedChecks -join ', ')"
     }
 
+    "This file intentionally prevents creation of a result directory." |
+        Set-Content -LiteralPath $lateFailureParent -Encoding Ascii
+    $lateFailureMessage = $null
+    try {
+        & $installerPath `
+            -InstallDirectory $installPath `
+            -DataDirectory $dataPath `
+            -TaskName $TaskName `
+            -UninstallRegistryKeyName $UninstallRegistryKeyName `
+            -AgentUrl $ExistingAgentUrl `
+            -WatchdogIntervalMinutes 5 `
+            -HealthTimeoutSeconds 20 `
+            -NoStartMenuShortcut `
+            -ResultPath (Join-Path $lateFailureParent "result.json")
+    } catch {
+        $lateFailureMessage = $_.Exception.Message
+    }
+    if ([string]::IsNullOrWhiteSpace($lateFailureMessage) -or
+        $lateFailureMessage -notlike
+        "*previous installation was restored*") {
+        throw "A late installation failure did not report a successful rollback."
+    }
+
+    $lateRestored = Wait-ExistingAgentHealthy `
+        -Url $ExistingAgentUrl `
+        -TimeoutSeconds 20
+    $lateManifest = Get-Content `
+        -LiteralPath $manifestPath `
+        -Raw `
+        -Encoding UTF8 |
+        ConvertFrom-Json
+    $lateTask = Get-ScheduledTask -TaskName $TaskName
+    $lateProcess = Get-InstalledAgent -ExecutablePath $executablePath
+    $lateUninstallEntry = Get-UninstallEntryFingerprint `
+        -SubKeyPath $uninstallSubKeyPath
+    $lateInstallStateHash = (Get-FileHash `
+        -LiteralPath $installStatePath `
+        -Algorithm SHA256).Hash
+    $lateTransactionResidue = @(
+        Get-ChildItem `
+            -LiteralPath (Split-Path -Parent $installPath) `
+            -Directory `
+            -Force |
+            Where-Object {
+                $installLeaf = Split-Path -Leaf $installPath
+                $_.Name -like ".$installLeaf.installing-*" -or
+                $_.Name -like ".$installLeaf.backup-*"
+            })
+    $lateChecks = [ordered]@{
+        versionRestored =
+            $lateManifest.version -eq $beforeManifest.version
+        executableRestored = (Get-FileHash `
+            -LiteralPath $executablePath `
+            -Algorithm SHA256).Hash -eq $beforeHash
+        installStateRestored =
+            $lateInstallStateHash -eq $beforeInstallStateHash
+        taskActionRestored =
+            $lateTask.Actions[0].Execute -eq $beforeAction
+        taskArgumentsRestored =
+            $lateTask.Actions[0].Arguments -eq $beforeArguments
+        uninstallEntryRestored =
+            $lateUninstallEntry -eq $beforeUninstallEntry
+        oneAgentRunning = @($lateProcess).Count -eq 1
+        primaryQuery =
+            $lateRestored.Health.Query -eq
+            "IApplicationAssociationRegistration.QueryCurrentDefault"
+        primaryMonitor =
+            $lateRestored.Health.Monitor -eq "RegNotifyChangeKeyValue"
+        associationsHealthy =
+            [bool]$lateRestored.Status.audit.healthy -and
+            [int]$lateRestored.Status.audit.driftCount -eq 0
+        noTransactionResidue = $lateTransactionResidue.Count -eq 0
+    }
+    $failedLateChecks = @(
+        $lateChecks.GetEnumerator() |
+            Where-Object { -not $_.Value } |
+            ForEach-Object Key)
+    if ($failedLateChecks.Count -ne 0) {
+        throw "Late rollback checks failed: $($failedLateChecks -join ', ')"
+    }
+
     [pscustomobject]@{
         RollbackVerified = $true
+        LateRollbackVerified = $true
         FailureMessage = $failureMessage
+        LateFailureMessage = $lateFailureMessage
         RestoredVersion = $afterManifest.version
         PreviousProcessId = $beforeProcess.ProcessId
         RestoredProcessId = $afterProcess.ProcessId
@@ -195,10 +319,17 @@ try {
         MainQuery = $restored.Health.Query
         MainMonitor = $restored.Health.Monitor
         TransactionResidueCount = $transactionResidue.Count
+        UninstallEntryRestored =
+            $lateUninstallEntry -eq $beforeUninstallEntry
+        InstallStateRestored =
+            $lateInstallStateHash -eq $beforeInstallStateHash
     }
 } finally {
     Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $readyFile) {
         Remove-Item -LiteralPath $readyFile -Force
+    }
+    if (Test-Path -LiteralPath $lateFailureParent -PathType Leaf) {
+        Remove-Item -LiteralPath $lateFailureParent -Force
     }
 }

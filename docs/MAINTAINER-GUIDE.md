@@ -6,7 +6,7 @@ Run all of the following on Windows:
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.5 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.7 `
   -PackageManagerPath pnpm
 ```
 
@@ -18,7 +18,7 @@ report `codeSigning.status` as `unsigned`. Any release described as signed must
 run:
 
 ```powershell
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.5 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.1.7 `
   -PackageManagerPath pnpm `
   -SigningCertificateThumbprint $env:DAG_SIGNING_CERTIFICATE_THUMBPRINT `
   -TimestampServer $env:DAG_TIMESTAMP_SERVER `
@@ -26,7 +26,7 @@ run:
 ```
 
 That mode requires valid, timestamped Authenticode signatures on the Agent,
-installer, uninstaller, diagnostics script, and package module. All files must
+graphical Setup launcher, installer, uninstaller, diagnostics script, and package module. All files must
 use the same signer certificate. Supply `-SigningCertificateThumbprint` and
 `-TimestampServer`; the certificate must be available in the current-user or
 local-machine Windows certificate store with an accessible private key and the
@@ -46,6 +46,8 @@ The required signals are:
 - Re-arming receives a second real write.
 - The post-notification audit checks each protected extension individually.
 - Registry evidence never replaces a failed COM result.
+- `/api/readiness` resolves Microsoft Media Player and reports evidence from
+  the primary COM query before an install transaction can commit.
 
 ## Installation Test
 
@@ -71,20 +73,28 @@ $testRoot = Join-Path $env:TEMP "DefaultAppGuard-install-test"
 Verify:
 
 1. The installer reports `PackageIntegrityVerified: True`,
-   `TransactionalUpgrade: True`, and `ProcessMode: background-no-console`.
+   `TransactionalUpgrade: True`, `ProcessMode: background-no-console`, and
+   `WatchdogTaskState: Ready`.
 2. `/api/health` reports the COM query, registry monitor, expected PID, and
    background process mode.
 3. `/api/status` reports all declared formats individually.
 4. A harmless subkey created below the current user's `FileExts` tree increases
    `registryEventCount`.
 5. The exact probe key is removed.
-6. Killing the installed process produces a different PID after the watchdog
-   trigger and a fresh 34-format startup audit.
-7. A deliberately failed upgrade restores the previous package version, task
-   definition, process, and healthy audit.
-8. `Get-DefaultAppGuardDiagnostics.ps1` reports no issues and does not include
+6. The task action is `DefaultAppGuard.Setup.exe --watchdog ...`, normally
+   returns to `Ready` with result 0, and has a one-minute execution limit.
+7. Killing the installed process produces a different PID after the repeated
+   watchdog trigger, followed by a fresh 34-format startup audit; the watchdog
+   task returns to `Ready` while the replacement Agent remains running.
+8. Deliberately failed upgrades before and after readiness restore the previous
+   package version, task definition, exact install-state file, uninstall entry,
+   process, and healthy audit.
+9. The current-user Installed apps entry is complete, and its exact hidden
+   uninstall command removes the entry, task, process, install directory, and
+   data directory.
+10. `Get-DefaultAppGuardDiagnostics.ps1` reports no issues and does not include
    personal paths or raw runtime contents.
-9. Uninstallation leaves no task, process, install directory, data directory,
+11. Uninstallation leaves no task, process, install directory, data directory,
    or probe key.
 
 The lifecycle evidence is written to `package-lifecycle.json`. The gate also

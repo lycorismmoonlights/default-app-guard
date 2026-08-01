@@ -90,6 +90,14 @@ app.MapGet("/api/health", () => Results.Ok(new
     PackagedUi = packagedUiAvailable,
 }));
 
+app.MapGet("/api/readiness", (AgentRuntimeState state) =>
+{
+    var readiness = AgentReadinessEvaluator.Evaluate(state.Snapshot());
+    return readiness.Ready
+        ? Results.Ok(readiness)
+        : Results.Json(readiness, statusCode: StatusCodes.Status503ServiceUnavailable);
+});
+
 app.MapGet("/api/status", (AgentRuntimeState state) =>
     Results.Ok(state.Snapshot()));
 

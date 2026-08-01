@@ -16,9 +16,16 @@ installation.
 ## Install
 
 1. Extract the complete package to a temporary folder.
-2. Review `Install-DefaultAppGuard.ps1`.
-3. Open PowerShell in that folder.
-4. Run:
+2. Read `ENVIRONMENT-AND-RISKS.txt`.
+3. Double-click `DefaultAppGuard.Setup.exe`.
+4. Review the bilingual confirmation and select **OK** to install or upgrade.
+
+Setup does not request administrator elevation or open a terminal. It first
+checks the complete package in native code, then uses a process-only
+`ExecutionPolicy Bypass` for its hidden PowerShell child. This temporary value
+ends with Setup, does not change the current-user or computer policy, and does
+not override company or school Group Policy. Advanced users may review and run
+the same transactional installer directly:
 
 ```powershell
 .\Install-DefaultAppGuard.ps1
@@ -26,21 +33,32 @@ installation.
 
 The default installation is per-user and does not request administrator
 privileges. It installs below `%LOCALAPPDATA%`, registers a current-user logon
-task, starts the Agent, and creates a Start menu shortcut.
+task, starts the Agent, creates a Start menu shortcut, and adds
+**DefaultAppGuard Community** to Windows **Settings > Apps > Installed apps**.
 
 Before changing an existing installation, the installer verifies every package
 file against `package-manifest.json` and prepares a complete staging directory.
-An upgrade is committed only after the new Agent reports the primary algorithms,
-the expected version and PID, and the no-console process mode. A failed upgrade
-restores the previous files and scheduled task.
+An upgrade is committed only after the new Agent reports the expected version
+and PID, no-console process mode, a resolved Microsoft Media Player target, and
+real primary COM-query evidence for every protected format. Existing association drift is
+reported to the user but does not make installation fail. A failed upgrade
+restores the previous files, scheduled task, install-state file, shortcut, and
+standard uninstall registration.
 
 The Agent is a long-running background process compiled without a console
-window. The watchdog task may check or restart it in the background, but it
-should not open Windows Terminal. If an Agent terminal remains visible, verify
-that version 0.1.2 or later is installed.
+window. The scheduled task runs the graphical, no-console Setup executable in
+`--watchdog` mode. That short-lived watchdog verifies the installed package,
+checks whether the correct Agent owns the local health endpoint, starts it when
+needed, and exits. The task should normally show `Ready` while the Agent remains
+`Running`; it should not open Windows Terminal.
 
-The scripts and binary are not yet code-signed. Windows may display a warning
-for files downloaded from the internet.
+`IgnoreNew` only prevents overlapping watchdog checks. A task that remains
+`Running` for more than 90 seconds, repeatedly reports `0x800710E0`, or fails to
+return to `Ready` is not treated as healthy. Run diagnostics and reinstall or
+report the JSON file if `scheduledTask.configurationHealthy` is `false`.
+
+The scripts and executables are not yet code-signed. Windows may display a
+warning for files downloaded from the internet.
 
 Do not permanently disable Windows security controls or bypass organization
 policy to install the application.
@@ -66,11 +84,13 @@ Generate a constrained support report:
 ```
 
 The command writes a timestamped JSON report in the current directory. It
-checks package integrity, version and signature status, the scheduled task,
-Agent process identity, loopback listener, console children, and the current
-main-algorithm audit. The report does not include personal paths, registry
-exports, raw runtime file contents, or tokens. Review it before attaching it
-to an issue.
+checks package integrity, Agent and Setup signature status, the scheduled task,
+including its exact action, current-user privilege, triggers, single-instance
+and restart settings, standard uninstall registration, Agent process identity,
+loopback listener, console children, readiness, and the current main-algorithm
+audit. The report
+does not include personal paths, registry exports, raw runtime file contents,
+or tokens. Review it before attaching it to an issue.
 
 The default runtime files are:
 
@@ -84,7 +104,11 @@ The scheduled task is named `DefaultAppGuard Agent`.
 
 ## Uninstall
 
-Run the uninstaller from the installation directory:
+Open **Settings > Apps > Installed apps**, find **DefaultAppGuard Community**,
+open its menu, and select **Uninstall**. Windows launches the registered
+current-user uninstaller in the background, so no terminal should appear.
+
+Advanced users can run the same uninstaller directly:
 
 ```powershell
 & "$env:LOCALAPPDATA\Programs\DefaultAppGuard\Uninstall-DefaultAppGuard.ps1"

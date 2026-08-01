@@ -31,11 +31,15 @@ these tests.
 - A per-user named mutex prevents duplicate Agents.
 - The monitor subscription is armed before the startup audit, closing the
   startup read/subscribe race.
-- The current-user scheduled task uses a logon trigger and a repeated watchdog
-  trigger. `IgnoreNew` makes watchdog events no-ops while the Agent is healthy.
-- The Task Scheduler restart-on-failure setting is retained, but is not treated
-  as sufficient: forced-process termination did not restart reliably in the
-  installation test. The repeated watchdog trigger did.
+- The current-user scheduled task runs a short-lived native, no-console
+  watchdog at logon and on a repeated trigger. The watchdog verifies package
+  integrity, validates the loopback health endpoint and owning process, starts
+  the Agent when needed, and returns the task to `Ready`.
+- The Agent is not the long-running scheduled-task action. This avoids a Task
+  Scheduler state where a force-terminated Agent can remain marked `Running`
+  and cause `IgnoreNew` to suppress the recovery trigger.
+- The watchdog has a one-minute execution limit and restart-on-failure policy.
+  `IgnoreNew` applies only to overlapping short-lived checks.
 - State and configuration files are replaced atomically.
 - The loopback API rejects foreign origins and requires a local client header
   for mutating operations.
