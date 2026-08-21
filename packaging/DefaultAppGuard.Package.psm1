@@ -298,6 +298,7 @@ function Assert-DagPackageIntegrity {
 
 Export-ModuleMember -Function @(
     "Assert-DagPackageIntegrity",
+    "Get-DagFileFingerprint",
     "Get-DagNormalizedPath",
     "Get-DagPeSubsystem",
     "Get-DagRelativePackagePath",

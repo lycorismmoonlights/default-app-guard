@@ -7,7 +7,7 @@ artifact warnings, privacy behavior, known limitations, and license terms.
 ## Requirements
 
 - Windows 11 x64.
-- Microsoft Media Player installed.
+- Microsoft Media Player installed for the built-in video policy.
 - A normal interactive Windows user account.
 
 The package is self-contained and does not require Node.js or a separate .NET
@@ -39,8 +39,8 @@ task, starts the Agent, creates a Start menu shortcut, and adds
 Before changing an existing installation, the installer verifies every package
 file against `package-manifest.json` and prepares a complete staging directory.
 An upgrade is committed only after the new Agent reports the expected version
-and PID, no-console process mode, a resolved Microsoft Media Player target, and
-real primary COM-query evidence for every protected format. It also requires
+and PID, no-console process mode, a resolved target for every protected
+format, and real primary COM-query evidence for every protected format. It also requires
 the system-notification channel and a real write to the bounded local
 operational log. Existing association drift is reported to the user but does
 not make installation fail. A failed upgrade
@@ -70,9 +70,19 @@ policy to install the application.
 Open **DefaultAppGuard** from the Start menu.
 
 - **Immediately recheck** runs a fresh effective-handler audit.
-- Select the video formats that should remain in the monitored set.
-- **Save scope and open Settings** persists that set and opens Microsoft's
-  Default Apps page for Media Player.
+- Choose **Video**, **Audio**, **Document**, **Image**, **Archive**, or
+  **Web & data**, then select the formats to protect.
+- Video formats always use the dynamically resolved Microsoft Media Player
+  target. A newly selected non-video format records its current Windows
+  default as the baseline when the scope is saved.
+- Select a protected non-video format and use **Update to current default** to
+  replace only that baseline during the next save.
+- **Windows Default Apps** opens the supported system page. Make the intended
+  change there first, return to DefaultAppGuard, update the baseline when
+  appropriate, and run an immediate recheck.
+- **Save protected scope** persists the selected formats. The browser UI never
+  submits a ProgID; the local Agent reads each new baseline through the primary
+  COM query.
 - **Settings > System notifications** enables or disables tray alerts. Turning
   alerts off does not stop monitoring.
 
@@ -92,9 +102,20 @@ If the Agent repaired its configuration during startup, the application keeps
 a notice visible until you dismiss it. A backup-restored notice means the last
 validated protected-format and notification settings were recovered. A
 safe-default notice means both configuration copies were unusable; protection
-was reset to all 34 supported formats with notifications enabled, and previous
-custom choices may have been lost. Use **Review protected formats** before
+was reset to the 34 video safe defaults with notifications enabled. Previously
+selected non-video formats and their baselines may have been lost. Use
+**Review protected formats** before
 dismissing that warning.
+
+When **System notifications** is enabled and the tray channel is available,
+the Agent also queues one bilingual alert for that recovery event. A backup
+restore uses an informational alert; a safe-default restore uses a warning.
+Clicking either alert opens the local application. The alert is deduplicated by
+recovery type and timestamp, so the same startup recovery is not repeated.
+Windows may suppress the visible balloon through Focus Assist, Do Not Disturb,
+notification permissions, Explorer state, or organization policy. Diagnostics
+therefore says **queued**, not **displayed** or **seen**. The persistent page
+notice remains the review path even when the system alert is disabled or hidden.
 
 Dismissing a notice acknowledges only that recovery event. It does not stop the
 Agent, disable monitoring, change protected formats, delete the backup, or clear
@@ -120,13 +141,15 @@ checks the `WindowsForms.NotifyIcon` channel and records whether the user
 enabled alerts. A user-disabled preference is not a fault; an unavailable
 notification channel is. It also verifies the operational-log channel, format,
 retention limits, file count, and aggregate byte counts without reading or
-including log contents. Diagnostics schema 6 also verifies the local
+including log contents. Diagnostics schema 7 also verifies the local
 configuration backup and reports `configuration-backup-restored` or
 `configuration-defaults-restored` as a notice after successful recovery. The
 latter means custom selections may have been lost and should be reviewed in
-the application. It does not include personal paths, registry exports,
-raw runtime file contents, log contents, or tokens. Review it before attaching
-it to an issue.
+the application. When a recovery alert is expected, diagnostics also requires
+the dedicated queued kind and timestamp to match that recovery event; a later
+association-drift alert cannot overwrite this evidence. It does not include
+personal paths, registry exports, raw runtime file contents, log contents, or
+tokens. Review it before attaching it to an issue.
 
 The default runtime files are:
 

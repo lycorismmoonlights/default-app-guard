@@ -5,7 +5,7 @@ namespace DefaultAppGuard.Core;
 [SupportedOSPlatform("windows")]
 public sealed class WindowsAssociationReader(
     IEffectiveAssociationQuery effectiveQuery,
-    IAssociationRegistrySource registrySource)
+    IAssociationRegistrySource registrySource) : IAssociationSnapshotReader
 {
     public WindowsAssociationReader()
         : this(
@@ -30,7 +30,7 @@ public sealed class WindowsAssociationReader(
             userChoice.HashPresent,
             metadata.ApplicationName,
             metadata.PackageId,
-            "IApplicationAssociationRegistration.QueryCurrentDefault");
+            AssociationConstants.PrimaryQueryAlgorithm);
     }
 
     public IReadOnlyList<AssociationSnapshot> ReadMany(IEnumerable<string> extensions)

@@ -432,9 +432,14 @@ Assert-True ([bool]$lifecycleEvidence.passed -and
         "IApplicationAssociationRegistration.QueryCurrentDefault" -and
     [string]$lifecycleEvidence.mainAlgorithm.monitor -eq
         "RegNotifyChangeKeyValue" -and
-    [int]$lifecycleEvidence.mainAlgorithm.expectedExtensionCount -eq 34 -and
-    [int]$lifecycleEvidence.mainAlgorithm.auditedExtensionCount -eq 34 -and
-    [int]$lifecycleEvidence.mainAlgorithm.primarySnapshotCount -eq 34 -and
+    [int]$lifecycleEvidence.mainAlgorithm.expectedExtensionCount -eq 40 -and
+    [int]$lifecycleEvidence.mainAlgorithm.genericExtensionCount -eq 6 -and
+    [int]$lifecycleEvidence.mainAlgorithm.capturedRuleCount -eq 6 -and
+    [int]$lifecycleEvidence.mainAlgorithm.expectedHandlerCount -eq 40 -and
+    [int]$lifecycleEvidence.mainAlgorithm.resolvedHandlerCount -eq 40 -and
+    [int]$lifecycleEvidence.mainAlgorithm.distinctTargetCount -ge 3 -and
+    [int]$lifecycleEvidence.mainAlgorithm.auditedExtensionCount -eq 40 -and
+    [int]$lifecycleEvidence.mainAlgorithm.primarySnapshotCount -eq 40 -and
     [int]$lifecycleEvidence.mainAlgorithm.failedReadCount -eq 0 -and
     [bool]$lifecycleEvidence.mainAlgorithm.auditFresh -and
     [int64]$lifecycleEvidence.mainAlgorithm.auditAgeSeconds -ge 0 -and
@@ -448,6 +453,12 @@ Assert-True ([bool]$lifecycleEvidence.passed -and
     [bool]$lifecycleEvidence.notifications.available -and
     [bool]$lifecycleEvidence.notifications.enabledByDefault -and
     [bool]$lifecycleEvidence.notifications.configurationRoundTripVerified -and
+    [bool](
+        $lifecycleEvidence.notifications.configurationRecoveryQueuedVerified) -and
+    [string]$lifecycleEvidence.notifications.lastQueuedKind -eq
+        "configuration-backup-restored" -and
+    -not [string]::IsNullOrWhiteSpace(
+        [string]$lifecycleEvidence.notifications.lastQueuedAtUtc) -and
     [string]$lifecycleEvidence.operationalLogs.channel -eq
         "Serilog.Sinks.File" -and
     [bool]$lifecycleEvidence.operationalLogs.available -and
@@ -464,6 +475,8 @@ Assert-True ([bool]$lifecycleEvidence.passed -and
     [bool](
         $lifecycleEvidence.configurationPersistence.backupAvailableAtInstall) -and
     [bool]$lifecycleEvidence.configurationPersistence.recoveryVerified -and
+    [bool](
+        $lifecycleEvidence.configurationPersistence.recoveryNotificationVerified) -and
     [string]$lifecycleEvidence.configurationPersistence.recoveryCode -eq
         "backup-restored" -and
     [bool]$lifecycleEvidence.configurationPersistence.settingsPreserved -and
@@ -488,6 +501,9 @@ Assert-True ([bool]$lifecycleEvidence.passed -and
     [bool]$lifecycleEvidence.diagnostics.watchdogTelemetryHealthy -and
     [bool]$lifecycleEvidence.diagnostics.watchdogTelemetryMatchesTaskRun -and
     [bool]$lifecycleEvidence.diagnostics.watchdogProcessMatches -and
+    [bool]$lifecycleEvidence.diagnostics.notificationTelemetryHealthy -and
+    [bool](
+        $lifecycleEvidence.diagnostics.configurationRecoveryNotificationVerified) -and
     [bool]$lifecycleEvidence.uninstall.passed -and
     [bool]$lifecycleEvidence.uninstall.registrationRemoved -and
     [bool]$lifecycleEvidence.uninstall.taskRemoved -and

@@ -556,6 +556,16 @@ $configurationBackupAvailable = $false
 $configurationRecovered = $false
 $configurationRecoveryCode = $null
 $configurationRecoveredAtUtc = $null
+$notificationChannel = $null
+$notificationsAvailable = $false
+$notificationsEnabled = $false
+$notificationLastQueuedKind = $null
+$notificationLastQueuedAtUtc = $null
+$configurationRecoveryLastQueuedKind = $null
+$configurationRecoveryLastQueuedAtUtc = $null
+$notificationTelemetryHealthy = $false
+$configurationRecoveryNotificationExpected = $false
+$configurationRecoveryNotificationVerified = $false
 try {
     $agentUri = [Uri]$agentUrl
     if (-not $agentUri.IsLoopback -or
@@ -641,7 +651,14 @@ if ($apiReachable) {
                 $maximumAuditAgeSeconds -and
             [int64]$readiness.AuditAgeSeconds -le
                 [int64]$readiness.MaximumAuditAgeSeconds -and
-            [int]$readiness.AuditedExtensionCount -gt 0 -and
+            [int]$readiness.ExpectedHandlerCount -gt 0 -and
+            [int]$readiness.ResolvedHandlerCount -eq
+                [int]$readiness.ExpectedHandlerCount -and
+            [int]$readiness.DistinctTargetCount -gt 0 -and
+            [int]$readiness.DistinctTargetCount -le
+                [int]$readiness.ExpectedHandlerCount -and
+            [int]$readiness.AuditedExtensionCount -eq
+                [int]$readiness.ExpectedHandlerCount -and
             [int]$readiness.PrimarySnapshotCount -eq
                 [int]$readiness.AuditedExtensionCount -and
             [int]$readiness.FailedReadCount -eq 0
@@ -694,9 +711,6 @@ $extensionCount = 0
 $queryAlgorithm = $null
 $monitorAlgorithm = $null
 $processMode = $null
-$notificationChannel = $null
-$notificationsAvailable = $false
-$notificationsEnabled = $false
 $operationalLogChannel = $null
 $operationalLogsAvailable = $false
 $operationalLogFormat = $null
@@ -717,6 +731,83 @@ if ($apiReachable -and $null -ne $status -and
     $notificationChannel = [string]$health.NotificationChannel
     $notificationsAvailable = [bool]$health.NotificationsAvailable
     $notificationsEnabled = [bool]$health.NotificationsEnabled
+    $notificationLastQueuedKind =
+        [string]$health.NotificationLastQueuedKind
+    $notificationLastQueuedAtUtc =
+        [string]$health.NotificationLastQueuedAtUtc
+    $configurationRecoveryLastQueuedKind =
+        [string]$health.ConfigurationRecoveryNotificationLastQueuedKind
+    $configurationRecoveryLastQueuedAtUtc =
+        [string]$health.ConfigurationRecoveryNotificationLastQueuedAtUtc
+    $hasQueuedKind = -not [string]::IsNullOrWhiteSpace(
+        $notificationLastQueuedKind)
+    $hasQueuedAtUtc = -not [string]::IsNullOrWhiteSpace(
+        $notificationLastQueuedAtUtc)
+    $queuedAtUtc = [DateTimeOffset]::MinValue
+    $queuedAtUtcValid = $hasQueuedAtUtc -and
+        [DateTimeOffset]::TryParse(
+            $notificationLastQueuedAtUtc,
+            [ref]$queuedAtUtc) -and
+        $queuedAtUtc -le [DateTimeOffset]::UtcNow.AddMinutes(1)
+    $allowedNotificationKinds = @(
+        "association-drift",
+        "configuration-backup-restored",
+        "configuration-defaults-restored")
+    $generalNotificationTelemetryHealthy =
+        (-not $hasQueuedKind -and -not $hasQueuedAtUtc) -or
+        ($hasQueuedKind -and
+            $hasQueuedAtUtc -and
+            $notificationLastQueuedKind -in $allowedNotificationKinds -and
+            $queuedAtUtcValid)
+    $hasRecoveryQueuedKind = -not [string]::IsNullOrWhiteSpace(
+        $configurationRecoveryLastQueuedKind)
+    $hasRecoveryQueuedAtUtc = -not [string]::IsNullOrWhiteSpace(
+        $configurationRecoveryLastQueuedAtUtc)
+    $recoveryQueuedAtUtc = [DateTimeOffset]::MinValue
+    $recoveryQueuedAtUtcValid = $hasRecoveryQueuedAtUtc -and
+        [DateTimeOffset]::TryParse(
+            $configurationRecoveryLastQueuedAtUtc,
+            [ref]$recoveryQueuedAtUtc) -and
+        $recoveryQueuedAtUtc -le [DateTimeOffset]::UtcNow.AddMinutes(1)
+    $recoveryNotificationTelemetryHealthy =
+        (-not $hasRecoveryQueuedKind -and -not $hasRecoveryQueuedAtUtc) -or
+        ($hasRecoveryQueuedKind -and
+            $hasRecoveryQueuedAtUtc -and
+            $configurationRecoveryLastQueuedKind -in @(
+                "configuration-backup-restored",
+                "configuration-defaults-restored") -and
+            $recoveryQueuedAtUtcValid)
+    $notificationTelemetryHealthy =
+        $generalNotificationTelemetryHealthy -and
+        $recoveryNotificationTelemetryHealthy
+    if (-not $notificationTelemetryHealthy) {
+        $issues.Add("notification-telemetry-invalid")
+    }
+    $configurationRecoveryNotificationExpected =
+        $configurationRecovered -and
+        $configurationPersistenceHealthy -and
+        $notificationsEnabled -and
+        $notificationsAvailable
+    $configurationRecoveryNotificationVerified =
+        -not $configurationRecoveryNotificationExpected
+    if ($configurationRecoveryNotificationExpected) {
+        $recoveredAtUtc = [DateTimeOffset]::MinValue
+        $recoveredAtUtcValid = [DateTimeOffset]::TryParse(
+            $configurationRecoveredAtUtc,
+            [ref]$recoveredAtUtc)
+        $expectedQueuedKind =
+            "configuration-$configurationRecoveryCode"
+        $configurationRecoveryNotificationVerified =
+            $notificationTelemetryHealthy -and
+            $configurationRecoveryLastQueuedKind -eq $expectedQueuedKind -and
+            $recoveredAtUtcValid -and
+            $recoveryQueuedAtUtcValid -and
+            $recoveryQueuedAtUtc -ge $recoveredAtUtc
+        if (-not $configurationRecoveryNotificationVerified) {
+            $issues.Add(
+                "configuration-recovery-notification-missing")
+        }
+    }
     $operationalLogChannel = [string]$health.OperationalLogChannel
     $operationalLogsAvailable =
         [bool]$health.OperationalLogsAvailable
@@ -820,7 +911,7 @@ if ($operationalLogLargestFileBytes -gt
 
 $operatingSystem = Get-CimInstance Win32_OperatingSystem
 $report = [ordered]@{
-    schemaVersion = 6
+    schemaVersion = 7
     product = "DefaultAppGuard Community"
     generatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
     privacy = [ordered]@{
@@ -951,15 +1042,20 @@ $report = [ordered]@{
         } else {
             $null
         }
-        targetProgId = if ($null -ne $readiness) {
-            $readiness.TargetProgId
+        expectedHandlerCount = if ($null -ne $readiness) {
+            $readiness.ExpectedHandlerCount
         } else {
-            $null
+            0
         }
-        targetPackageId = if ($null -ne $readiness) {
-            $readiness.TargetPackageId
+        resolvedHandlerCount = if ($null -ne $readiness) {
+            $readiness.ResolvedHandlerCount
         } else {
-            $null
+            0
+        }
+        distinctTargetCount = if ($null -ne $readiness) {
+            $readiness.DistinctTargetCount
+        } else {
+            0
         }
         primarySnapshotCount = if ($null -ne $readiness) {
             $readiness.PrimarySnapshotCount
@@ -1005,6 +1101,37 @@ $report = [ordered]@{
         channel = $notificationChannel
         available = $notificationsAvailable
         enabled = $notificationsEnabled
+        lastQueuedKind = if (
+            [string]::IsNullOrWhiteSpace($notificationLastQueuedKind)) {
+            $null
+        } else {
+            $notificationLastQueuedKind
+        }
+        lastQueuedAtUtc = if (
+            [string]::IsNullOrWhiteSpace($notificationLastQueuedAtUtc)) {
+            $null
+        } else {
+            $notificationLastQueuedAtUtc
+        }
+        configurationRecoveryLastQueuedKind = if (
+            [string]::IsNullOrWhiteSpace(
+                $configurationRecoveryLastQueuedKind)) {
+            $null
+        } else {
+            $configurationRecoveryLastQueuedKind
+        }
+        configurationRecoveryLastQueuedAtUtc = if (
+            [string]::IsNullOrWhiteSpace(
+                $configurationRecoveryLastQueuedAtUtc)) {
+            $null
+        } else {
+            $configurationRecoveryLastQueuedAtUtc
+        }
+        telemetryHealthy = $notificationTelemetryHealthy
+        configurationRecoveryExpected =
+            $configurationRecoveryNotificationExpected
+        configurationRecoveryQueuedVerified =
+            $configurationRecoveryNotificationVerified
     }
     operationalLogs = [ordered]@{
         channel = $operationalLogChannel
@@ -1044,6 +1171,8 @@ $report["overallHealthy"] =
     $loopbackOnly -and
     $apiProcessMatches -and
     $notificationsAvailable -and
+    $notificationTelemetryHealthy -and
+    $configurationRecoveryNotificationVerified -and
     $operationalLogsHealthy -and
     $configurationPersistenceHealthy -and
     $readinessReady -and

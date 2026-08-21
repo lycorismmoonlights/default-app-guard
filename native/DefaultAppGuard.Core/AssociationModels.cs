@@ -20,6 +20,23 @@ public sealed record AssociationTarget(
     string? ApplicationName,
     IReadOnlyList<string> SupportedExtensions);
 
+public sealed record ProtectedAssociationRule(
+    string Extension,
+    string Category,
+    string TargetStrategy,
+    string? ExpectedProgId,
+    string? ExpectedPackageId,
+    string? ExpectedApplicationName,
+    DateTimeOffset? CapturedAtUtc);
+
+public sealed record AssociationExpectedHandler(
+    string Extension,
+    string Category,
+    string TargetStrategy,
+    string ProgId,
+    string? PackageId,
+    string? ApplicationName);
+
 public sealed record AssociationPlanItem(
     string Extension,
     string EffectiveProgId,

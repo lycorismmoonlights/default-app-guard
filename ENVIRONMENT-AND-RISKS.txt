@@ -1,8 +1,27 @@
 DefaultAppGuard Community
 环境配置要求与风险提示 / Environment Requirements and Risk Notice
 
-适用版本 / Applies to version: 0.1.15
-更新日期 / Updated: 2026-08-01
+适用版本 / Applies to version: 0.2.0
+更新日期 / Updated: 2026-08-21
+
+0.2.0 版本变化 / Version 0.2.0 changes
+
+- 中文：保护范围从视频扩展到受控目录内的音频、文档、图片、压缩包和网页/数据
+  格式。视频仍固定核验本机 Microsoft Media Player；非视频格式仅在用户明确
+  选择时，由 Agent 用主 COM 查询捕获当前默认程序。配置升级为 schema 3，界面
+  支持分类选择和单项更新基线。精确发布门禁必须验证 34 项视频和 6 项真实非视频
+  基线，共 40 项主 COM 快照。Agent 使用 Windows SHLoadIndirectString 解析打包应用
+  的本地化资源名称；解析失败时界面退回显示 ProgID，不把资源标识当作可信应用名。
+- English: protection now covers curated audio, document, image, archive, and
+  web/data formats in addition to video. Video still targets the locally
+  resolved Microsoft Media Player. A non-video format is added only after
+  explicit selection, and the Agent captures its current default with the
+  primary COM query. Configuration is schema 3, the UI supports categories and
+  per-item recapture, and the exact release gate requires 34 video plus six
+  real non-video baselines for 40 primary COM snapshots. The Agent resolves
+  localized packaged-app names with Windows SHLoadIndirectString; if that
+  resolution fails, the UI falls back to the ProgID instead of presenting a
+  resource identifier as a trusted application name.
 
 ============================================================
 中文
@@ -12,7 +31,8 @@ DefaultAppGuard Community
 
 - 操作系统：Windows 11 x64。
 - 已验证环境：Windows 11 25H2（内部版本 26200）。
-- 目标应用：必须已安装 Microsoft Media Player（媒体播放器）。
+- 视频目标应用：必须已安装 Microsoft Media Player（媒体播放器）。非视频格式没有
+  统一目标应用；用户明确选择格式后，Agent 会把该格式当前实际生效的默认程序记录为基线。
 - 账户：需要可交互登录的普通 Windows 用户账户。
 - 安装方式：按用户安装到 %LOCALAPPDATA%，通常不需要管理员权限。
 - 运行方式：登录任务“DefaultAppGuard Agent”会运行一次无控制台的原生看门狗；
@@ -47,8 +67,8 @@ DefaultAppGuard Community
   使用当前用户权限、隐藏窗口和仅对子进程有效的 ExecutionPolicy Bypass；它不
   永久修改执行策略。卸载器会先核对产品名、安装路径、清单和安装状态，不会删除
   不属于本安装的注册键、计划任务或目录。
-- 升级采用暂存、替换、就绪检查和失败回滚流程；只有新 Agent 解析到
-  Microsoft Media Player、为每个受保护格式取得主 COM 查询证据，并通过进程身份和无控制台检查后
+- 升级采用暂存、替换、就绪检查和失败回滚流程；只有新 Agent 为每个受保护
+  格式解析到对应目标、取得主 COM 查询证据，并通过进程身份和无控制台检查后
   才提交升级。已有默认应用漂移会被报告，但不会被误判为安装器故障。
 - 当前 EXE、PowerShell 脚本和模块未使用受 Windows 信任的
   Authenticode 发布者证书签名。
@@ -60,7 +80,7 @@ DefaultAppGuard Community
 
 3.1 本版本的签名状态
 
-- 适用本提示文本的 0.1.15 版本是“未签名 alpha 版本”。
+- 适用本提示文本的 0.2.0 版本是“未签名 alpha 版本”。
 - DefaultAppGuard.Agent.exe、DefaultAppGuard.Setup.exe、Install-DefaultAppGuard.ps1、
   Uninstall-DefaultAppGuard.ps1、Get-DefaultAppGuardDiagnostics.ps1 和
   DefaultAppGuard.Package.psm1 均没有受 Windows 信任的发布者签名。
@@ -90,7 +110,7 @@ DefaultAppGuard Community
 3) 同时下载对应的 .sha256 文件，并核对 ZIP 的 SHA-256。可以在 ZIP
    所在文件夹打开 PowerShell，运行：
 
-   Get-FileHash .\DefaultAppGuard-0.1.15-win-x64.zip -Algorithm SHA256
+   Get-FileHash .\DefaultAppGuard-0.2.0-win-x64.zip -Algorithm SHA256
 
    输出的 64 位哈希必须与 .sha256 文件完全一致。任何一位不同都不要运行。
 4) 完整解压 ZIP 后再安装，不要从压缩包预览窗口直接运行脚本。
@@ -133,6 +153,11 @@ DefaultAppGuard Community
 
 - 主查询算法使用 IApplicationAssociationRegistration.QueryCurrentDefault
   读取 Windows 当前实际生效的默认程序。
+- 视频格式使用本机动态解析的 Microsoft Media Player 作为保护目标。音频、文档、
+  图片、压缩包和网页/数据格式只有在用户明确选择后才加入保护；Agent 在本机通过
+  同一个主 COM 查询记录当时的默认程序作为该扩展名的基线。前端不能提交或伪造 ProgID。
+- 已有非视频基线会持续保留，除非用户在应用中明确选择“更新为当前默认程序”并保存。
+  从旧版配置迁移时不会自动添加非视频格式，以免把迁移时已经被篡改的默认程序当作可信基线。
 - UserChoice 注册表数据只作为交叉证据，不作为保底查询结果。
 - 主监控算法使用 RegNotifyChangeKeyValue 监听当前用户的 FileExts 变化。
 - Agent 会周期性重新执行 COM 查询，以减少遗漏变化的时间窗口。
@@ -159,7 +184,13 @@ DefaultAppGuard Community
 - 用户在设置页关闭“系统通知”后，COM 查询、RegNotifyChangeKeyValue 监控和
   周期复检仍会继续，只是不再显示偏移气泡。托盘通知通道本身不可用会被安装器、
   看门狗和诊断视为故障，但 Windows 是否最终显示气泡不受本程序完全控制。
-- 当前只保护视频扩展名，并且目标固定为本机动态解析到的 Microsoft Media Player。
+- 当前支持受控目录内的视频、音频、文档、图片、压缩包和网页/数据扩展名。目录外
+  的任意扩展名不会被接受。视频目标固定为本机动态解析的 Microsoft Media Player；
+  非视频目标是用户明确保存的当前默认程序基线。
+- 记录非视频基线前必须先确认 Windows 当前默认程序确实是用户想要的程序。如果默认
+  应用已经被 WPS、夸克或其他软件改走后再点击“更新为当前默认程序”，程序会忠实记录
+  这个已经变化的值，随后不会把它报告为偏移。应先在 Windows“默认应用”中改回正确
+  程序，再回到本应用更新基线并立即复检。
 - 当前只支持单个登录用户实例；不同 Windows 用户需要分别安装和配置。
 - 后台 Agent 和计划任务会占用少量内存、CPU 和本地端口。
 - 本地运行日志通常约占 14 MiB 以内（2 MiB 滚动阈值，保留 7 个文件）。极少数
@@ -183,8 +214,9 @@ DefaultAppGuard Community
   （复检间隔加 25% 宽限）。超过该年龄时，即使进程和本地 HTTP 接口仍响应，
   `/api/readiness` 也会返回故障，看门狗会在下一次默认 5 分钟检查时尝试恢复。
   因此从主审计循环停止工作到被自动恢复，通常还会有一个有限的检查窗口。
-- 看门狗同时要求进程存活和新鲜、完整的主 COM 证据；34 项格式必须全部有
-  `IApplicationAssociationRegistration.QueryCurrentDefault` 快照，且失败读取为 0。
+- 看门狗同时要求进程存活和新鲜、完整的主 COM 证据；当前配置中的每个受保护格式
+  都必须有 `IApplicationAssociationRegistration.QueryCurrentDefault` 快照，目标数、
+  审计数和主快照数必须一致，且失败读取为 0。
   日志、注册表交叉证据或旧审计不能代替这些条件。
 - 重启不能修复永久性条件，例如 Media Player 未安装、被系统策略禁止、安装包
   损坏或端口长期冲突。连续失败会进入退避，避免反复启动。看门狗、诊断和
@@ -194,25 +226,42 @@ DefaultAppGuard Community
   文件内容，也不会上传。连续恢复失败会按 5、10、20、40、60 分钟逐步退避，
   以防损坏安装或端口冲突造成反复启动；退避期间 Agent 可能暂时不可用。普通用户
   应重新运行 Setup 进行修复，并提交诊断 JSON，而不是反复手动启动程序。
-- 0.1.15 将当前设置保存在
+- 0.2.0 将当前设置保存在
   %LOCALAPPDATA%\DefaultAppGuard\runtime\guard-configuration.json，并在同一
   目录保留 guard-configuration.json.bak 作为“上一份已知可用副本”。保存时先在
   同一目录写入临时文件、要求系统把数据刷新到存储，再使用 Windows 文件替换机制
   提交并更新 .bak。这可显著降低程序中断时只写入半份 JSON 的概率，但不能保证在
   硬盘故障、突然断电、文件系统损坏或恶意软件破坏时绝不丢失设置。
-- Agent 启动时会验证配置的 JSON、版本、保护模式和全部扩展名。主文件内容损坏而
+- Agent 启动时会验证配置的 JSON、schema 3、保护模式、目录类别、目标策略和全部
+  扩展名。非视频规则还必须有捕获时间和非空 ProgID。主文件内容损坏而
   .bak 有效时，会恢复上一份有效设置并报告 `backup-restored`。主文件和 .bak 都
   无效，或主文件丢失且仅剩无效 .bak 时，会报告 `defaults-restored`，恢复为保护
-  全部 34 种支持的视频格式并开启系统通知。出现 `defaults-restored` 后，请打开
-  应用核对选择；它表示自定义选择可能已无法恢复，不是普通的首次启动提示。
-- 成功恢复会显示在 `/api/health` 和诊断 schema 6 中。有效恢复本身是提示而不是
+  全部 34 种支持的视频格式并开启系统通知。此前的非视频选择及其基线不会被猜测
+  或自动重建。出现 `defaults-restored` 后，请打开应用核对选择；它表示自定义
+  选择可能已无法恢复，不是普通的首次启动提示。
+- 成功恢复会显示在 `/api/health` 和诊断 schema 7 中。有效恢复本身是提示而不是
   故障；诊断会给出 `configuration-backup-restored` 或
   `configuration-defaults-restored`，但不会包含配置文件原文。若诊断同时有 issue
-  code、Agent 无法启动或 34 项主 COM 审计不完整，则不能因为看见恢复提示就认为
+  code、Agent 无法启动或当前保护范围的主 COM 审计不完整，则不能因为看见恢复提示就认为
   程序健康。
-- 0.1.15 的应用界面会把最近一次有效恢复显示为不会自动消失的页面提示。“保护设置
+- 0.2.0 在“系统通知”开启且托盘通道可用时，会为每次启动恢复事件提交一次双语
+  托盘提醒。从有效备份恢复使用信息提示；恢复安全默认值使用警告提示。点击提醒会
+  打开本机应用。程序按恢复类型和恢复时间去重，同一次恢复不会每秒重复弹出。
+- 健康接口和诊断记录的是提醒已被 Agent 提交到 Windows 消息队列的类型和时间，
+  不是“Windows 已显示”或“用户已看见”的回执。专注助手、“请勿打扰”、通知权限、
+  Explorer 状态或组织策略仍可能隐藏可见气泡。不要把没有看到气泡当作恢复失败，
+  也不要把看到气泡当作主算法健康证明；应以应用内状态、完整主 COM 审计和诊断为准。
+- 配置恢复提醒有独立的最后排队记录，后续默认应用偏移提醒不会覆盖它。诊断要求
+  恢复提醒类型与恢复代码一致，并且排队时间不早于恢复时间；不满足时报告
+  `configuration-recovery-notification-missing`。该检查只验证通知队列机制，不参与
+  默认应用查询或监控，也不能替代主算法。
+- 用户关闭“系统通知”时，配置恢复仍会执行，应用内的持久恢复提示仍会显示，但不会
+  提交系统气泡。重新开启通知不会追补已经被禁用状态跳过的旧恢复气泡；用户应直接
+  在应用中检查保护范围。
+- 0.2.0 的应用界面会把最近一次有效恢复显示为不会自动消失的页面提示。“保护设置
   已从备份恢复”表示上一份有效选择已经恢复；“保护设置已恢复为安全默认值”表示两份
-  配置均不可用，程序已保护全部 34 种格式并开启通知，但原来的自定义选择可能丢失。
+  配置均不可用，程序已恢复 34 种视频安全默认保护并开启通知，但原来的非视频
+  自定义选择和基线可能丢失。
   普通用户应选择“检查保护范围”，核对需要监控的格式，再按正常流程保存。
 - 关闭该页面提示只表示用户已经看过这一次恢复事件，不会关闭监控、删除备份、修改
   扩展名选择或清除诊断记录。确认键只保存在当前应用使用的本机浏览器存储中，不会
@@ -234,6 +283,9 @@ DefaultAppGuard Community
 
 - 当前版本不包含向外发送的遥测、广告、云同步或主动外网请求。
 - 状态和配置默认保存在 %LOCALAPPDATA%\DefaultAppGuard 下。
+- schema 3 配置会在本机保存所选扩展名，以及非视频基线的 ProgID、可用时的应用
+  名称和包 ID、捕获时间。这些信息用于判断偏移，不含用户文件内容，但可能反映
+  电脑上安装和使用的软件；公开配置文件前应先检查并脱敏。
 - 配置恢复完全在本机进行；健康接口和诊断只报告固定的存储名称、是否有备份、
   恢复类型和时间，不会上传或复制用户选择的扩展名列表。
 - 运行日志默认保存在 %LOCALAPPDATA%\DefaultAppGuard\runtime\logs。它们不会
@@ -267,7 +319,9 @@ English
 
 - Operating system: Windows 11 x64.
 - Fully validated environment: Windows 11 25H2, build 26200.
-- Target application: Microsoft Media Player must be installed.
+- Video target: Microsoft Media Player must be installed. Non-video formats
+  have no universal target; after explicit selection, the Agent records the
+  format's currently effective Windows default as its baseline.
 - Account: a normal interactive Windows user account is required.
 - Installation: per-user under %LOCALAPPDATA%; administrator rights are
   normally not required.
@@ -315,8 +369,8 @@ English
   policy. The uninstaller verifies product name, install location, manifest,
   and install state before removing its registry key, task, or directories.
 - Upgrades use staging, replacement, readiness verification, and rollback. The
-  upgrade is committed only after the new Agent resolves Microsoft Media
-  Player, produces primary COM-query evidence for every protected format, and passes process-identity and
+  upgrade is committed only after the new Agent resolves the per-format target,
+  produces primary COM-query evidence for every protected format, and passes process-identity and
   no-console checks. Existing association drift is reported but is not treated
   as a setup failure.
 - The current EXE, PowerShell scripts, and module do not carry an
@@ -331,7 +385,7 @@ English
 
 3.1 Signing status of this version
 
-- Version 0.1.15 covered by this notice is an unsigned alpha release.
+- Version 0.2.0 covered by this notice is an unsigned alpha release.
 - DefaultAppGuard.Agent.exe, DefaultAppGuard.Setup.exe, Install-DefaultAppGuard.ps1,
   Uninstall-DefaultAppGuard.ps1, Get-DefaultAppGuardDiagnostics.ps1, and
   DefaultAppGuard.Package.psm1 do not have a publisher signature trusted by
@@ -368,7 +422,7 @@ Consider installing this unsigned alpha only when every item below is true:
 3) Download the matching .sha256 file and verify the ZIP. Open PowerShell in
    the folder containing the ZIP and run:
 
-   Get-FileHash .\DefaultAppGuard-0.1.15-win-x64.zip -Algorithm SHA256
+   Get-FileHash .\DefaultAppGuard-0.2.0-win-x64.zip -Algorithm SHA256
 
    The 64-character hash must match the .sha256 file exactly. Do not run the
    package when even one character is different.
@@ -428,6 +482,14 @@ or ask a trusted person with Windows security experience to inspect it.
 - The primary query algorithm uses
   IApplicationAssociationRegistration.QueryCurrentDefault to read the
   effective Windows default handler.
+- Video formats target the locally resolved Microsoft Media Player. Audio,
+  document, image, archive, and web/data formats enter protection only after
+  explicit user selection. The Agent records their current handler through the
+  same primary COM query; the frontend cannot submit or forge a ProgID.
+- Existing non-video baselines remain unchanged unless the user explicitly
+  selects **Update to current default** and saves. Legacy migration never adds
+  non-video formats automatically, because the current association may already
+  have been changed before migration.
 - UserChoice registry data is cross-evidence only, never a fallback result.
 - The primary monitor algorithm uses RegNotifyChangeKeyValue on the current
   user's FileExts tree.
@@ -465,8 +527,16 @@ or ask a trusted person with Windows security experience to inspect it.
   RegNotifyChangeKeyValue monitor, and periodic readback running. Setup, the
   watchdog, and diagnostics treat an unavailable tray channel as a fault, but
   the application cannot guarantee that Windows will visibly render a balloon.
-- The current version protects video extensions only and targets the locally
-  resolved Microsoft Media Player installation.
+- The current version accepts a curated catalog of video, audio, document,
+  image, archive, and web/data extensions. Arbitrary extensions outside that
+  catalog are rejected. Video targets the locally resolved Microsoft Media
+  Player; non-video targets use an explicitly saved current-default baseline.
+- Before recording a non-video baseline, confirm that Windows currently names
+  the application you actually want. If WPS, Quark, or another program already
+  changed the default and you then choose **Update to current default**, the
+  Agent correctly records that changed value and will no longer report it as
+  drift. First restore the intended app in Windows Default Apps, then update
+  the baseline and run an immediate recheck.
 - One instance is supported per signed-in user. Each Windows user must install
   and configure the application separately.
 - The background Agent and scheduled task use a small amount of memory, CPU,
@@ -501,8 +571,9 @@ or ask a trusted person with Windows security experience to inspect it.
   and local HTTP endpoint still respond. The watchdog attempts recovery on its
   next five-minute check, so a bounded detection and recovery window remains.
 - The watchdog requires both process liveness and fresh, complete primary COM
-  evidence. All 34 formats must have an
-  `IApplicationAssociationRegistration.QueryCurrentDefault` snapshot and zero
+  evidence. Every configured protected format must have an
+  `IApplicationAssociationRegistration.QueryCurrentDefault` snapshot; expected
+  target count, audit count, and primary snapshot count must match, with zero
   failed reads. Logs, registry cross-evidence, and old audits cannot substitute.
 - Restarting cannot repair permanent conditions such as a missing Media Player,
   organization policy, package corruption, or a persistent port conflict.
@@ -517,7 +588,7 @@ or ask a trusted person with Windows security experience to inspect it.
   damaged install or port conflict from causing a restart storm. The Agent may
   remain unavailable during backoff. Non-technical users should rerun Setup for
   repair and submit the diagnostics JSON instead of repeatedly launching files.
-- Version 0.1.15 stores current settings in
+- Version 0.2.0 stores current settings in
   %LOCALAPPDATA%\DefaultAppGuard\runtime\guard-configuration.json and keeps
   guard-configuration.json.bak beside it as the previous last-known-good copy.
   A save first writes a temporary file in the same directory, requests a flush
@@ -525,24 +596,51 @@ or ask a trusted person with Windows security experience to inspect it.
   rotating the `.bak` copy. This substantially reduces partial JSON writes
   after interruption, but it cannot guarantee survival of disk failure, sudden
   power loss, filesystem damage, or malicious modification.
-- At startup, the Agent validates JSON, schema, protection mode, and every
-  extension. Invalid primary content with a valid `.bak` is restored and
+- At startup, the Agent validates JSON, schema 3, protection mode, catalog
+  category, target strategy, and every extension. Non-video rules also require
+  a capture timestamp and non-empty ProgID. Invalid primary content with a valid `.bak` is restored and
   reported as `backup-restored`. If both copies are invalid, or the primary is
   missing and the remaining backup is invalid, the Agent reports
   `defaults-restored` and enables protection for all 34 supported video formats
-  plus system notifications. After `defaults-restored`, open the application
-  and review the selection: custom choices may no longer be recoverable.
-- A successful recovery appears in `/api/health` and diagnostics schema 6.
+  plus system notifications. Prior non-video choices and baselines are neither
+  guessed nor silently recreated. After `defaults-restored`, open the
+  application and review the selection: custom choices may no longer be recoverable.
+- A successful recovery appears in `/api/health` and diagnostics schema 7.
   Recovery is a notice rather than a fault when every health check passes;
   diagnostics uses `configuration-backup-restored` or
   `configuration-defaults-restored` without including raw configuration
-  contents. An issue code, a failed Agent start, or incomplete 34-format primary
+  contents. An issue code, a failed Agent start, or an incomplete primary
   COM evidence still means the installation is not healthy.
-- In version 0.1.15, the application shows the latest valid recovery as a
+- In version 0.2.0, when System notifications are enabled and the tray channel
+  is available, the Agent queues one bilingual tray alert for each startup
+  recovery event. Backup restoration uses an informational alert; safe-default
+  restoration uses a warning. Clicking the alert opens the local application.
+  Recovery type and timestamp form the deduplication key, so one event is not
+  queued repeatedly every second.
+- Health and diagnostics record when the Agent accepted an alert into the
+  Windows message queue. They do not claim that Windows rendered it or that the
+  user saw it. Focus Assist, Do Not Disturb, notification permissions, Explorer
+  state, and organization policy can still suppress the visible balloon. Do not
+  treat an absent balloon as failed recovery or a visible balloon as proof that
+  the primary algorithm is healthy; use application state, the complete COM
+  audit, and diagnostics.
+- Configuration recovery has dedicated last-queued evidence, so a later
+  association-drift alert cannot overwrite it. Diagnostics requires the queued
+  kind to match the recovery code and the queue timestamp not to predate the
+  recovery. Otherwise it reports
+  `configuration-recovery-notification-missing`. This validates only the
+  notification queue mechanism and never replaces default-app query or monitor
+  evidence.
+- When the user disables System notifications, recovery still occurs and the
+  persistent in-application recovery notice still appears, but no system
+  balloon is queued. Re-enabling notifications does not replay an old recovery
+  alert skipped while disabled; review the protected scope in the application.
+- In version 0.2.0, the application shows the latest valid recovery as a
   persistent page notice. "Protection settings restored from backup" means the
   previous valid selection was recovered. "Protection settings restored to safe
-  defaults" means neither configuration copy was usable; all 34 formats and
-  notifications were enabled, but prior custom selections may have been lost.
+  defaults" means neither configuration copy was usable; all 34 video safe
+  defaults and notifications were enabled, but prior non-video selections and
+  baselines may have been lost.
   Select the review action, verify the protected formats, then save normally.
 - Dismissing the notice only acknowledges that one recovery event. It does not
   stop monitoring, delete the backup, change extensions, or remove diagnostics.
@@ -573,6 +671,10 @@ or ask a trusted person with Windows security experience to inspect it.
 - The current version sends no telemetry outside the computer and contains no
   advertising, cloud sync, or proactive outbound network request.
 - Configuration and status are stored under %LOCALAPPDATA%\DefaultAppGuard.
+- Schema 3 configuration locally stores selected extensions and each non-video
+  baseline's ProgID, application name and package ID when available, and
+  capture time. It contains no user-file contents, but it may reveal installed
+  or used software; review and redact it before sharing.
 - Configuration recovery is entirely local. Health and diagnostics report only
   fixed storage names, backup availability, recovery type, and time; they do
   not upload or copy the user's selected extension list.
@@ -613,19 +715,25 @@ license text, and this notice file.
 
 中文：
 
-- 0.1.15 保留基于真实审计时间的就绪新鲜度判定。默认 15 分钟周期复检对应
-  18 分 45 秒最长证据年龄；看门狗必须同时通过存活检查和新鲜、完整的 34 项
-  主 COM 证据检查。诊断 schema 6 会独立计算并报告该证据年龄和配置恢复状态。
-- 0.1.15 的精确包门禁会写坏已安装的主配置文件、终止 Agent，并要求正式计划任务
-  启动新进程、从已验证的 .bak 保留原设置、继续完成 34/34 主 COM 查询和第二次
+- 0.2.0 保留基于真实审计时间的就绪新鲜度判定。默认 15 分钟周期复检对应
+  18 分 45 秒最长证据年龄；看门狗必须同时通过存活检查和新鲜、完整的 40 项
+  主 COM 证据检查。诊断 schema 7 会独立计算并报告该证据年龄、配置恢复状态和
+  恢复通知排队证据。
+- 0.2.0 的精确包门禁会写坏已安装的主配置文件、终止 Agent，并要求正式计划任务
+  启动新进程、从已验证的 .bak 保留原设置、继续完成 40/40 主 COM 查询和第二次
   真实 RegNotifyChangeKeyValue 检查。`package-lifecycle.json` 必须记录
   `configurationPersistence.recoveryVerified: true`，并从恢复后的实包 Agent 下载
   前端资产，核验恢复代码、确认键和检查/关闭操作均已打包；否则禁止发布。
-- 0.1.15 的发布附件包含 SPDX 2.2 软件物料清单（SBOM）及其 SHA-256。
+  门禁还要求 `configurationRecoveryQueuedVerified: true`、精确的恢复通知类型以及
+  不早于恢复事件的排队时间；Windows 是否实际显示气泡不作为发布结果。
+- 0.2.0 的发布附件包含 SPDX 2.2 软件物料清单（SBOM）及其 SHA-256。
   SBOM 使用固定版本的 Microsoft SBOM Tool 生成，并在发布门禁中逐文件验证。
 - 发布门禁会先运行无控制台图形安装器的确切包验证，再安装即将发布的软件包，
-  并验证就绪端点、未过期的 34 项主 COM 查询证据、真实注册表通知、
+  并验证就绪端点、未过期的 40 项主 COM 查询证据（34 项视频加
+  `.pdf/.txt/.jpg/.png/.mp3/.zip` 六项真实非视频基线）、至少 3 个不同目标、
+  6 条 schema 3 捕获规则、真实注册表通知、
   WindowsForms.NotifyIcon 通道可用性和通知开关的关闭/恢复往返、
+  配置恢复通知的独立排队证据、
   真实 CLEF 日志写入、2 MiB/7 文件保留策略和仅元数据诊断、
   失败升级回滚、计划任务的参数/权限/触发器/单实例/重启配置、自动恢复、
   恢复记录、失败进程清理、重启风暴退避、无控制台运行、诊断健康和干净卸载。
@@ -633,29 +741,30 @@ license text, and this notice file.
   门禁会失败，不允许使用悄然滚动的新工具链发布。
 - 这些证据用于提高构建可追溯性和发现发布过程错误，不代表软件在所有电脑上
   都不会出现兼容性问题，也不能代替 Windows Authenticode 发布者签名。
-- 0.1.15 的普通 CI 会在明确指定的 `windows-2022` 和 `windows-2025` 两套
+- 0.2.0 的普通 CI 会在明确指定的 `windows-2022` 和 `windows-2025` 两套
   GitHub 托管 Windows Server 环境中分别运行完整便携测试，并为每套环境保存
   JSON 证据，其中包括请求标签、实际镜像族、每周镜像版本、OS build 和 x64 架构。
   这有助于发现构建工具或打包流程在不同服务器版本上的问题，但它不是对普通用户
   Windows 11 桌面环境的测试，也不会查询用户电脑上的真实默认应用。两个 CI 任务
-  即使都显示绿色，也不能代替下文的 34/34 主 COM 查询和真实注册表通知门禁。
+  即使都显示绿色，也不能代替下文的 40/40 主 COM 查询和真实注册表通知门禁。
   Windows Server 2022 低于本软件要求的 Windows 11 build，因此该任务必须确认
   Setup 以“不支持平台”退出码 4 拒绝安装；这不表示本软件支持 Server 2022。
   Server 2025 任务则必须让 Setup 的确切包验证以退出码 0 完成。
-- 对于 0.1.15 的未签名候选包，ZIP、SBOM 和 candidate-build.json 由明确指定
+- 对于 0.2.0 的未签名候选包，ZIP、SBOM 和 candidate-build.json 由明确指定
   `windows-2025` 标签的 GitHub 托管任务生成。candidate-build.json schema 2 会记录
   请求标签、实际 `win25` 镜像族、不可为空的镜像版本、Windows Server 2025
   build 26100 和 x64 架构；本地主算法晋级门禁会逐项核对。ZIP、SBOM 和构建记录
   还会分别附加 GitHub artifact attestation（构建来源证明）。发布维护者随后必须在
   配置了真实 Microsoft Media Player 默认关联的
   Windows 电脑上，对完全相同的 ZIP 运行本地主算法晋级门禁；该门禁不会重新
-  构建程序，并会再次检查来源提交、main 分支、文件哈希、安全解压、34 项主 COM
+  构建程序，并会再次检查来源提交、main 分支、文件哈希、安全解压、40 项主 COM
   查询、真实注册表通知、自动恢复、失败退避、回滚、诊断和卸载。
 - 普通用户不需要自行运行晋级脚本。下载页面应同时提供 candidate-build.json、
   release-gate.json、package-lifecycle.json 和 watchdog-backoff.json。缺少这些
   文件、release-gate.json 的 passed 不是 true、主算法不是
   IApplicationAssociationRegistration.QueryCurrentDefault 和
-  RegNotifyChangeKeyValue、primarySnapshotCount 不是 34、failedReadCount 不是 0、
+  RegNotifyChangeKeyValue、primarySnapshotCount 不是 40、capturedRuleCount 不是 6、
+  distinctTargetCount 小于 3、failedReadCount 不是 0、
   auditFresh 不是 true 或 auditAgeSeconds 大于 maximumAuditAgeSeconds
   时，不应把该附件视为通过本项目发布门禁。
 - GitHub 构建来源证明只能说明某个附件由指定仓库、工作流和提交生成；本机门禁
@@ -664,33 +773,40 @@ license text, and this notice file.
   Authenticode 代码签名。用户仍应只从官方 Releases 页面下载、核对 SHA-256、
   保持安全软件开启，并把本版本视为未签名 alpha。
 - 项目已经具备使用 Windows 证书存储或兼容 HSM 进行发布签名的构建入口；但是
-  本提示对应的 0.1.15 仍是未签名 alpha。只有当 GitHub 发布说明明确写明“已签名”、
+  本提示对应的 0.2.0 仍是未签名 alpha。只有当 GitHub 发布说明明确写明“已签名”、
   列出签名者，且 release-gate.json 显示所有受检文件签名有效并已加时间戳时，
   才能把某个未来版本视为已签名版本。
 
 English:
 
-- Version 0.1.15 retains readiness freshness based on the real audit timestamp.
+- Version 0.2.0 retains readiness freshness based on the real audit timestamp.
   The default 15-minute periodic audit gives evidence a maximum age of 18
   minutes 45 seconds. The watchdog requires both liveness and fresh, complete
-  primary COM evidence for all 34 formats. Diagnostics schema 6 independently
-  calculates and reports that evidence age and configuration recovery state.
-- The exact-package gate for 0.1.15 corrupts the installed primary
+  primary COM evidence for all 40 release-gate formats. Diagnostics schema 7 independently
+  calculates and reports that evidence age, configuration recovery state, and
+  recovery-notification queue evidence.
+- The exact-package gate for 0.2.0 corrupts the installed primary
   configuration, terminates the Agent, and requires the production scheduled
   task to start a new process, preserve settings from the validated `.bak`,
-  complete 34/34 primary COM queries, and pass the second real
+  complete 40/40 primary COM queries, and pass the second real
   RegNotifyChangeKeyValue check. Publication is blocked unless
   `package-lifecycle.json` records
   `configurationPersistence.recoveryVerified: true`, and it downloads the UI
   assets from the recovered packaged Agent to verify that the recovery codes,
   acknowledgement key, review action, and dismiss action were shipped.
-- Version 0.1.15 release assets include an SPDX 2.2 software bill of materials
+  The gate also requires `configurationRecoveryQueuedVerified: true`, the exact
+  recovery-notification kind, and a queue timestamp not earlier than recovery.
+  Visible Windows rendering is deliberately not a release result.
+- Version 0.2.0 release assets include an SPDX 2.2 software bill of materials
   (SBOM) and its SHA-256. The pinned Microsoft SBOM Tool generates it, and the
   release gate validates every packaged file against it.
 - The release gate first runs the graphical no-console Setup verifier, then
   installs the exact package and verifies readiness, unexpired primary COM evidence for
-  all 34 formats, real registry notification, WindowsForms.NotifyIcon channel
-  availability, notification-preference disable/restore round-trip, failed-upgrade
+  all 40 formats (34 video plus six captured non-video), six schema 3 captured
+  rules, at least three distinct targets, real registry notification,
+  WindowsForms.NotifyIcon channel
+  availability, notification-preference disable/restore round-trip, dedicated
+  configuration-recovery queue evidence, failed-upgrade
   rollback, real CLEF log writing, 2 MiB/seven-file retention, metadata-only
   log diagnostics,
   scheduled-task arguments, privilege, triggers, single-instance and
@@ -703,18 +819,18 @@ English:
 - This evidence improves build traceability and catches release-process
   failures. It does not guarantee compatibility on every computer and does not
   replace a trusted Windows Authenticode publisher signature.
-- Version 0.1.15 portable CI runs independently on the explicit
+- Version 0.2.0 portable CI runs independently on the explicit
   `windows-2022` and `windows-2025` GitHub-hosted Windows Server labels. Each
   job retains JSON evidence with the requested label, actual image family,
   weekly image version, OS build, and x64 architecture. This detects build and
   packaging incompatibilities across those Server environments. It does not
   test a normal user's Windows 11 desktop default-app state. Two green CI jobs
-  never replace the 34/34 primary COM audit and real registry-notification gate
+  never replace the 40/40 primary COM audit and real registry-notification gate
   described below. Windows Server 2022 is below the required Windows 11 build,
   so that job must prove Setup rejects installation with unsupported-platform
   exit code 4; this does not mean Server 2022 is supported. The Server 2025 job
   requires Setup exact-package verification to finish with exit code 0.
-- For the unsigned 0.1.15 candidate, a GitHub-hosted build explicitly requests
+- For the unsigned 0.2.0 candidate, a GitHub-hosted build explicitly requests
   `windows-2025` and creates the
   ZIP, SBOM, and candidate-build.json and attaches a separate GitHub artifact
   attestation to each. Candidate-build.json schema 2 records the requested
@@ -724,7 +840,7 @@ English:
   must then run the local main-algorithm
   promotion gate on a Windows computer whose real default associations target
   Microsoft Media Player. That gate does not rebuild the program. It rechecks
-  the source commit, main ref, hashes, safe extraction, all 34 primary COM
+  the source commit, main ref, hashes, safe extraction, all 40 primary COM
   queries, real registry notification, recovery, failure backoff, rollback,
   diagnostics, and uninstall against the exact same ZIP.
 - End users do not need to run the promotion script. The download page should
@@ -732,7 +848,8 @@ English:
   and watchdog-backoff.json. Do not treat an asset as release-gate approved if
   these files are missing, release-gate.json does not say `passed: true`, the
   main algorithms are not IApplicationAssociationRegistration.QueryCurrentDefault
-  and RegNotifyChangeKeyValue, primarySnapshotCount is not 34, or
+  and RegNotifyChangeKeyValue, primarySnapshotCount is not 40,
+  capturedRuleCount is not six, distinctTargetCount is below three, or
   failedReadCount is not zero, auditFresh is not true, or auditAgeSeconds is
   greater than maximumAuditAgeSeconds.
 - GitHub build provenance only states that an artifact came from the named
@@ -744,7 +861,7 @@ English:
   SHA-256, keep security software enabled, and continue to treat this version
   as an unsigned alpha.
 - The build now supports release signing through the Windows certificate store
-  or a compatible HSM. However, version 0.1.15 covered by this notice remains an
+  or a compatible HSM. However, version 0.2.0 covered by this notice remains an
   unsigned alpha. Treat a future version as signed only when its GitHub release
   notes explicitly say so, name the signer, and release-gate.json reports valid,
   timestamped signatures for every checked file.

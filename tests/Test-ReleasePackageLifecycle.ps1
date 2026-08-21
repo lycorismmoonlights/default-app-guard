@@ -13,11 +13,14 @@ param(
     [ValidateRange(30, 180)]
     [int]$WatchdogTimeoutSeconds = 120,
     [ValidateRange(1, 100)]
-    [int]$ExpectedExtensionCount = 34
+    [int]$ExpectedExtensionCount = 40
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "RegistryTestIsolation.psm1") -Force
+$defaultVideoExtensionCount = 34
+$genericTestExtensions = @(".pdf", ".txt", ".jpg", ".png", ".mp3", ".zip")
 
 function Assert-True {
     param(
@@ -205,7 +208,14 @@ function Wait-AgentHealthy {
                         [int64]$health.MaximumAuditAgeSeconds -or
                     [int64]$readiness.AuditAgeSeconds -gt
                         [int64]$readiness.MaximumAuditAgeSeconds -or
-                    [int]$readiness.AuditedExtensionCount -le 0 -or
+                    [int]$readiness.ExpectedHandlerCount -le 0 -or
+                    [int]$readiness.ResolvedHandlerCount -ne
+                        [int]$readiness.ExpectedHandlerCount -or
+                    [int]$readiness.DistinctTargetCount -le 0 -or
+                    [int]$readiness.DistinctTargetCount -gt
+                        [int]$readiness.ExpectedHandlerCount -or
+                    [int]$readiness.AuditedExtensionCount -ne
+                        [int]$readiness.ExpectedHandlerCount -or
                     [int]$readiness.PrimarySnapshotCount -ne
                         [int]$readiness.AuditedExtensionCount -or
                     [int]$readiness.FailedReadCount -ne 0) {
@@ -318,6 +328,9 @@ if ($preexistingAgents.Count -ne 0) {
         "The release lifecycle test requires a dedicated runner with no " +
         "pre-existing DefaultAppGuard.Agent process.")
 }
+$watchdogRegistrySubKeyPath = "Software\DefaultAppGuard\Watchdog"
+$watchdogRegistrySnapshot = Get-DagRegistryTreeSnapshot `
+    -SubKeyPath $watchdogRegistrySubKeyPath
 
 $installPath = Join-Path $workPath "install"
 $dataPath = Join-Path $workPath "data"
@@ -342,6 +355,8 @@ $installedSetupExecutable = Join-Path $installPath `
 $installerPath = Join-Path $packagePath `
     "Install-DefaultAppGuard.ps1"
 $setupInstallResultPath = Join-Path $workPath "setup-install-result.json"
+$setupInstallOutputPath = Join-Path $workPath "setup-install.stdout.log"
+$setupInstallErrorPath = Join-Path $workPath "setup-install.stderr.log"
 $originalAppData = $env:APPDATA
 $isolatedAppData = Join-Path $workPath "profile\AppData\Roaming"
 $shortcutPath = Join-Path $isolatedAppData `
@@ -363,6 +378,8 @@ $uninstallRegistrationVerified = $false
 $taskConfigurationVerified = $false
 $notificationConfigurationVerified = $false
 $configurationRecoveryVerified = $false
+$configurationRecoveryNotificationVerified = $false
+$configurationRecoveryNotificationHealth = $null
 $configurationSettingsPreserved = $false
 $configurationRecoveryUiEvidence = $null
 
@@ -466,10 +483,35 @@ try {
         -FilePath $setupExecutable `
         -ArgumentList $setupInstallArguments `
         -WindowStyle Hidden `
+        -RedirectStandardOutput $setupInstallOutputPath `
+        -RedirectStandardError $setupInstallErrorPath `
         -Wait `
         -PassThru
-    Assert-True ($setupInstall.ExitCode -eq 0) `
-        "The graphical Setup launcher failed to install the release package."
+    if ($setupInstall.ExitCode -ne 0) {
+        $setupFailureDetails = @(
+            foreach ($path in @(
+                    $setupInstallErrorPath,
+                    $setupInstallOutputPath)) {
+                if (Test-Path -LiteralPath $path -PathType Leaf) {
+                    $setupLogText = Get-Content `
+                        -LiteralPath $path `
+                        -Raw `
+                        -Encoding UTF8
+                    if (-not [string]::IsNullOrWhiteSpace($setupLogText)) {
+                        $setupLogText
+                    }
+                }
+            }) |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+        [string]$setupFailureText = $setupFailureDetails -join " "
+        $setupFailureText = $setupFailureText.Trim()
+        if ($setupFailureText.Length -gt 2000) {
+            $setupFailureText = $setupFailureText.Substring(0, 2000) + "..."
+        }
+        throw (
+            "The graphical Setup launcher failed with exit code " +
+            "$($setupInstall.ExitCode). $setupFailureText")
+    }
     Assert-True (Test-Path `
         -LiteralPath $setupInstallResultPath `
         -PathType Leaf) `
@@ -517,11 +559,17 @@ try {
     Assert-True ($installResult.ReadinessCode -eq "ready") `
         "The installed candidate reported an unexpected readiness code."
     Assert-True ([int]$installResult.AuditedExtensionCount -eq
-        $ExpectedExtensionCount) `
+        $defaultVideoExtensionCount) `
         "The readiness gate did not audit every declared extension."
     Assert-True ([int]$installResult.PrimarySnapshotCount -eq
-        $ExpectedExtensionCount) `
+        $defaultVideoExtensionCount) `
         "The readiness gate did not obtain primary COM evidence for every extension."
+    Assert-True ([int]$installResult.ExpectedHandlerCount -eq
+            $defaultVideoExtensionCount -and
+        [int]$installResult.ResolvedHandlerCount -eq
+            $defaultVideoExtensionCount -and
+        [int]$installResult.DistinctTargetCount -eq 1) `
+        "The fresh installation did not resolve its video target set."
     Assert-True ([int]$installResult.FailedReadCount -eq 0) `
         "The readiness gate reported failed primary association reads."
     Assert-True ([bool]$installResult.AuditFresh -and
@@ -547,12 +595,12 @@ try {
     $initialConfiguration = Invoke-RestMethod `
         -Uri "$agentUrl/api/config" `
         -TimeoutSec 2
-    Assert-True ([int]$initialConfiguration.schemaVersion -eq 2) `
-        "The installed candidate did not migrate to configuration schema 2."
+    Assert-True ([int]$initialConfiguration.schemaVersion -eq 3) `
+        "The installed candidate did not use configuration schema 3."
     Assert-True ([bool]$initialConfiguration.notificationsEnabled) `
         "The installed candidate's notifications were not enabled."
-    Assert-True (@($initialConfiguration.protectedVideoExtensions).Count -eq
-        $ExpectedExtensionCount) `
+    Assert-True (@($initialConfiguration.protectedAssociations).Count -eq
+        $defaultVideoExtensionCount) `
         "The installed candidate's configuration lost protected extensions."
     $localClientHeaders = @{
         "X-DefaultAppGuard-Client" = "local-ui"
@@ -568,8 +616,8 @@ try {
         $disabledConfiguration.configuration.notificationsEnabled)) `
         "The notification preference could not be disabled."
     Assert-True (@(
-        $disabledConfiguration.configuration.protectedVideoExtensions
-    ).Count -eq $ExpectedExtensionCount) `
+        $disabledConfiguration.configuration.protectedAssociations
+    ).Count -eq $defaultVideoExtensionCount) `
         "A notification-only update changed protected extensions."
     $disabledHealth = Invoke-RestMethod `
         -Uri "$agentUrl/api/health" `
@@ -586,10 +634,119 @@ try {
     $notificationConfigurationVerified =
         [bool]$enabledConfiguration.configuration.notificationsEnabled -and
         @(
-            $enabledConfiguration.configuration.protectedVideoExtensions
-        ).Count -eq $ExpectedExtensionCount
+            $enabledConfiguration.configuration.protectedAssociations
+        ).Count -eq $defaultVideoExtensionCount
     Assert-True $notificationConfigurationVerified `
         "The notification preference could not be restored safely."
+
+    [object[]]$associationCatalog = Invoke-RestMethod `
+        -Uri "$agentUrl/api/association-catalog" `
+        -TimeoutSec 2
+    Assert-True ($associationCatalog.Count -gt $ExpectedExtensionCount) `
+        "The packaged association catalog was not expanded into individual entries."
+    foreach ($extension in $genericTestExtensions) {
+        Assert-True (@(
+            $associationCatalog |
+                Where-Object { $_.extension -eq $extension }
+        ).Count -eq 1) `
+            "The packaged association catalog is missing $extension."
+    }
+    $inspectionBody = @{
+        extensions = $genericTestExtensions
+    } | ConvertTo-Json -Depth 3
+    [object[]]$genericInspections = Invoke-RestMethod `
+        -Uri "$agentUrl/api/associations/inspect" `
+        -Method Post `
+        -Headers $localClientHeaders `
+        -ContentType "application/json" `
+        -Body $inspectionBody `
+        -TimeoutSec 10
+    Assert-True ($genericInspections.Count -eq $genericTestExtensions.Count) `
+        "The packaged inspection API returned an unexpected result count."
+    foreach ($extension in $genericTestExtensions) {
+        $inspection = @(
+            $genericInspections |
+                Where-Object { $_.extension -eq $extension })
+        $inspectionPassed = $inspection.Count -eq 1 -and
+            $null -ne $inspection[0].snapshot -and
+            [string]::IsNullOrWhiteSpace([string]$inspection[0].error) -and
+            [string]$inspection[0].snapshot.querySource -eq
+                "IApplicationAssociationRegistration.QueryCurrentDefault" -and
+            -not [string]::IsNullOrWhiteSpace(
+                [string]$inspection[0].snapshot.effectiveProgId)
+        if (-not $inspectionPassed) {
+            $inspectionError = if ($inspection.Count -eq 1) {
+                "hasSnapshot=$($null -ne $inspection[0].snapshot); " +
+                "querySource=$([string]$inspection[0].snapshot.querySource); " +
+                "effectiveProgId=$([string]$inspection[0].snapshot.effectiveProgId); " +
+                "error=$([string]$inspection[0].error)"
+            } else {
+                "response-count=$($inspection.Count)"
+            }
+            throw (
+                "The packaged primary COM inspection failed for " +
+                "$extension. $inspectionError")
+        }
+    }
+    $videoExtensions = @(
+        $initialConfiguration.protectedAssociations |
+            ForEach-Object { [string]$_.extension })
+    $expandedConfigurationBody = @{
+        protectedExtensions = @($videoExtensions + $genericTestExtensions)
+        captureCurrentExtensions = $genericTestExtensions
+        notificationsEnabled = $true
+    } | ConvertTo-Json -Depth 4
+    $expandedConfiguration = Invoke-RestMethod `
+        -Uri "$agentUrl/api/config" `
+        -Method Put `
+        -Headers $localClientHeaders `
+        -ContentType "application/json" `
+        -Body $expandedConfigurationBody `
+        -TimeoutSec 20
+    $expandedRules = @(
+        $expandedConfiguration.configuration.protectedAssociations)
+    $capturedRules = @(
+        $expandedRules |
+            Where-Object {
+                $_.targetStrategy -eq "captured-current"
+            })
+    Assert-True ([int]$expandedConfiguration.configuration.schemaVersion -eq 3 -and
+        $expandedRules.Count -eq $ExpectedExtensionCount -and
+        $capturedRules.Count -eq $genericTestExtensions.Count) `
+        "The packaged Agent did not persist the generalized protection scope."
+    foreach ($rule in $capturedRules) {
+        Assert-True (
+            $genericTestExtensions -contains [string]$rule.extension -and
+            -not [string]::IsNullOrWhiteSpace([string]$rule.expectedProgId) -and
+            -not [string]::IsNullOrWhiteSpace([string]$rule.capturedAtUtc)) `
+            "A generalized protection rule lacks a captured COM baseline."
+    }
+    $expandedAuditItems = @($expandedConfiguration.status.audit.items)
+    $expandedPrimarySnapshots = @(
+        $expandedAuditItems |
+            Where-Object {
+                $_.snapshot.querySource -eq
+                    "IApplicationAssociationRegistration.QueryCurrentDefault"
+            })
+    Assert-True ([bool]$expandedConfiguration.status.audit.healthy -and
+        $expandedAuditItems.Count -eq $ExpectedExtensionCount -and
+        $expandedPrimarySnapshots.Count -eq $ExpectedExtensionCount) `
+        "The generalized scope did not complete its primary COM audit."
+    $expandedReadiness = Invoke-RestMethod `
+        -Uri "$agentUrl/api/readiness" `
+        -TimeoutSec 5
+    Assert-True ([bool]$expandedReadiness.ready -and
+        [int]$expandedReadiness.expectedHandlerCount -eq
+            $ExpectedExtensionCount -and
+        [int]$expandedReadiness.resolvedHandlerCount -eq
+            $ExpectedExtensionCount -and
+        [int]$expandedReadiness.auditedExtensionCount -eq
+            $ExpectedExtensionCount -and
+        [int]$expandedReadiness.primarySnapshotCount -eq
+            $ExpectedExtensionCount -and
+        [int]$expandedReadiness.failedReadCount -eq 0 -and
+        [int]$expandedReadiness.distinctTargetCount -ge 3) `
+        "The generalized scope did not pass the packaged readiness gate."
 
     $uninstallKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
         $uninstallSubKeyPath)
@@ -667,7 +824,7 @@ try {
     Assert-True ([bool](
         $preparedConfiguration.configuration.notificationsEnabled) -and
         @(
-            $preparedConfiguration.configuration.protectedVideoExtensions
+            $preparedConfiguration.configuration.protectedAssociations
         ).Count -eq $ExpectedExtensionCount) `
         "The recovery fixture could not prepare the expected configuration."
     Assert-True (Test-Path -LiteralPath $configurationBackupPath -PathType Leaf) `
@@ -791,7 +948,7 @@ try {
         -TimeoutSec 2
     $configurationSettingsPreserved =
         [bool]$recoveredConfiguration.notificationsEnabled -and
-        @($recoveredConfiguration.protectedVideoExtensions).Count -eq
+        @($recoveredConfiguration.protectedAssociations).Count -eq
             $ExpectedExtensionCount
     Assert-True $configurationSettingsPreserved `
         "Configuration recovery did not preserve the expected settings."
@@ -800,18 +957,41 @@ try {
         -Raw `
         -Encoding UTF8 |
         ConvertFrom-Json
-    Assert-True ([int]$restoredConfigurationOnDisk.schemaVersion -eq 2 -and
+    Assert-True ([int]$restoredConfigurationOnDisk.schemaVersion -eq 3 -and
         [bool]$restoredConfigurationOnDisk.notificationsEnabled -and
-        @($restoredConfigurationOnDisk.protectedVideoExtensions).Count -eq
+        @($restoredConfigurationOnDisk.protectedAssociations).Count -eq
             $ExpectedExtensionCount) `
         "The recovered configuration file is not valid or complete."
     $configurationRecoveryVerified = $true
+    $notificationDeadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        $configurationRecoveryNotificationHealth = Invoke-RestMethod `
+            -Uri "$agentUrl/api/health" `
+            -TimeoutSec 2
+        $recoveredAtUtc = [DateTimeOffset]::MinValue
+        $queuedAtUtc = [DateTimeOffset]::MinValue
+        $configurationRecoveryNotificationVerified =
+            [string]$configurationRecoveryNotificationHealth.ConfigurationRecoveryNotificationLastQueuedKind -eq
+                "configuration-backup-restored" -and
+            [DateTimeOffset]::TryParse(
+                [string]$configurationRecoveryNotificationHealth.ConfigurationRecoveredAtUtc,
+                [ref]$recoveredAtUtc) -and
+            [DateTimeOffset]::TryParse(
+                [string]$configurationRecoveryNotificationHealth.ConfigurationRecoveryNotificationLastQueuedAtUtc,
+                [ref]$queuedAtUtc) -and
+            $queuedAtUtc -ge $recoveredAtUtc
+        if (-not $configurationRecoveryNotificationVerified) {
+            Start-Sleep -Milliseconds 250
+        }
+    } while (-not $configurationRecoveryNotificationVerified -and
+        [DateTime]::UtcNow -lt $notificationDeadline)
+    Assert-True $configurationRecoveryNotificationVerified `
+        "The configuration recovery notification was not queued."
     $configurationRecoveryUiEvidence = Get-PackagedRecoveryUiEvidence `
         -AgentUrl $agentUrl
     $recoveredTask = Wait-WatchdogTaskReady `
         -TaskName $taskName `
         -Deadline ([DateTime]::UtcNow.AddSeconds(20))
-    $watchdogRegistrySubKeyPath = "Software\DefaultAppGuard\Watchdog"
     $watchdogKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
         $watchdogRegistrySubKeyPath)
     Assert-True ($null -ne $watchdogKey) `
@@ -913,12 +1093,18 @@ try {
     Assert-True ([int]$diagnosticsReport.mainAlgorithm.extensionCount -eq
         $ExpectedExtensionCount) `
         "Diagnostics did not report every declared extension."
+    Assert-True ([int]$diagnosticsReport.mainAlgorithm.expectedHandlerCount -eq
+            $ExpectedExtensionCount -and
+        [int]$diagnosticsReport.mainAlgorithm.resolvedHandlerCount -eq
+            $ExpectedExtensionCount -and
+        [int]$diagnosticsReport.mainAlgorithm.distinctTargetCount -ge 3) `
+        "Diagnostics did not validate the generalized target set."
     Assert-True ([bool]$diagnosticsReport.uninstallRegistration.healthy) `
         "Diagnostics rejected the standard uninstall registration."
     Assert-True ([bool]$diagnosticsReport.scheduledTask.configurationHealthy) `
         "Diagnostics rejected the installed watchdog configuration."
-    Assert-True ([int]$diagnosticsReport.schemaVersion -eq 6) `
-        "Diagnostics did not use the configuration-recovery schema."
+    Assert-True ([int]$diagnosticsReport.schemaVersion -eq 7) `
+        "Diagnostics did not use the recovery-notification schema."
     Assert-True ([bool]$diagnosticsReport.configurationPersistence.healthy -and
         [bool]$diagnosticsReport.configurationPersistence.backupAvailable -and
         [bool]$diagnosticsReport.configurationPersistence.recovered -and
@@ -937,7 +1123,14 @@ try {
     Assert-True ($diagnosticsReport.notifications.channel -eq
         "WindowsForms.NotifyIcon" -and
         [bool]$diagnosticsReport.notifications.available -and
-        [bool]$diagnosticsReport.notifications.enabled) `
+        [bool]$diagnosticsReport.notifications.enabled -and
+        [bool]$diagnosticsReport.notifications.telemetryHealthy -and
+        [bool]$diagnosticsReport.notifications.configurationRecoveryExpected -and
+        [bool]$diagnosticsReport.notifications.configurationRecoveryQueuedVerified -and
+        [string]$diagnosticsReport.notifications.configurationRecoveryLastQueuedKind -eq
+            "configuration-backup-restored" -and
+        -not [string]::IsNullOrWhiteSpace(
+            [string]$diagnosticsReport.notifications.configurationRecoveryLastQueuedAtUtc)) `
         "Diagnostics rejected the notification channel."
     Assert-True ($diagnosticsReport.operationalLogs.channel -eq
         "Serilog.Sinks.File" -and
@@ -1057,6 +1250,12 @@ try {
             enabledByDefault = [bool]$installResult.NotificationsEnabled
             configurationRoundTripVerified =
                 $notificationConfigurationVerified
+            configurationRecoveryQueuedVerified =
+                $configurationRecoveryNotificationVerified
+            lastQueuedKind =
+                [string]$configurationRecoveryNotificationHealth.ConfigurationRecoveryNotificationLastQueuedKind
+            lastQueuedAtUtc =
+                [string]$configurationRecoveryNotificationHealth.ConfigurationRecoveryNotificationLastQueuedAtUtc
         }
         operationalLogs = [ordered]@{
             channel = $installResult.OperationalLogChannel
@@ -1072,17 +1271,28 @@ try {
             totalBytes = [int64]$diagnosticsReport.operationalLogs.totalBytes
         }
         mainAlgorithm = [ordered]@{
-            query = $installResult.MainQuery
-            monitor = $installResult.MainMonitor
+            query = $afterWatchdog.Readiness.Query
+            monitor = $afterWatchdog.Readiness.Monitor
             expectedExtensionCount = $ExpectedExtensionCount
-            readinessCode = $installResult.ReadinessCode
-            auditedExtensionCount = $installResult.AuditedExtensionCount
-            primarySnapshotCount = $installResult.PrimarySnapshotCount
-            failedReadCount = $installResult.FailedReadCount
-            auditFresh = [bool]$installResult.AuditFresh
-            auditAgeSeconds = [int64]$installResult.AuditAgeSeconds
+            genericExtensionCount = $genericTestExtensions.Count
+            capturedRuleCount = $capturedRules.Count
+            expectedHandlerCount =
+                [int]$afterWatchdog.Readiness.ExpectedHandlerCount
+            resolvedHandlerCount =
+                [int]$afterWatchdog.Readiness.ResolvedHandlerCount
+            distinctTargetCount =
+                [int]$afterWatchdog.Readiness.DistinctTargetCount
+            readinessCode = $afterWatchdog.Readiness.Code
+            auditedExtensionCount =
+                [int]$afterWatchdog.Readiness.AuditedExtensionCount
+            primarySnapshotCount =
+                [int]$afterWatchdog.Readiness.PrimarySnapshotCount
+            failedReadCount = [int]$afterWatchdog.Readiness.FailedReadCount
+            auditFresh = [bool]$afterWatchdog.Readiness.AuditFresh
+            auditAgeSeconds =
+                [int64]$afterWatchdog.Readiness.AuditAgeSeconds
             maximumAuditAgeSeconds =
-                [int64]$installResult.MaximumAuditAgeSeconds
+                [int64]$afterWatchdog.Readiness.MaximumAuditAgeSeconds
             initialMonitorVerified = [bool]$firstMonitor.InstalledMonitorVerified
             postRestartMonitorVerified = [bool]$secondMonitor.InstalledMonitorVerified
         }
@@ -1106,6 +1316,8 @@ try {
                 [int]$configurationRecoveryUiEvidence.RequiredTokenCount
             recoveryCode =
                 [string]$afterWatchdog.Health.ConfigurationRecoveryCode
+            recoveryNotificationVerified =
+                $configurationRecoveryNotificationVerified
             settingsPreserved = $configurationSettingsPreserved
             diagnosticsHealthy =
                 [bool]$diagnosticsReport.configurationPersistence.healthy
@@ -1125,6 +1337,10 @@ try {
                 [bool]$diagnosticsReport.notifications.available
             notificationsEnabled =
                 [bool]$diagnosticsReport.notifications.enabled
+            notificationTelemetryHealthy =
+                [bool]$diagnosticsReport.notifications.telemetryHealthy
+            configurationRecoveryNotificationVerified =
+                [bool]$diagnosticsReport.notifications.configurationRecoveryQueuedVerified
             operationalLogsHealthy =
                 [bool]$diagnosticsReport.operationalLogs.healthy
             auditFresh =
@@ -1225,6 +1441,10 @@ try {
                 $false)
         }
     }
+
+    Restore-DagRegistryTreeSnapshot `
+        -SubKeyPath $watchdogRegistrySubKeyPath `
+        -Snapshot $watchdogRegistrySnapshot
 
     $env:APPDATA = $originalAppData
 

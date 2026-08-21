@@ -185,6 +185,7 @@ try {
         "RealEffectivePlan_IsCurrentlySatisfiedByMediaPlayer",
         "MainMonitorAlgorithm_ReceivesRealKernelChangeNotification",
         "WaitForChange_RejectsPreCanceledRequestWithoutSyntheticSuccess",
+        "RealAudit_CapturesAndVerifiesNonVideoAssociationsThroughCom",
         "RealAudit_ReportsEveryDeclaredVideoAssociationIndividually"
     )
 
@@ -215,8 +216,8 @@ try {
             Where-Object { $_.Extension -in @(".ps1", ".psm1") }
         Get-ChildItem `
             (Join-Path $projectRoot "tests") `
-            -Filter "*.ps1" `
-            -File
+            -File |
+            Where-Object { $_.Extension -in @(".ps1", ".psm1") }
     )
     foreach ($script in $powerShellFiles) {
         $tokens = $null
@@ -388,6 +389,15 @@ $lifecycleEvidence = Get-Content `
     ConvertFrom-Json
 if (-not [bool]$lifecycleEvidence.passed -or
     [int]$lifecycleEvidence.schemaVersion -ne 2 -or
+    [int]$lifecycleEvidence.mainAlgorithm.expectedExtensionCount -ne 40 -or
+    [int]$lifecycleEvidence.mainAlgorithm.genericExtensionCount -ne 6 -or
+    [int]$lifecycleEvidence.mainAlgorithm.capturedRuleCount -ne 6 -or
+    [int]$lifecycleEvidence.mainAlgorithm.expectedHandlerCount -ne 40 -or
+    [int]$lifecycleEvidence.mainAlgorithm.resolvedHandlerCount -ne 40 -or
+    [int]$lifecycleEvidence.mainAlgorithm.distinctTargetCount -lt 3 -or
+    [int]$lifecycleEvidence.mainAlgorithm.auditedExtensionCount -ne 40 -or
+    [int]$lifecycleEvidence.mainAlgorithm.primarySnapshotCount -ne 40 -or
+    [int]$lifecycleEvidence.mainAlgorithm.failedReadCount -ne 0 -or
     -not [bool]$lifecycleEvidence.mainAlgorithm.auditFresh -or
     [int64]$lifecycleEvidence.mainAlgorithm.auditAgeSeconds -lt 0 -or
     [int64]$lifecycleEvidence.mainAlgorithm.maximumAuditAgeSeconds -le 0 -or
@@ -401,6 +411,12 @@ if (-not [bool]$lifecycleEvidence.passed -or
     -not [bool]$lifecycleEvidence.notifications.enabledByDefault -or
     -not [bool](
         $lifecycleEvidence.notifications.configurationRoundTripVerified) -or
+    -not [bool](
+        $lifecycleEvidence.notifications.configurationRecoveryQueuedVerified) -or
+    [string]$lifecycleEvidence.notifications.lastQueuedKind -ne
+        "configuration-backup-restored" -or
+    [string]::IsNullOrWhiteSpace(
+        [string]$lifecycleEvidence.notifications.lastQueuedAtUtc) -or
     [string]$lifecycleEvidence.operationalLogs.channel -ne
         "Serilog.Sinks.File" -or
     -not [bool]$lifecycleEvidence.operationalLogs.available -or
@@ -418,6 +434,8 @@ if (-not [bool]$lifecycleEvidence.passed -or
         $lifecycleEvidence.configurationPersistence.backupAvailableAtInstall) -or
     -not [bool](
         $lifecycleEvidence.configurationPersistence.recoveryVerified) -or
+    -not [bool](
+        $lifecycleEvidence.configurationPersistence.recoveryNotificationVerified) -or
     -not [bool](
         $lifecycleEvidence.configurationPersistence.recoveryUiVerified) -or
     [int]$lifecycleEvidence.configurationPersistence.recoveryUiScriptAssetCount -lt 1 -or
@@ -443,6 +461,9 @@ if (-not [bool]$lifecycleEvidence.passed -or
     -not [bool]$lifecycleEvidence.diagnostics.watchdogTelemetryHealthy -or
     -not [bool]$lifecycleEvidence.diagnostics.watchdogTelemetryMatchesTaskRun -or
     -not [bool]$lifecycleEvidence.diagnostics.watchdogProcessMatches -or
+    -not [bool]$lifecycleEvidence.diagnostics.notificationTelemetryHealthy -or
+    -not [bool](
+        $lifecycleEvidence.diagnostics.configurationRecoveryNotificationVerified) -or
     -not [bool]$lifecycleEvidence.uninstall.watchdogTelemetryRemoved -or
     -not [bool]$lifecycleEvidence.uninstall.registrationRemoved) {
     throw "The exact release package lacks primary-algorithm lifecycle evidence."
@@ -666,6 +687,15 @@ $evidenceFile = Join-Path $releaseRoot "release-gate.json"
                 $lifecycleEvidence.configurationPersistence.backupAvailableAtInstall)
         configurationRecoveryVerified =
             [bool]$lifecycleEvidence.configurationPersistence.recoveryVerified
+        configurationRecoveryNotificationQueuedVerified =
+            [bool](
+                $lifecycleEvidence.notifications.configurationRecoveryQueuedVerified)
+        configurationRecoveryNotificationKind =
+            [string]$lifecycleEvidence.notifications.lastQueuedKind
+        configurationRecoveryNotificationQueuedAtUtc =
+            [string]$lifecycleEvidence.notifications.lastQueuedAtUtc
+        notificationTelemetryHealthy =
+            [bool]$lifecycleEvidence.diagnostics.notificationTelemetryHealthy
         configurationRecoveryUiVerified =
             [bool]$lifecycleEvidence.configurationPersistence.recoveryUiVerified
         configurationSettingsPreserved =
@@ -728,6 +758,7 @@ $evidenceFile = Join-Path $releaseRoot "release-gate.json"
     }
     archive = [IO.Path]::GetFileName($archivePath)
     sha256 = $archiveHash
+    passed = $true
 } |
     ConvertTo-Json -Depth 7 |
     Set-Content -LiteralPath $evidenceFile -Encoding UTF8

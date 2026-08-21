@@ -115,19 +115,22 @@ public sealed class DriftNotificationPolicyTests
         var items = extensions.Select(extension =>
         {
             var healthy = !driftSet.Contains(extension);
+            var expected = new AssociationExpectedHandler(
+                extension,
+                AssociationCatalog.VideoCategory,
+                AssociationConstants.MediaPlayerTargetStrategy,
+                "Media.Player",
+                "Microsoft.ZuneMusic_1.0_x64__8wekyb3d8bbwe",
+                "Media Player");
             return new AssociationAuditItem(
                 extension,
+                expected,
                 healthy,
                 null,
                 healthy ? null : "Association drift detected.");
         }).ToArray();
         return new AssociationAuditResult(
-            new AssociationTarget(
-                "Media.Player",
-                "Microsoft.ZuneMusic_1.0_x64__8wekyb3d8bbwe",
-                "Microsoft.ZuneMusic!App",
-                "Media Player",
-                extensions),
+            items.Select(item => item.Expected).ToArray(),
             items,
             Now);
     }

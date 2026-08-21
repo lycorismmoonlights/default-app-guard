@@ -1,8 +1,10 @@
 # DefaultAppGuard Community
 
-DefaultAppGuard is a Windows 11 utility that monitors the current user's video
-file associations and checks whether they still resolve to Microsoft Media
-Player.
+DefaultAppGuard is a Windows 11 utility that monitors the current user's file
+associations. Video formats are checked against the locally resolved Microsoft
+Media Player; explicitly selected audio, document, image, archive, and
+web/data formats are checked against a user-approved snapshot of their current
+Windows default.
 
 When a real audit finds drift, the background Agent can show a throttled
 Windows tray notification. The Settings page can disable alerts without
@@ -17,11 +19,12 @@ Default Apps surface for user-driven repair. It does not silently overwrite
 `UserChoice`, bypass UCPD, or claim an unbreakable hard lock.
 
 > 中文简介：这是一个面向 Windows 11 的默认应用监控工具。它用 Windows
-> COM 接口核验视频格式的实际默认程序，并在被其他软件改动后提示用户通过系统
+> COM 接口核验文件格式的实际默认程序。视频格式固定核验系统媒体播放器；用户
+> 明确选择的音频、文档、图片、压缩包和网页/数据格式则保护其当前默认程序，并在被其他软件改动后提示用户通过系统
 > “默认应用”页面恢复。Windows Home 不支持可靠的静默强制锁定，因此本项目不会
 > 伪造“永久锁定”能力。
 
-![DefaultAppGuard application overview](docs/images/app-overview.jpg)
+![DefaultAppGuard application overview](docs/images/app-overview.png)
 
 ## Download
 
@@ -33,7 +36,7 @@ source review and advanced operation.
 The current alpha is unsigned. Verify the checksum before installation:
 
 ```powershell
-Get-FileHash .\DefaultAppGuard-0.1.15-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DefaultAppGuard-0.2.0-win-x64.zip -Algorithm SHA256
 ```
 
 Read [ENVIRONMENT-AND-RISKS.txt](ENVIRONMENT-AND-RISKS.txt) before
@@ -42,7 +45,7 @@ privacy boundary, known limitations, and license notice in Chinese and English.
 The release gate requires this file to be reviewed and version-matched for every
 release.
 
-Version 0.1.15 packages contain a per-file SHA-256 manifest. The graphical Setup
+Version 0.2.0 packages contain a per-file SHA-256 manifest. The graphical Setup
 launcher runs without a console or administrator elevation. Before starting
 PowerShell, native Setup code independently verifies the package manifest,
 file set, lengths, and SHA-256 hashes. Setup uses `ExecutionPolicy Bypass` only
@@ -52,9 +55,9 @@ Group Policy still takes precedence. The transactional installer verifies the
 package again before stopping an existing Agent, stages the complete update,
 and restores the previous files and scheduled task if the new Agent fails its
 identity, primary-algorithm readiness, no-console, notification, or bounded
-operational-log checks. Readiness requires
-Microsoft Media Player target resolution and primary COM-query evidence for
-every protected format, with zero failed reads and a bounded evidence age;
+operational-log checks. Readiness requires every per-format target to resolve
+and primary COM-query evidence for every protected format, with zero failed
+reads and a bounded evidence age;
 association drift itself does not block installation. The short-lived watchdog
 requires both process liveness and this freshness-aware readiness contract.
 Successful installation also creates a current-user entry in Windows
@@ -70,6 +73,13 @@ arguments, current-user privilege, triggers, execution limit and restart
 settings, automatic recovery, diagnostics, and clean uninstall before
 publication.
 
+Configuration schema 3 stores one strategy and expected handler per extension.
+The loopback UI may select a catalog extension but cannot submit a ProgID.
+For non-video formats, the Agent captures the effective handler itself through
+the primary COM query. Existing non-video baselines are retained unless the
+user explicitly requests a recapture; legacy video-only configurations do not
+silently trust any new non-video association.
+
 Configuration updates are written through a same-directory temporary file,
 flushed to storage, and committed with Windows replacement semantics while
 retaining `runtime/guard-configuration.json.bak` as the last-known-good copy.
@@ -82,13 +92,19 @@ The application also displays a persistent recovery notice. It distinguishes a
 last-known-good backup restore from a safe-default restore where custom choices
 may have been lost, links directly to the protected-format review, and stores
 notice acknowledgement locally without changing protection settings.
+When system notifications are enabled, the Agent also queues one bilingual
+tray alert for each startup recovery event. Clicking the alert opens the local
+application. Health and diagnostics record that the alert was accepted by the
+Windows message queue; they do not claim Windows displayed it or that the user
+saw it, because Focus Assist and system policy can suppress visible delivery.
 
 For unsigned alpha fallback releases, GitHub builds and attests one immutable
 candidate archive on the explicit `windows-2025` hosted label. The build record
 includes the requested label, actual image family and image version. A separate
 Windows validation computer verifies those
-attestations and runs the real 34-format primary COM and registry-notification
-lifecycle against the exact archive without rebuilding it. The release remains
+attestations and runs a real 40-format lifecycle: all 34 video formats plus six
+captured non-video baselines, primary COM evidence, and real registry
+notification against the exact archive without rebuilding it. The release remains
 blocked unless both the hosted build evidence and local main-algorithm evidence
 pass.
 
@@ -103,21 +119,26 @@ diagnostics, and uninstallation.
 
 ## Main Algorithm
 
-1. Resolve the installed Microsoft Media Player target dynamically.
-2. Query every protected extension through
+1. Resolve the installed Microsoft Media Player target dynamically for video.
+2. Capture the current effective handler for a non-video format only after an
+   explicit local user selection; reject non-COM evidence.
+3. Query every protected extension through
    `IApplicationAssociationRegistration.QueryCurrentDefault`.
-3. Treat `UserChoice` only as cross-evidence, never as a fallback.
-4. subscribe to the current user's `FileExts` tree with
+4. Treat `UserChoice` only as cross-evidence, never as a fallback.
+5. Subscribe to the current user's `FileExts` tree with
    `RegNotifyChangeKeyValue` and `REG_NOTIFY_THREAD_AGNOSTIC`.
-5. Re-query the effective handlers after a real notification.
-6. Run a periodic COM readback in case Windows performs a change that does not
+6. Re-query the effective handlers after a real notification.
+7. Run a periodic COM readback in case Windows performs a change that does not
    produce a registry notification.
-7. Expire readiness when the last complete primary audit exceeds the bounded
+8. Expire readiness when the last complete primary audit exceeds the bounded
    interval derived from the configured periodic readback.
-8. Send repairs through the official Windows Default Apps UI.
-9. Present drift found by those primary algorithms through a best-effort
+9. Send repairs through the official Windows Default Apps UI.
+10. Present drift found by those primary algorithms through a best-effort
    `WindowsForms.NotifyIcon` alert; never use the notification layer as evidence.
-10. Persist bounded local operational events for diagnosis; never use a log
+11. Queue one deduplicated tray alert after automatic configuration recovery,
+    while retaining the persistent in-application notice as the reliable review
+    surface.
+12. Persist bounded local operational events for diagnosis; never use a log
    entry as query or monitor evidence.
 
 See [docs/ALGORITHM-DECISIONS.md](docs/ALGORITHM-DECISIONS.md) for rejected
@@ -151,7 +172,7 @@ build or verify the project, not to install it.
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.15 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.2.0 `
   -PackageManagerPath pnpm
 ```
 
@@ -190,7 +211,7 @@ notice. See
   signed or invalidly signed release is rejected.
 - The `require-signed` path can sign the fresh payload with a code-signing
   certificate available through the Windows certificate store or an attached
-  HSM before the package manifest is generated. Version 0.1.15 remains an
+  HSM before the package manifest is generated. Version 0.2.0 remains an
   unsigned alpha unless its release notes explicitly state otherwise.
 - Unsigned fallback candidates carry GitHub build attestations for the ZIP,
   SBOM, and build record. These establish build provenance but do not replace a

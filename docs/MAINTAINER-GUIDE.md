@@ -10,7 +10,7 @@ Run all of the following on Windows:
 
 ```powershell
 pnpm install --frozen-lockfile
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.15 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.2.0 `
   -PackageManagerPath pnpm
 ```
 
@@ -26,7 +26,7 @@ and promote those exact bytes on the dedicated validation computer:
 ```powershell
 .\packaging\Promote-ReleaseCandidate.ps1 `
   -CandidateDirectory F:\path\to\release-candidate `
-  -Version 0.1.15 `
+  -Version 0.2.0 `
   -ExpectedCommit <full-main-commit-sha>
 ```
 
@@ -45,7 +45,7 @@ report `codeSigning.status` as `unsigned`. Any release described as signed must
 run:
 
 ```powershell
-.\packaging\Test-ReleaseGate.ps1 -Version 0.1.15 `
+.\packaging\Test-ReleaseGate.ps1 -Version 0.2.0 `
   -PackageManagerPath pnpm `
   -SigningCertificateThumbprint $env:DAG_SIGNING_CERTIFICATE_THUMBPRINT `
   -TimestampServer $env:DAG_TIMESTAMP_SERVER `
@@ -73,8 +73,10 @@ The required signals are:
 - Re-arming receives a second real write.
 - The post-notification audit checks each protected extension individually.
 - Registry evidence never replaces a failed COM result.
-- `/api/readiness` resolves Microsoft Media Player and reports evidence from
-  the primary COM query before an install transaction can commit. It also
+- `/api/readiness` resolves every per-extension target and reports evidence
+  from the primary COM query before an install transaction can commit. Video
+  targets must include the resolved Media Player package; captured non-video
+  targets may be unpackaged Win32 applications. It also
   requires that evidence to be no older than the bounded audit-freshness
   threshold published by `/api/health`.
 - `/api/health` reports an available `WindowsForms.NotifyIcon` channel. This
@@ -128,7 +130,8 @@ Verify:
 6. The task action is `DefaultAppGuard.Setup.exe --watchdog ...`, normally
    returns to `Ready` with result 0, and has a one-minute execution limit.
 7. Killing the installed process produces a different PID after the repeated
-   watchdog trigger, followed by a fresh 34-format startup audit; the watchdog
+   watchdog trigger, followed by a fresh 40-format startup audit (34 video
+   targets and six captured non-video baselines); the watchdog
    task returns to `Ready` while the replacement Agent remains running.
    The watchdog must reject a live HTTP process when its primary COM evidence
    is stale, incomplete, or contains any failed read.
@@ -146,14 +149,24 @@ Verify:
 12. Corrupting the exact installed primary configuration and terminating the
     Agent causes the scheduled watchdog to start a new process that restores
     the validated last-known-good backup. Health must report
-    `backup-restored`; diagnostics schema 6 must remain healthy and include the
-    `configuration-backup-restored` notice; all 34 settings and the subsequent
+    `backup-restored`; diagnostics schema 7 must remain healthy and include the
+    `configuration-backup-restored` notice; all 40 settings and the subsequent
     real `RegNotifyChangeKeyValue` monitor test must still pass. Permission,
     sharing, and other I/O failures must not be accepted as content recovery.
-13. After that real recovery, the exact packaged UI assets served by the Agent
+13. The recovered Agent must queue exactly one matching
+    `configuration-backup-restored` tray alert. The dedicated queue timestamp
+    must be at or after the recovery timestamp, and diagnostics must keep that
+    evidence separate from later association-drift alerts. This proves queue
+    acceptance only; visible Windows delivery is not a gate.
+14. After that real recovery, the exact packaged UI assets served by the Agent
     must contain both recovery states, the local acknowledgement key, and the
     review and dismiss controls. Source-only UI evidence is insufficient.
-14. Uninstallation leaves no task, process, install directory, data directory,
+15. The exact package catalog exposes the six release probes
+    `.pdf/.txt/.jpg/.png/.mp3/.zip`. Each probe must be captured by the primary
+    COM query, persisted as schema 3 `captured-current` data, and re-audited
+    after recovery. Readiness and diagnostics must report 40 resolved handlers,
+    40 primary snapshots, zero failures, and at least three distinct ProgIDs.
+16. Uninstallation leaves no task, process, install directory, data directory,
     or probe key.
 
 The lifecycle evidence is written to `package-lifecycle.json`. The gate also

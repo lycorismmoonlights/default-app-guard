@@ -6,25 +6,38 @@ DefaultAppGuard treats this chain as the product's main algorithm:
 
 1. Query the effective handler with
    `IApplicationAssociationRegistration.QueryCurrentDefault`.
-2. Resolve the installed Microsoft Media Player ProgID dynamically from its
+2. For video, resolve the installed Microsoft Media Player ProgID dynamically from its
    registered `OpenWithProgids`, package ID, company, and AUMID.
-3. Cross-check `UserChoice` only as evidence. It never replaces a failed COM
+3. For an explicitly selected non-video catalog entry, capture the current
+   effective ProgID through that same COM query and store it as the per-format
+   baseline. The UI cannot supply a ProgID.
+4. Preserve an existing non-video baseline unless the user explicitly requests
+   recapture. Never add non-video baselines during legacy migration.
+5. Cross-check `UserChoice` only as evidence. It never replaces a failed COM
    result.
-4. Subscribe to the current user's `FileExts` tree with
+6. Subscribe to the current user's `FileExts` tree with
    `RegNotifyChangeKeyValue`.
-5. Include `REG_NOTIFY_THREAD_AGNOSTIC`, re-arm immediately after each signal,
+7. Include `REG_NOTIFY_THREAD_AGNOSTIC`, re-arm immediately after each signal,
    and wait for a 250 ms quiet period before auditing.
-6. Re-audit every protected extension through the COM query after a registry
+8. Re-audit every protected extension against its own expected handler through
+   the COM query after a registry
    notification.
-7. Perform a 15-minute COM readback because Microsoft documents that
+9. Perform a 15-minute COM readback because Microsoft documents that
    `RegNotifyChangeKeyValue` cannot observe every registry restoration method.
-8. Direct the user to Media Player's official Default Apps settings page for
-   repair.
+10. Direct the user to Windows' official Default Apps settings page for repair.
+
+Application display names are presentation data, not association evidence.
+Indirect packaged-app names are resolved with Windows
+[`SHLoadIndirectString`](https://learn.microsoft.com/windows/win32/api/shlwapi/nf-shlwapi-shloadindirectstring).
+An unresolved `@{...}` or `ms-resource:` value is discarded and the UI falls
+back to the ProgID; it never changes the COM audit result.
 
 Main-path tests must prove that a notification remains pending without a real
 write, completes after a real write, can be re-armed for a second real write,
-and results in a COM audit. A polling or registry-only result cannot satisfy
-these tests.
+and results in a COM audit. The exact-package lifecycle must also capture and
+re-audit representative audio, document, image, and archive formats with
+multiple real handlers. A polling or registry-only result cannot satisfy these
+tests.
 
 ## Runtime Stability
 

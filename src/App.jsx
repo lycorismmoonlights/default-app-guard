@@ -6,6 +6,7 @@ import {
   Dismiss24Regular,
   History24Regular,
   Info24Regular,
+  Open24Regular,
   PlayCircle24Filled,
   Settings24Regular,
   Shield24Regular,
@@ -26,43 +27,35 @@ const sections = [
   { id: "settings", label: "设置", icon: Settings24Regular },
 ];
 
-const videoExtensions = [
-  ".mp4",
-  ".mkv",
-  ".avi",
-  ".mov",
-  ".wmv",
-  ".webm",
-  ".mpeg",
-  ".ts",
-  ".3g2",
-  ".3gp",
-  ".3gp2",
-  ".3gpp",
-  ".asf",
-  ".divx",
-  ".m1v",
-  ".m2t",
-  ".m2ts",
-  ".m2v",
-  ".m4v",
-  ".mod",
-  ".mp2v",
-  ".mp4v",
-  ".mpe",
-  ".mpg",
-  ".mpg4",
-  ".mpv2",
-  ".mts",
-  ".ogm",
-  ".ogv",
-  ".ogx",
-  ".tod",
-  ".tts",
-  ".wm",
-  ".xvid",
-];
+function normalizeApplicationName(value) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (
+    !normalized ||
+    normalized.startsWith("@{") ||
+    normalized.includes("ms-resource:")
+  ) {
+    return "";
+  }
+  return normalized;
+}
 
+const categoryLabels = {
+  video: "视频",
+  audio: "音频",
+  document: "文档",
+  image: "图片",
+  archive: "压缩包",
+  "web-data": "网页与数据",
+};
+
+const categoryOrder = [
+  "video",
+  "audio",
+  "document",
+  "image",
+  "archive",
+  "web-data",
+];
 
 const agentBaseUrl =
   import.meta.env.VITE_AGENT_BASE_URL ||
@@ -74,6 +67,8 @@ function useAgentStatus() {
   const [status, setStatus] = useState(null);
   const [configuration, setConfiguration] = useState(null);
   const [health, setHealth] = useState(null);
+  const [catalog, setCatalog] = useState([]);
+  const [inspections, setInspections] = useState([]);
   const [error, setError] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -86,30 +81,54 @@ function useAgentStatus() {
     return response.json();
   }, []);
 
-  const refresh = useCallback(async (manual = false) => {
-    setIsRefreshing(true);
-    try {
-      const [nextStatus, nextHealth] = await Promise.all([
-        request(
-          `/api/${manual ? "audit" : "status"}`,
-          manual
-            ? {
-                method: "POST",
-                headers: { "X-DefaultAppGuard-Client": "local-ui" },
-              }
-            : undefined,
-        ),
-        request("/api/health"),
-      ]);
-      setStatus(nextStatus);
-      setHealth(nextHealth);
-      setError("");
-    } catch (requestError) {
-      setError(requestError.message || "无法连接本地 Agent");
-    } finally {
-      setIsRefreshing(false);
-    }
-  }, [request]);
+  const inspect = useCallback(
+    async (extensions) => {
+      if (!extensions?.length) return [];
+      return request("/api/associations/inspect", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-DefaultAppGuard-Client": "local-ui",
+        },
+        body: JSON.stringify({ extensions }),
+      });
+    },
+    [request],
+  );
+
+  const refresh = useCallback(
+    async (manual = false) => {
+      setIsRefreshing(true);
+      try {
+        const requests = [
+          request(
+            `/api/${manual ? "audit" : "status"}`,
+            manual
+              ? {
+                  method: "POST",
+                  headers: { "X-DefaultAppGuard-Client": "local-ui" },
+                }
+              : undefined,
+          ),
+          request("/api/health"),
+        ];
+        if (manual && catalog.length) {
+          requests.push(inspect(catalog.map((item) => item.extension)));
+        }
+        const [nextStatus, nextHealth, nextInspections] =
+          await Promise.all(requests);
+        setStatus(nextStatus);
+        setHealth(nextHealth);
+        if (nextInspections) setInspections(nextInspections);
+        setError("");
+      } catch (requestError) {
+        setError(requestError.message || "无法连接本地 Agent");
+      } finally {
+        setIsRefreshing(false);
+      }
+    },
+    [catalog, inspect, request],
+  );
 
   const saveConfiguration = useCallback(
     async (update) => {
@@ -156,24 +175,39 @@ function useAgentStatus() {
       request("/api/status"),
       request("/api/config"),
       request("/api/health"),
+      request("/api/association-catalog"),
     ])
-      .then(([nextStatus, nextConfiguration, nextHealth]) => {
+      .then(async ([
+        nextStatus,
+        nextConfiguration,
+        nextHealth,
+        nextCatalog,
+      ]) => {
         setStatus(nextStatus);
         setConfiguration(nextConfiguration);
         setHealth(nextHealth);
+        setCatalog(nextCatalog);
+        setInspections(
+          await inspect(nextCatalog.map((item) => item.extension)),
+        );
         setError("");
       })
       .catch((requestError) => {
         setError(requestError.message || "无法连接本地 Agent");
       });
+  }, [inspect, request]);
+
+  useEffect(() => {
     const timer = window.setInterval(() => refresh(), 4000);
     return () => window.clearInterval(timer);
-  }, [refresh, request]);
+  }, [refresh]);
 
   return {
     status,
     configuration,
     health,
+    catalog,
+    inspections,
     error,
     isRefreshing,
     refresh,
@@ -192,8 +226,8 @@ function PrimaryNav({ activeSection, agentError, agentStatus, onChange }) {
           const Icon = section.icon;
           return (
             <button
-              aria-label={section.label}
               aria-current={activeSection === section.id ? "page" : undefined}
+              aria-label={section.label}
               className={`nav-item ${activeSection === section.id ? "active" : ""}`}
               key={section.id}
               onClick={() => onChange(section.id)}
@@ -206,7 +240,6 @@ function PrimaryNav({ activeSection, agentError, agentStatus, onChange }) {
           );
         })}
       </nav>
-
       <div className={`health ${healthy ? "" : "health-warning"}`}>
         <div className="health-title">
           {healthy ? <ShieldCheckmark24Filled /> : <Warning24Regular />}
@@ -220,7 +253,7 @@ function PrimaryNav({ activeSection, agentError, agentStatus, onChange }) {
         </div>
         <span>
           {healthy
-            ? `${agentStatus.audit.healthyCount} 个视频格式正常`
+            ? `${agentStatus.audit.healthyCount} 个文件格式正常`
             : reachable
               ? agentStatus.lastError || "请立即复检并查看保护记录"
               : "本地监控服务未运行"}
@@ -230,122 +263,223 @@ function PrimaryNav({ activeSection, agentError, agentStatus, onChange }) {
   );
 }
 
-function VideoDefaults({
+function AssociationDefaults({
   agentError,
   agentStatus,
+  catalog,
   configuration,
+  inspections,
   isRefreshing,
   onOpenSettings,
   onRefresh,
   onSaveConfiguration,
 }) {
-  const [selectedIds, setSelectedIds] = useState(
-    () => new Set(videoExtensions),
-  );
+  const [activeCategory, setActiveCategory] = useState("video");
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [focusedExtension, setFocusedExtension] = useState(null);
+  const [recaptureIds, setRecaptureIds] = useState(new Set());
   const [isApplying, setIsApplying] = useState(false);
   const [notice, setNotice] = useState(null);
 
-  useEffect(() => {
-    if (configuration?.protectedVideoExtensions) {
-      setSelectedIds(new Set(configuration.protectedVideoExtensions));
-    }
-  }, [configuration]);
-
-  const rows = useMemo(() => {
-    const auditItems = new Map(
+  const protectedRules = configuration?.protectedAssociations ?? [];
+  const protectedRuleMap = useMemo(
+    () => new Map(
+      protectedRules.map((rule) => [rule.extension.toLowerCase(), rule]),
+    ),
+    [protectedRules],
+  );
+  const auditItemMap = useMemo(
+    () => new Map(
       (agentStatus?.audit?.items ?? []).map((item) => [
         item.extension.toLowerCase(),
         item,
       ]),
-    );
-    return videoExtensions.map((extension) => {
-      const item = auditItems.get(extension);
-      const snapshot = item?.snapshot;
+    ),
+    [agentStatus],
+  );
+  const inspectionMap = useMemo(
+    () => new Map(
+      inspections.map((item) => [item.extension.toLowerCase(), item]),
+    ),
+    [inspections],
+  );
+
+  useEffect(() => {
+    if (configuration?.protectedAssociations) {
+      setSelectedIds(new Set(
+        configuration.protectedAssociations.map((rule) => rule.extension),
+      ));
+    }
+  }, [configuration]);
+
+  const categoryEntries = useMemo(
+    () => catalog.filter((entry) => entry.category === activeCategory),
+    [activeCategory, catalog],
+  );
+
+  useEffect(() => {
+    if (!categoryEntries.some(
+      (entry) => entry.extension === focusedExtension,
+    )) {
+      setFocusedExtension(categoryEntries[0]?.extension ?? null);
+    }
+  }, [categoryEntries, focusedExtension]);
+
+  const rows = useMemo(
+    () => categoryEntries.map((entry) => {
+      const item = auditItemMap.get(entry.extension);
+      const inspectionResult = inspectionMap.get(entry.extension);
+      const inspection = inspectionResult?.snapshot;
+      const isProtected = protectedRuleMap.has(entry.extension);
+      const isSelected = selectedIds.has(entry.extension);
+      const snapshot = item?.snapshot ?? inspection;
+      let state = "not-protected";
+      if (isSelected && !isProtected) state = "pending";
+      else if (recaptureIds.has(entry.extension)) state = "recapture";
+      else if (isProtected && item) state = item.healthy ? "healthy" : "mismatch";
+      else if (isProtected) state = "pending";
       return {
-        id: extension,
-        extension,
-        currentApp: item?.healthy
-          ? "媒体播放器"
-          : snapshot?.applicationName ||
-            snapshot?.effectiveProgId ||
-            (agentError ? "Agent 未连接" : "未读取"),
-        status: item
-          ? item.healthy
-            ? "healthy"
-            : "mismatch"
-          : "not-monitored",
+        ...entry,
+        currentApp:
+          normalizeApplicationName(snapshot?.applicationName) ||
+          snapshot?.effectiveProgId ||
+          (agentError ? "Agent 未连接" : "未读取"),
+        item,
+        inspection,
+        isProtected,
+        isSelected,
+        state,
       };
-    });
-  }, [agentError, agentStatus]);
+    }),
+    [
+      agentError,
+      auditItemMap,
+      categoryEntries,
+      inspectionMap,
+      protectedRuleMap,
+      recaptureIds,
+      selectedIds,
+    ],
+  );
 
-  const allSelected = selectedIds.size === videoExtensions.length;
-  const target = agentStatus?.audit?.target;
-  const targetName =
-    target?.applicationName &&
-    !target.applicationName.startsWith("@{") &&
-    !target.applicationName.includes("ms-resource:")
-      ? target.applicationName
-      : "Microsoft Media Player";
+  const focusedRow =
+    rows.find((row) => row.extension === focusedExtension) ?? rows[0];
+  const focusedRule = focusedRow
+    ? protectedRuleMap.get(focusedRow.extension)
+    : null;
+  const focusedExpected = focusedRow?.item?.expected;
+  const focusedTargetName =
+    [
+      focusedExpected?.applicationName,
+      focusedRule?.expectedApplicationName,
+      focusedRow?.inspection?.applicationName,
+    ]
+      .map(normalizeApplicationName)
+      .find(Boolean) ||
+    (activeCategory === "video"
+      ? "Microsoft Media Player"
+      : "尚未读取");
+  const focusedProgId =
+    focusedExpected?.progId ||
+    focusedRule?.expectedProgId ||
+    focusedRow?.inspection?.effectiveProgId ||
+    "尚未读取";
+  const focusedPackage =
+    focusedExpected?.packageId ||
+    focusedRule?.expectedPackageId ||
+    focusedRow?.inspection?.packageId ||
+    "非打包应用或未报告";
+  const allSelected =
+    rows.length > 0 && rows.every((row) => selectedIds.has(row.extension));
 
-  const toggleRow = (id) => {
+  const toggleRow = (extension) => {
     setNotice(null);
+    setFocusedExtension(extension);
     setSelectedIds((current) => {
       const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(extension)) {
+        next.delete(extension);
+        setRecaptureIds((values) => {
+          const updated = new Set(values);
+          updated.delete(extension);
+          return updated;
+        });
+      } else {
+        next.add(extension);
+      }
       return next;
     });
   };
 
   const toggleAll = () => {
     setNotice(null);
-    setSelectedIds(
-      allSelected ? new Set() : new Set(videoExtensions),
-    );
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      for (const row of rows) {
+        if (allSelected) next.delete(row.extension);
+        else next.add(row.extension);
+      }
+      return next;
+    });
+    if (allSelected) {
+      setRecaptureIds((current) => {
+        const next = new Set(current);
+        rows.forEach((row) => next.delete(row.extension));
+        return next;
+      });
+    }
+  };
+
+  const markRecapture = () => {
+    if (!focusedRow || activeCategory === "video") return;
+    setRecaptureIds((current) => new Set(current).add(
+      focusedRow.extension,
+    ));
+    setNotice({
+      type: "success",
+      text: `${focusedRow.extension} 将在保存时更新为当前默认程序。`,
+    });
   };
 
   const applyChanges = async () => {
     if (selectedIds.size === 0) {
-      setNotice({ type: "error", text: "请至少选择一种视频格式。" });
+      setNotice({ type: "error", text: "请至少选择一种文件格式。" });
       return;
     }
+    const captureCurrentExtensions = [...selectedIds].filter((extension) => {
+      const entry = catalog.find((item) => item.extension === extension);
+      return entry?.category !== "video" &&
+        (!protectedRuleMap.has(extension) || recaptureIds.has(extension));
+    });
 
     setIsApplying(true);
     setNotice(null);
     const saved = await onSaveConfiguration({
-      protectedVideoExtensions: [...selectedIds],
+      protectedExtensions: [...selectedIds],
+      captureCurrentExtensions,
     });
+    setIsApplying(false);
     if (!saved) {
-      setIsApplying(false);
-      setNotice({ type: "error", text: "监控范围保存失败，请检查 Agent。" });
+      setNotice({ type: "error", text: "保护范围保存失败，请检查 Agent。" });
       return;
     }
-
-    const opened = await onOpenSettings();
-    setIsApplying(false);
-    setNotice(
-      opened
-        ? {
-            type: "success",
-            text: `已保存 ${selectedIds.size} 种格式，并打开 Windows 默认应用设置。`,
-          }
-        : {
-            type: "error",
-            text: "监控范围已保存，但 Windows 设置未能打开。",
-          },
-    );
+    setRecaptureIds(new Set());
+    setNotice({
+      type: "success",
+      text: `已保存 ${selectedIds.size} 种文件格式。`,
+    });
   };
 
   return (
     <div className="defaults-page">
       <main className="defaults-workspace">
-        <section className="extension-panel" aria-labelledby="video-title">
+        <section className="extension-panel" aria-labelledby="association-title">
           <header className="workspace-header">
             <div>
-              <h1 id="video-title">视频默认应用</h1>
+              <h1 id="association-title">文件默认应用</h1>
               <p>
-                共 34 个已声明格式，当前监控{" "}
-                {configuration?.protectedVideoExtensions?.length ?? 0} 个
+                共 {catalog.length} 个支持格式，当前保护{" "}
+                {protectedRules.length} 个
               </p>
             </div>
             <button
@@ -359,11 +493,26 @@ function VideoDefaults({
             </button>
           </header>
 
-          <div className="extension-table" role="table" aria-label="视频文件格式">
+          <div className="category-tabs" role="tablist" aria-label="文件类别">
+            {categoryOrder.map((category) => (
+              <button
+                aria-selected={activeCategory === category}
+                className={activeCategory === category ? "active" : ""}
+                key={category}
+                onClick={() => setActiveCategory(category)}
+                role="tab"
+                type="button"
+              >
+                {categoryLabels[category]}
+              </button>
+            ))}
+          </div>
+
+          <div className="extension-table" role="table" aria-label="文件格式">
             <div className="extension-header" role="row">
               <label className="check-cell">
                 <input
-                  aria-label="选择全部视频格式"
+                  aria-label={`选择全部${categoryLabels[activeCategory]}格式`}
                   checked={allSelected}
                   onChange={toggleAll}
                   type="checkbox"
@@ -373,90 +522,117 @@ function VideoDefaults({
               <span role="columnheader">当前打开方式</span>
               <span role="columnheader">状态</span>
             </div>
-
             <div className="extension-body">
               {rows.map((row) => (
-                <div className="extension-row" role="row" key={row.id}>
+                <div
+                  className={`extension-row ${
+                    focusedRow?.extension === row.extension ? "focused" : ""
+                  }`}
+                  key={row.extension}
+                  onClick={() => setFocusedExtension(row.extension)}
+                  role="row"
+                >
                   <label className="check-cell">
                     <input
-                      aria-label={`选择 ${row.extension}`}
-                      checked={selectedIds.has(row.id)}
-                      onChange={() => toggleRow(row.id)}
+                      aria-label={`保护 ${row.extension}`}
+                      checked={selectedIds.has(row.extension)}
+                      onChange={() => toggleRow(row.extension)}
                       type="checkbox"
                     />
                   </label>
                   <strong>{row.extension}</strong>
                   <span>{row.currentApp}</span>
-                  {row.status === "mismatch" ? (
+                  {row.state === "mismatch" ? (
                     <span className="row-status warning">
                       <Warning24Regular />
-                      与建议不符
+                      已偏移
                     </span>
-                  ) : row.status === "healthy" ? (
+                  ) : row.state === "healthy" ? (
                     <span className="row-status system">
                       <ShieldCheckmark24Filled />
                       已验证
                     </span>
+                  ) : row.state === "recapture" ? (
+                    <span className="row-status pending">待更新</span>
+                  ) : row.state === "pending" ? (
+                    <span className="row-status pending">待记录</span>
                   ) : (
-                    <span className="row-status neutral">未监控</span>
+                    <span className="row-status neutral">未保护</span>
                   )}
                 </div>
               ))}
             </div>
-
             <div className="selection-summary">
               <div>
                 <CheckmarkCircle24Filled
                   aria-hidden="true"
                   className={selectedIds.size > 0 ? "" : "inactive"}
                 />
-                <span>
-                  已选择 {selectedIds.size} 项（共 {videoExtensions.length} 项）
-                </span>
+                <span>已选择 {selectedIds.size} 项</span>
               </div>
-              <button
-                className="text-button"
-                onClick={() => setSelectedIds(new Set())}
-                type="button"
-              >
-                全不选
-              </button>
+              <span>
+                本类别 {rows.filter((row) => row.isSelected).length}/
+                {rows.length}
+              </span>
             </div>
           </div>
         </section>
 
         <aside className="target-panel" aria-labelledby="target-title">
           <div className="chooser-title">
-            <h2 id="target-title">保护目标</h2>
+            <h2 id="target-title">{focusedRow?.extension ?? "保护目标"}</h2>
             <Info24Regular aria-hidden="true" />
           </div>
-
           <div className="target-card">
             <span className="app-icon app-icon-media" aria-hidden="true">
-              <PlayCircle24Filled />
+              {activeCategory === "video" ? (
+                <PlayCircle24Filled />
+              ) : (
+                <Apps24Regular />
+              )}
             </span>
             <span className="app-copy">
-              <strong>{targetName}</strong>
-              <small>本机动态解析的系统应用</small>
+              <strong>{focusedTargetName}</strong>
+              <small>
+                {activeCategory === "video"
+                  ? "系统媒体播放器策略"
+                  : "当前默认程序基线"}
+              </small>
             </span>
-            <span className={`target-state ${target ? "" : "pending"}`}>
-              {target ? "已识别" : "等待 Agent"}
+            <span className={`target-state ${focusedRow ? "" : "pending"}`}>
+              {focusedRow?.state === "mismatch" ? "已偏移" : "已识别"}
             </span>
           </div>
-
           <dl className="target-details">
             <div>
               <dt>ProgID</dt>
-              <dd>{target?.progId || "尚未读取"}</dd>
+              <dd>{focusedProgId}</dd>
             </div>
             <div>
               <dt>Package</dt>
-              <dd>{target?.packageId || "尚未读取"}</dd>
+              <dd>{focusedPackage}</dd>
             </div>
           </dl>
-
+          {activeCategory !== "video" &&
+            focusedRow?.isProtected &&
+            focusedRow?.isSelected && (
+              <button
+                className="secondary-button baseline-button"
+                disabled={recaptureIds.has(focusedRow.extension)}
+                onClick={markRecapture}
+                type="button"
+              >
+                <ArrowSync24Regular />
+                {recaptureIds.has(focusedRow.extension)
+                  ? "等待保存"
+                  : "更新为当前默认程序"}
+              </button>
+            )}
           <p className="target-note">
-            应用只核验并监控该目标，不会直接改写 Windows 的默认关联。
+            {activeCategory === "video"
+              ? "视频格式固定核验本机 Microsoft Media Player。"
+              : "基线由本机主 COM 查询读取，不接受前端提交。"}
+            守护只检测偏移并引导您到 Windows 设置，不会直接改写 Windows 的默认关联。
           </p>
         </aside>
 
@@ -466,14 +642,14 @@ function VideoDefaults({
             <span className="mechanism-badge">实时检测</span>
             <small>RegNotifyChangeKeyValue</small>
           </div>
-
           <div className="apply-area">
             <button
-              className="text-button"
-              onClick={() => setSelectedIds(new Set())}
+              className="secondary-button"
+              onClick={onOpenSettings}
               type="button"
             >
-              取消选择
+              <Open24Regular />
+              Windows 默认应用
             </button>
             <div>
               <button
@@ -482,20 +658,15 @@ function VideoDefaults({
                 onClick={applyChanges}
                 type="button"
               >
-                {isApplying ? "正在处理..." : "保存范围并打开设置"}
+                {isApplying ? "正在保存..." : "保存保护范围"}
               </button>
-              <p>
-                目标：{targetName} · {selectedIds.size} 种格式
-              </p>
+              <p>{selectedIds.size} 种格式 · {recaptureIds.size} 项待更新</p>
             </div>
           </div>
         </footer>
 
         {notice && (
-          <div
-            className={`toast ${notice.type}`}
-            role="status"
-          >
+          <div className={`toast ${notice.type}`} role="status">
             {notice.type === "success" ? (
               <CheckmarkCircle24Filled />
             ) : (
@@ -503,6 +674,7 @@ function VideoDefaults({
             )}
             <span>{notice.text}</span>
             <button
+              aria-label="关闭提示"
               className="icon-button"
               onClick={() => setNotice(null)}
               title="关闭提示"
@@ -514,28 +686,6 @@ function VideoDefaults({
         )}
       </main>
     </div>
-  );
-}
-
-function DefaultsPage({
-  agentError,
-  agentStatus,
-  configuration,
-  isRefreshing,
-  onOpenSettings,
-  onRefresh,
-  onSaveConfiguration,
-}) {
-  return (
-    <VideoDefaults
-      agentError={agentError}
-      agentStatus={agentStatus}
-      configuration={configuration}
-      isRefreshing={isRefreshing}
-      onOpenSettings={onOpenSettings}
-      onRefresh={onRefresh}
-      onSaveConfiguration={onSaveConfiguration}
-    />
   );
 }
 
@@ -561,15 +711,12 @@ function StatusPage({
           <span className="eyebrow">DefaultAppGuard Community</span>
           <h1>
             {healthy
-              ? "视频默认应用检查正常"
+              ? "文件默认应用检查正常"
               : connected
                 ? "发现需要处理的关联"
                 : "本地 Agent 未连接"}
           </h1>
-          <p>
-            最近检查：{auditedAt}
-            {agentError ? ` · ${agentError}` : ""}
-          </p>
+          <p>最近检查：{auditedAt}{agentError ? ` · ${agentError}` : ""}</p>
         </div>
         <span className={`large-status-icon ${healthy ? "" : "warning"}`}>
           {healthy ? <ShieldCheckmark24Filled /> : <Warning24Regular />}
@@ -590,11 +737,7 @@ function StatusPage({
         </div>
       </div>
       <div className="status-actions">
-        <button
-          className="primary-button"
-          onClick={onOpenDefaults}
-          type="button"
-        >
+        <button className="primary-button" onClick={onOpenDefaults} type="button">
           管理默认应用
         </button>
         <button
@@ -626,11 +769,9 @@ function HistoryPage({ agentError, agentStatus }) {
       </header>
       <div className="history-list">
         <article>
-          <span
-            className={`history-icon ${
-              hasAudit && !agentError ? "success" : "neutral"
-            }`}
-          >
+          <span className={`history-icon ${
+            hasAudit && !agentError ? "success" : "neutral"
+          }`}>
             {hasAudit && !agentError ? (
               <CheckmarkCircle24Filled />
             ) : (
@@ -676,10 +817,6 @@ function SettingsPage({
         ? `${agentHealth.operationalLogFormat} · ${operationalLogSizeMiB} MiB 滚动 · 保留 ${agentHealth.operationalLogRetainedFileCountLimit} 个`
         : "不可用，请运行诊断";
 
-  const setNotificationsEnabled = async (enabled) => {
-    await onSaveConfiguration({ notificationsEnabled: enabled });
-  };
-
   return (
     <main className="simple-page">
       <header className="page-heading">
@@ -705,7 +842,9 @@ function SettingsPage({
             disabled={!configuration || isRefreshing}
             id="notification-toggle"
             onChange={(event) => {
-              void setNotificationsEnabled(event.target.checked);
+              void onSaveConfiguration({
+                notificationsEnabled: event.target.checked,
+              });
             }}
             role="switch"
             type="checkbox"
@@ -742,17 +881,14 @@ function ConfigurationRecoveryNotice({ agentHealth, onReview }) {
   const [acknowledgedEvent, setAcknowledgedEvent] = useState(() =>
     readAcknowledgedRecoveryEvent(getRecoveryStorage()),
   );
-
   if (!recoveryNotice || acknowledgedEvent === recoveryNotice.eventKey) {
     return null;
   }
-
   const dismiss = () => {
     acknowledgeRecoveryEvent(getRecoveryStorage(), recoveryNotice.eventKey);
     setAcknowledgedEvent(recoveryNotice.eventKey);
   };
   const isWarning = recoveryNotice.severity === "warning";
-
   return (
     <section
       aria-atomic="true"
@@ -792,6 +928,8 @@ export function App() {
     status: agentStatus,
     configuration,
     health: agentHealth,
+    catalog,
+    inspections,
     error: agentError,
     isRefreshing,
     refresh,
@@ -806,56 +944,44 @@ export function App() {
       ? "Agent 已连接"
       : "Agent 运行异常";
 
-  const content = useMemo(() => {
-    if (activeSection === "status") {
-      return (
-        <StatusPage
-          agentError={agentError}
-          agentStatus={agentStatus}
-          isRefreshing={isRefreshing}
-          onOpenDefaults={() => setActiveSection("defaults")}
-          onRefresh={refresh}
-        />
-      );
-    }
-    if (activeSection === "history") {
-      return (
-        <HistoryPage agentError={agentError} agentStatus={agentStatus} />
-      );
-    }
-    if (activeSection === "settings") {
-      return (
-        <SettingsPage
-          agentHealth={agentHealth}
-          agentStatus={agentStatus}
-          configuration={configuration}
-          isRefreshing={isRefreshing}
-          onSaveConfiguration={saveConfiguration}
-        />
-      );
-    }
-    return (
-      <DefaultsPage
+  let content;
+  if (activeSection === "status") {
+    content = (
+      <StatusPage
         agentError={agentError}
         agentStatus={agentStatus}
+        isRefreshing={isRefreshing}
+        onOpenDefaults={() => setActiveSection("defaults")}
+        onRefresh={refresh}
+      />
+    );
+  } else if (activeSection === "history") {
+    content = <HistoryPage agentError={agentError} agentStatus={agentStatus} />;
+  } else if (activeSection === "settings") {
+    content = (
+      <SettingsPage
+        agentHealth={agentHealth}
+        agentStatus={agentStatus}
         configuration={configuration}
+        isRefreshing={isRefreshing}
+        onSaveConfiguration={saveConfiguration}
+      />
+    );
+  } else {
+    content = (
+      <AssociationDefaults
+        agentError={agentError}
+        agentStatus={agentStatus}
+        catalog={catalog}
+        configuration={configuration}
+        inspections={inspections}
         isRefreshing={isRefreshing}
         onOpenSettings={openSettings}
         onRefresh={refresh}
         onSaveConfiguration={saveConfiguration}
       />
     );
-  }, [
-    activeSection,
-    agentError,
-    agentHealth,
-    agentStatus,
-    configuration,
-    isRefreshing,
-    openSettings,
-    refresh,
-    saveConfiguration,
-  ]);
+  }
 
   return (
     <div className="app-shell">

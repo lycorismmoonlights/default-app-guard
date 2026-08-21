@@ -25,6 +25,13 @@ try
     builder.Services.AddSingleton(options);
     builder.Services.AddSingleton(operationalLogging.Health);
     builder.Services.AddSingleton<AgentRuntimeState>();
+    builder.Services.AddSingleton<WindowsAssociationReader>();
+    builder.Services.AddSingleton<IAssociationSnapshotReader>(services =>
+        services.GetRequiredService<WindowsAssociationReader>());
+    builder.Services.AddSingleton<MediaPlayerTargetResolver>();
+    builder.Services.AddSingleton<IMediaPlayerTargetResolver>(services =>
+        services.GetRequiredService<MediaPlayerTargetResolver>());
+    builder.Services.AddSingleton<AssociationRuleFactory>();
     builder.Services.AddSingleton<AssociationAuditService>();
     builder.Services.AddSingleton<GuardConfigurationStore>();
     builder.Services.AddSingleton<AssociationAuditCoordinator>();
@@ -35,6 +42,7 @@ try
         services.GetRequiredService<TrayUserNotificationSink>());
     builder.Services.AddHostedService<AssociationMonitorWorker>();
     builder.Services.AddHostedService<DriftNotificationWorker>();
+    builder.Services.AddHostedService<ConfigurationRecoveryNotificationWorker>();
 
     var app = builder.Build();
     var packagedUiPath = Path.Combine(AppContext.BaseDirectory, "wwwroot");
@@ -118,6 +126,14 @@ try
             NotificationsEnabled =
                 configurationStore.Snapshot().NotificationsEnabled,
             NotificationLastError = notificationStatus.LastError,
+            NotificationLastQueuedKind =
+                notificationStatus.LastQueuedKind,
+            NotificationLastQueuedAtUtc =
+                notificationStatus.LastQueuedAtUtc,
+            ConfigurationRecoveryNotificationLastQueuedKind =
+                notificationStatus.ConfigurationRecoveryLastQueuedKind,
+            ConfigurationRecoveryNotificationLastQueuedAtUtc =
+                notificationStatus.ConfigurationRecoveryLastQueuedAtUtc,
             OperationalLogChannel = operationalLogStatus.Channel,
             OperationalLogsAvailable = operationalLogStatus.Available,
             OperationalLogFormat = operationalLogStatus.Format,
@@ -158,6 +174,45 @@ try
     app.MapGet("/api/config", (GuardConfigurationStore store) =>
         Results.Ok(store.Snapshot()));
 
+    app.MapGet("/api/association-catalog", () =>
+        Results.Ok(AssociationCatalog.Entries));
+
+    app.MapPost("/api/associations/inspect", (
+        HttpRequest request,
+        AssociationInspectionRequest inspection,
+        IAssociationSnapshotReader reader) =>
+    {
+        RequireLocalClient(request);
+        try
+        {
+            var extensions = NormalizeInspectionExtensions(
+                inspection.Extensions);
+            var results = extensions.Select(extension =>
+            {
+                try
+                {
+                    return new AssociationInspectionResult(
+                        extension,
+                        reader.Read(extension),
+                        null);
+                }
+                catch (Exception exception) when (
+                    AssociationReadFailure.IsExpected(exception))
+                {
+                    return new AssociationInspectionResult(
+                        extension,
+                        null,
+                        $"{exception.GetType().Name}: {exception.Message}");
+                }
+            }).ToArray();
+            return Results.Ok(results);
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.BadRequest(new { Error = exception.Message });
+        }
+    });
+
     app.MapPost("/api/audit", async (
         HttpRequest request,
         AssociationAuditCoordinator coordinator,
@@ -187,7 +242,8 @@ try
                 cancellationToken);
             return Results.Ok(new { Configuration = configuration, Status = status });
         }
-        catch (ArgumentException exception)
+        catch (Exception exception) when (
+            exception is ArgumentException or InvalidOperationException)
         {
             return Results.BadRequest(new { Error = exception.Message });
         }
@@ -196,9 +252,7 @@ try
     app.MapPost("/api/open-settings", (HttpRequest request) =>
     {
         RequireLocalClient(request);
-        const string settingsUri =
-            "ms-settings:defaultapps?registeredAUMID=" +
-            "Microsoft.ZuneMusic_8wekyb3d8bbwe%21Microsoft.ZuneMusic";
+        const string settingsUri = "ms-settings:defaultapps";
         using var process = System.Diagnostics.Process.Start(
             new System.Diagnostics.ProcessStartInfo(settingsUri)
             {
@@ -257,3 +311,38 @@ static void RequireLocalClient(HttpRequest request)
             StatusCodes.Status400BadRequest);
     }
 }
+
+static string[] NormalizeInspectionExtensions(
+    IReadOnlyList<string>? extensions)
+{
+    if (extensions is null)
+    {
+        throw new ArgumentException("Extensions are required.");
+    }
+
+    var normalized = extensions
+        .Select(ExtensionName.Normalize)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Order(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+    if (normalized.Length is 0 or > 128)
+    {
+        throw new ArgumentException(
+            "Inspect between 1 and 128 supported file extensions.");
+    }
+
+    foreach (var extension in normalized)
+    {
+        _ = AssociationCatalog.Get(extension);
+    }
+
+    return normalized;
+}
+
+internal sealed record AssociationInspectionRequest(
+    IReadOnlyList<string>? Extensions);
+
+internal sealed record AssociationInspectionResult(
+    string Extension,
+    AssociationSnapshot? Snapshot,
+    string? Error);
