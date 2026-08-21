@@ -76,7 +76,8 @@ same attested archive. It never rebuilds the package locally.
     before and after the short-lived native watchdog recovers a terminated
     Agent and returns its task to `Ready`, a deliberately failed transactional
     upgrade and rollback, the `WindowsForms.NotifyIcon` channel, notification
-    preference round-trip without protected-scope loss, a real bounded CLEF
+    preference round-trip without protected-scope loss, configuration-recovery
+    alert queueing with a matching kind and timestamp, a real bounded CLEF
     operational-log write and retention diagnostics,
    diagnostics, Windows Installed apps registration, execution of the exact
     registered hidden uninstall command, packaged recovery-notice asset
@@ -93,10 +94,14 @@ same attested archive. It never rebuilds the package locally.
     timestamped signature from one certificate.
 
 The gate fails if the COM query, Media Player resolver, effective plan, real
-`RegNotifyChangeKeyValue` notification, re-arm behavior, or full 34-format
-audit does not pass. It also fails if the final Agent uses the Windows Console
+`RegNotifyChangeKeyValue` notification, re-arm behavior, 34-format video
+audit, or six-format captured non-video audit does not pass. The exact-package
+lifecycle requires 40 primary snapshots, six persisted captured rules, zero
+failed reads, and at least three distinct real targets. It also fails if the final Agent uses the Windows Console
 subsystem, cannot initialize its notification channel, or loses protected
 formats while changing the notification preference. It also fails when the
+installed recovery event lacks dedicated queued-notification evidence, or when
+that evidence predates the recovery. It also fails when the
 installed Agent cannot create its bounded operational log or diagnostics find
 missing, oversized, or excess log files.
 
@@ -137,19 +142,21 @@ Use this fallback only while Authenticode signing is unavailable:
 ```powershell
 .\packaging\Promote-ReleaseCandidate.ps1 `
   -CandidateDirectory F:\path\to\downloaded-candidate `
-  -Version 0.1.15 `
+  -Version 0.2.0 `
   -ExpectedCommit <full-main-commit-sha>
 ```
 
 5. Require candidate evidence schema 2 to name `windows-2025`, the actual
    `win25` image family and its non-empty image version. Also require
    `release-gate.json`, `package-lifecycle.json`, and
-   `watchdog-backoff.json` to report `passed: true`. In particular, require 34
-   fresh primary snapshots, zero failed reads, both real monitor checks,
+   `watchdog-backoff.json` to report `passed: true`. In particular, require 40
+   fresh primary snapshots (34 video and six captured non-video), six schema 3
+   captured rules, at least three distinct targets, zero failed reads, both real monitor checks,
    freshness-aware watchdog recovery, exact-package configuration corruption
    and validated last-known-good restoration with preserved settings,
    packaged recovery-notice asset verification,
-   notification-channel and preference round-trip evidence, bounded local-log
+   notification-channel, preference round-trip, and recovery-alert queue
+   evidence, bounded local-log
    evidence, rollback, diagnostics, and clean uninstall.
 6. Publish the original candidate ZIP, its checksum, the original SBOM and its
    checksum, `candidate-build.json`, `release-gate.json`,

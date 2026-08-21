@@ -35,7 +35,7 @@ test("warns when invalid primary and backup settings required safe defaults", ()
 
   assert.equal(notice.severity, "warning");
   assert.match(notice.title, /安全默认值/);
-  assert.match(notice.message, /全部 34 种视频格式/);
+  assert.match(notice.message, /34 种视频格式的安全默认保护/);
   assert.match(notice.message, /自定义选择可能已丢失/);
 });
 

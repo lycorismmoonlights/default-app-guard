@@ -7,13 +7,29 @@ namespace DefaultAppGuard.Agent;
 public sealed record UserNotificationStatus(
     string Channel,
     bool Available,
-    string? LastError);
+    string? LastError,
+    string? LastQueuedKind,
+    DateTimeOffset? LastQueuedAtUtc,
+    string? ConfigurationRecoveryLastQueuedKind,
+    DateTimeOffset? ConfigurationRecoveryLastQueuedAtUtc);
+
+public static class UserNotificationKinds
+{
+    public const string AssociationDrift = "association-drift";
+    public const string ConfigurationBackupRestored =
+        "configuration-backup-restored";
+    public const string ConfigurationDefaultsRestored =
+        "configuration-defaults-restored";
+}
 
 public interface IUserNotificationSink
 {
     UserNotificationStatus Snapshot();
 
     bool TryShowAssociationDrift(DriftNotification notification);
+
+    bool TryShowConfigurationRecovery(
+        ConfigurationRecoveryNotification notification);
 }
 
 public sealed class TrayUserNotificationSink(
@@ -32,7 +48,11 @@ public sealed class TrayUserNotificationSink(
     private UserNotificationStatus status = new(
         ChannelName,
         false,
-        "Notification channel has not started.");
+        "Notification channel has not started.",
+        null,
+        null,
+        null,
+        null);
     private Thread? messageLoopThread;
     private SynchronizationContext? messageLoopContext;
     private NotifyIcon? notifyIcon;
@@ -114,6 +134,26 @@ public sealed class TrayUserNotificationSink(
     public bool TryShowAssociationDrift(DriftNotification notification)
     {
         ArgumentNullException.ThrowIfNull(notification);
+        return TryQueueBalloon(
+            UserNotificationKinds.AssociationDrift,
+            icon => ShowDriftBalloon(icon, notification));
+    }
+
+    public bool TryShowConfigurationRecovery(
+        ConfigurationRecoveryNotification notification)
+    {
+        ArgumentNullException.ThrowIfNull(notification);
+        return TryQueueBalloon(
+            notification.Kind,
+            icon => ShowConfigurationRecoveryBalloon(icon, notification));
+    }
+
+    private bool TryQueueBalloon(
+        string kind,
+        Action<NotifyIcon> showBalloon)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(kind);
+        ArgumentNullException.ThrowIfNull(showBalloon);
         SynchronizationContext? context;
         NotifyIcon? icon;
         lock (gate)
@@ -134,7 +174,28 @@ public sealed class TrayUserNotificationSink(
 
         try
         {
-            context.Post(_ => ShowDriftBalloon(icon, notification), null);
+            context.Post(_ => showBalloon(icon), null);
+            lock (gate)
+            {
+                var queuedAtUtc = DateTimeOffset.UtcNow;
+                var next = status with
+                {
+                    LastQueuedKind = kind,
+                    LastQueuedAtUtc = queuedAtUtc,
+                };
+                if (kind is
+                    UserNotificationKinds.ConfigurationBackupRestored or
+                    UserNotificationKinds.ConfigurationDefaultsRestored)
+                {
+                    next = next with
+                    {
+                        ConfigurationRecoveryLastQueuedKind = kind,
+                        ConfigurationRecoveryLastQueuedAtUtc = queuedAtUtc,
+                    };
+                }
+
+                status = next;
+            }
             return true;
         }
         catch (InvalidOperationException exception)
@@ -168,6 +229,7 @@ public sealed class TrayUserNotificationSink(
                 Visible = true,
             };
             icon.DoubleClick += (_, _) => OpenUi();
+            icon.BalloonTipClicked += (_, _) => OpenUi();
 
             lock (gate)
             {
@@ -176,6 +238,10 @@ public sealed class TrayUserNotificationSink(
                 status = new UserNotificationStatus(
                     ChannelName,
                     true,
+                    null,
+                    null,
+                    null,
+                    null,
                     null);
             }
 
@@ -204,7 +270,11 @@ public sealed class TrayUserNotificationSink(
                         false,
                         stopping
                             ? "Notification channel stopped."
-                            : "Notification message loop stopped unexpectedly.");
+                            : "Notification message loop stopped unexpectedly.",
+                        status.LastQueuedKind,
+                        status.LastQueuedAtUtc,
+                        status.ConfigurationRecoveryLastQueuedKind,
+                        status.ConfigurationRecoveryLastQueuedAtUtc);
                 }
             }
 
@@ -226,8 +296,8 @@ public sealed class TrayUserNotificationSink(
             icon.BalloonTipTitle =
                 "默认应用被更改 / Default app changed";
             icon.BalloonTipText =
-                $"{notification.DriftCount} 个视频格式已偏离系统媒体播放器 / " +
-                $"{notification.DriftCount} video associations drifted\n" +
+                $"{notification.DriftCount} 个文件格式已偏离保护目标 / " +
+                $"{notification.DriftCount} protected associations drifted\n" +
                 $"{preview}{remainder}";
             icon.ShowBalloonTip(10_000);
         }
@@ -238,6 +308,39 @@ public sealed class TrayUserNotificationSink(
             logger.LogWarning(
                 exception,
                 "The system notification could not be displayed.");
+        }
+    }
+
+    private void ShowConfigurationRecoveryBalloon(
+        NotifyIcon icon,
+        ConfigurationRecoveryNotification notification)
+    {
+        try
+        {
+            var defaultsRestored = string.Equals(
+                notification.RecoveryCode,
+                GuardConfigurationStore.DefaultsRestoredCode,
+                StringComparison.Ordinal);
+            icon.BalloonTipIcon = defaultsRestored
+                ? ToolTipIcon.Warning
+                : ToolTipIcon.Info;
+            icon.BalloonTipTitle = defaultsRestored
+                ? "保护设置已重置 / Settings reset"
+                : "保护设置已恢复 / Settings restored";
+            icon.BalloonTipText = defaultsRestored
+                ? "主配置和备份均不可用，已启用全部安全默认保护。请打开应用检查设置。 / " +
+                  "Both configuration copies were unusable. Safe defaults are active; open the app to review."
+                : "已从最近一次有效备份恢复保护设置。请打开应用检查。 / " +
+                  "Protection settings were restored from the last valid backup; open the app to review.";
+            icon.ShowBalloonTip(10_000);
+        }
+        catch (Exception exception)
+        {
+            SetUnavailable(
+                $"{exception.GetType().Name}: {exception.Message}");
+            logger.LogWarning(
+                exception,
+                "The configuration recovery notification could not be displayed.");
         }
     }
 
@@ -268,10 +371,11 @@ public sealed class TrayUserNotificationSink(
     {
         lock (gate)
         {
-            status = new UserNotificationStatus(
-                ChannelName,
-                false,
-                error);
+            status = status with
+            {
+                Available = false,
+                LastError = error,
+            };
         }
     }
 

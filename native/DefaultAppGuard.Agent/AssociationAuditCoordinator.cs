@@ -29,7 +29,7 @@ public sealed class AssociationAuditCoordinator(
                 () => auditService.Audit(
                     configurationStore
                         .Snapshot()
-                        .ProtectedVideoExtensions),
+                        .ProtectedAssociations),
                 cancellationToken);
             var snapshot = state.SetAudit(audit, reason, registryEvent);
             await WriteStateAsync(snapshot, cancellationToken);

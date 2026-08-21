@@ -4,6 +4,7 @@ namespace DefaultAppGuard.Core;
 
 [SupportedOSPlatform("windows")]
 public sealed class MediaPlayerTargetResolver(IAssociationRegistrySource registrySource)
+    : IMediaPlayerTargetResolver
 {
     public MediaPlayerTargetResolver()
         : this(new WindowsAssociationRegistrySource())

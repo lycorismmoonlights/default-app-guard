@@ -50,13 +50,45 @@ public sealed class WatchdogReadinessTests
               "serviceState": "running",
               "query": "IApplicationAssociationRegistration.QueryCurrentDefault",
               "monitor": "RegNotifyChangeKeyValue",
-              "targetProgId": "Media.Player",
-              "targetPackageId": "Microsoft.ZuneMusic_1.0_x64__8wekyb3d8bbwe",
+              "expectedHandlerCount": 34,
+              "resolvedHandlerCount": 34,
+              "distinctTargetCount": 1,
               "auditedExtensionCount": 34,
               "primarySnapshotCount": 34,
               "failedReadCount": 0
             }
             """);
+
+        Assert.False(WatchdogRunner.TryMatchReadiness(document.RootElement));
+    }
+
+    [Theory]
+    [InlineData(40, 39, 4)]
+    [InlineData(40, 40, 0)]
+    [InlineData(40, 40, 41)]
+    public void TryMatchReadiness_RejectsInvalidMultiTargetCounts(
+        int expectedHandlerCount,
+        int resolvedHandlerCount,
+        int distinctTargetCount)
+    {
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            ready = true,
+            code = "ready",
+            serviceState = "running",
+            query =
+                "IApplicationAssociationRegistration.QueryCurrentDefault",
+            monitor = "RegNotifyChangeKeyValue",
+            expectedHandlerCount,
+            resolvedHandlerCount,
+            distinctTargetCount,
+            auditedExtensionCount = expectedHandlerCount,
+            primarySnapshotCount = expectedHandlerCount,
+            failedReadCount = 0,
+            auditFresh = true,
+            auditAgeSeconds = 30,
+            maximumAuditAgeSeconds = 1200,
+        }));
 
         Assert.False(WatchdogRunner.TryMatchReadiness(document.RootElement));
     }
@@ -88,9 +120,9 @@ public sealed class WatchdogReadinessTests
             serviceState = "running",
             query = "IApplicationAssociationRegistration.QueryCurrentDefault",
             monitor = "RegNotifyChangeKeyValue",
-            targetProgId = "Media.Player",
-            targetPackageId =
-                "Microsoft.ZuneMusic_1.0_x64__8wekyb3d8bbwe",
+            expectedHandlerCount = auditedExtensionCount,
+            resolvedHandlerCount = auditedExtensionCount,
+            distinctTargetCount = 1,
             auditedExtensionCount,
             primarySnapshotCount,
             failedReadCount,

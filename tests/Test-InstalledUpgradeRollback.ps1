@@ -40,9 +40,15 @@ function Wait-ExistingAgentHealthy {
             $status = Invoke-RestMethod `
                 -Uri "$($Url.TrimEnd('/'))/api/status" `
                 -TimeoutSec 1
-            return [pscustomobject]@{
-                Health = $health
-                Status = $status
+            $readiness = Invoke-RestMethod `
+                -Uri "$($Url.TrimEnd('/'))/api/readiness" `
+                -TimeoutSec 1
+            if ([bool]$readiness.ready) {
+                return [pscustomobject]@{
+                    Health = $health
+                    Status = $status
+                    Readiness = $readiness
+                }
             }
         } catch {
             Start-Sleep -Milliseconds 250
@@ -208,13 +214,21 @@ try {
             $afterUninstallEntry -eq $beforeUninstallEntry
         oneAgentRunning = @($afterProcess).Count -eq 1
         primaryQuery =
-            $restored.Health.Query -eq
+            $restored.Readiness.Query -eq
             "IApplicationAssociationRegistration.QueryCurrentDefault"
         primaryMonitor =
-            $restored.Health.Monitor -eq "RegNotifyChangeKeyValue"
+            $restored.Readiness.Monitor -eq "RegNotifyChangeKeyValue"
         associationsHealthy =
-            [bool]$restored.Status.audit.healthy -and
-            [int]$restored.Status.audit.driftCount -eq 0
+            [bool]$restored.Readiness.Ready -and
+            [bool]$restored.Readiness.AuditFresh -and
+            [int]$restored.Readiness.ExpectedHandlerCount -eq
+                [int]$restored.Readiness.ResolvedHandlerCount -and
+            [int]$restored.Readiness.AuditedExtensionCount -eq
+                [int]$restored.Readiness.PrimarySnapshotCount -and
+            [int]$restored.Readiness.ExpectedHandlerCount -eq
+                [int]$restored.Readiness.AuditedExtensionCount -and
+            [int]$restored.Readiness.FailedReadCount -eq 0 -and
+            [int]$restored.Readiness.DriftCount -eq 0
         noTransactionResidue = $transactionResidue.Count -eq 0
     }
     $failedChecks = @(
@@ -289,13 +303,21 @@ try {
             $lateUninstallEntry -eq $beforeUninstallEntry
         oneAgentRunning = @($lateProcess).Count -eq 1
         primaryQuery =
-            $lateRestored.Health.Query -eq
+            $lateRestored.Readiness.Query -eq
             "IApplicationAssociationRegistration.QueryCurrentDefault"
         primaryMonitor =
-            $lateRestored.Health.Monitor -eq "RegNotifyChangeKeyValue"
+            $lateRestored.Readiness.Monitor -eq "RegNotifyChangeKeyValue"
         associationsHealthy =
-            [bool]$lateRestored.Status.audit.healthy -and
-            [int]$lateRestored.Status.audit.driftCount -eq 0
+            [bool]$lateRestored.Readiness.Ready -and
+            [bool]$lateRestored.Readiness.AuditFresh -and
+            [int]$lateRestored.Readiness.ExpectedHandlerCount -eq
+                [int]$lateRestored.Readiness.ResolvedHandlerCount -and
+            [int]$lateRestored.Readiness.AuditedExtensionCount -eq
+                [int]$lateRestored.Readiness.PrimarySnapshotCount -and
+            [int]$lateRestored.Readiness.ExpectedHandlerCount -eq
+                [int]$lateRestored.Readiness.AuditedExtensionCount -and
+            [int]$lateRestored.Readiness.FailedReadCount -eq 0 -and
+            [int]$lateRestored.Readiness.DriftCount -eq 0
         noTransactionResidue = $lateTransactionResidue.Count -eq 0
     }
     $failedLateChecks = @(
@@ -314,10 +336,10 @@ try {
         RestoredVersion = $afterManifest.version
         PreviousProcessId = $beforeProcess.ProcessId
         RestoredProcessId = $afterProcess.ProcessId
-        HealthyCount = $restored.Status.audit.healthyCount
-        DriftCount = $restored.Status.audit.driftCount
-        MainQuery = $restored.Health.Query
-        MainMonitor = $restored.Health.Monitor
+        HealthyCount = $restored.Readiness.HealthyCount
+        DriftCount = $restored.Readiness.DriftCount
+        MainQuery = $restored.Readiness.Query
+        MainMonitor = $restored.Readiness.Monitor
         TransactionResidueCount = $transactionResidue.Count
         UninstallEntryRestored =
             $lateUninstallEntry -eq $beforeUninstallEntry

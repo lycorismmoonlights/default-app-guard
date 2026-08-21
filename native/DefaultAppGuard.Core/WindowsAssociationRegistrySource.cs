@@ -4,10 +4,17 @@ using System.Runtime.Versioning;
 namespace DefaultAppGuard.Core;
 
 [SupportedOSPlatform("windows")]
-public sealed class WindowsAssociationRegistrySource : IAssociationRegistrySource
+public sealed class WindowsAssociationRegistrySource(
+    IApplicationDisplayNameResolver displayNameResolver)
+    : IAssociationRegistrySource
 {
     private const string FileExtsPath =
         @"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts";
+
+    public WindowsAssociationRegistrySource()
+        : this(new WindowsApplicationDisplayNameResolver())
+    {
+    }
 
     public UserChoiceEvidence ReadUserChoice(string extension)
     {
@@ -34,7 +41,8 @@ public sealed class WindowsAssociationRegistrySource : IAssociationRegistrySourc
 
         return new ProgIdMetadata(
             progId,
-            applicationKey?.GetValue("ApplicationName") as string,
+            displayNameResolver.Resolve(
+                applicationKey?.GetValue("ApplicationName") as string),
             applicationKey?.GetValue("ApplicationCompany") as string,
             openKey?.GetValue("PackageId") as string,
             applicationKey?.GetValue("AppUserModelID") as string);

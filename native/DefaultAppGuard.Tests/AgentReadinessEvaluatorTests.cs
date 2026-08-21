@@ -9,42 +9,47 @@ public sealed class AgentReadinessEvaluatorTests
         TimeSpan.FromMinutes(20);
 
     [Fact]
-    public void Evaluate_AcceptsPrimaryEvidenceWhenAssociationsHaveDrift()
+    public void Evaluate_AcceptsPrimaryEvidenceEvenWhenAssociationsHaveDrift()
     {
-        var status = CreateStatus(
-            CreateAudit(
-                CreateItem(
-                    healthy: false,
-                    querySource: AgentReadinessEvaluator.PrimaryQuery)));
-
-        var readiness = Evaluate(status);
+        var readiness = Evaluate(CreateStatus(CreateAudit(
+            CreateItem(".mp4", healthy: false),
+            CreateItem(".pdf", healthy: true))));
 
         Assert.True(readiness.Ready);
         Assert.Equal("ready", readiness.Code);
-        Assert.Equal(1, readiness.PrimarySnapshotCount);
+        Assert.Equal(2, readiness.ExpectedHandlerCount);
+        Assert.Equal(2, readiness.ResolvedHandlerCount);
+        Assert.Equal(2, readiness.DistinctTargetCount);
         Assert.Equal(1, readiness.DriftCount);
-        Assert.True(readiness.AuditFresh);
     }
 
     [Fact]
     public void Evaluate_RejectsAnAgentBeforeItsFirstAudit()
     {
-        var status = CreateStatus(audit: null);
-
-        var readiness = Evaluate(status);
+        var readiness = Evaluate(CreateStatus(audit: null));
 
         Assert.False(readiness.Ready);
         Assert.Equal("audit-pending", readiness.Code);
     }
 
-    [Fact]
-    public void Evaluate_RejectsAnUnresolvedMediaPlayerTarget()
+    [Theory]
+    [InlineData(".pdf", "", null)]
+    [InlineData(".mp4", "Media.Player", null)]
+    public void Evaluate_RejectsAnUnresolvedTarget(
+        string extension,
+        string progId,
+        string? packageId)
     {
-        var audit = CreateAudit(
-            CreateItem(true, AgentReadinessEvaluator.PrimaryQuery)) with
+        var item = CreateItem(extension, healthy: true);
+        var invalid = item.Expected with
         {
-            Target = new AssociationTarget("", "", null, null, []),
+            ProgId = progId,
+            PackageId = packageId,
         };
+        var audit = new AssociationAuditResult(
+            [invalid],
+            [item with { Expected = invalid }],
+            DateTimeOffset.UtcNow);
 
         var readiness = Evaluate(CreateStatus(audit));
 
@@ -55,12 +60,16 @@ public sealed class AgentReadinessEvaluatorTests
     [Fact]
     public void Evaluate_RejectsAnyFailedPrimaryQueryRead()
     {
-        var audit = CreateAudit(
-            new AssociationAuditItem(
+        var expected = Expected(".mp4");
+        var audit = new AssociationAuditResult(
+            [expected],
+            [new AssociationAuditItem(
                 ".mp4",
+                expected,
                 false,
                 null,
-                "Primary COM query failed."));
+                "Primary COM query failed.")],
+            DateTimeOffset.UtcNow);
 
         var readiness = Evaluate(CreateStatus(audit));
 
@@ -70,40 +79,44 @@ public sealed class AgentReadinessEvaluatorTests
     }
 
     [Fact]
-    public void Evaluate_RejectsPartialPrimaryQueryCoverage()
+    public void Evaluate_RejectsMismatchedMultiTargetScope()
     {
-        var successful = CreateItem(
-            true,
-            AgentReadinessEvaluator.PrimaryQuery);
-        var failed = new AssociationAuditItem(
-            ".mkv",
-            false,
-            null,
-            "Primary COM query failed.");
-        var audit = CreateAudit(successful, failed) with
-        {
-            Target = new AssociationTarget(
-                "Media.Player",
-                "Microsoft.ZuneMusic_1.0_x64__8wekyb3d8bbwe",
-                "Microsoft.ZuneMusic!App",
-                "Media Player",
-                [".mp4", ".mkv"]),
-        };
+        var item = CreateItem(".mp4", healthy: true);
+        var audit = new AssociationAuditResult(
+            [item.Expected, Expected(".pdf")],
+            [item],
+            DateTimeOffset.UtcNow);
 
         var readiness = Evaluate(CreateStatus(audit));
 
         Assert.False(readiness.Ready);
-        Assert.Equal("primary-query-read-failed", readiness.Code);
-        Assert.Equal(1, readiness.PrimarySnapshotCount);
-        Assert.Equal(1, readiness.FailedReadCount);
+        Assert.Equal("audit-scope-mismatch", readiness.Code);
+    }
+
+    [Fact]
+    public void Evaluate_RejectsDuplicateExpectedScopeWithoutThrowing()
+    {
+        var item = CreateItem(".mp4", healthy: true);
+        var audit = new AssociationAuditResult(
+            [item.Expected, item.Expected],
+            [item, item],
+            DateTimeOffset.UtcNow);
+
+        var readiness = Evaluate(CreateStatus(audit));
+
+        Assert.False(readiness.Ready);
+        Assert.Equal("audit-scope-mismatch", readiness.Code);
     }
 
     [Fact]
     public void Evaluate_RejectsEvidenceFromAnotherQueryAlgorithm()
     {
-        var audit = CreateAudit(CreateItem(true, "registry-fallback"));
+        var item = CreateItem(".pdf", healthy: true) with
+        {
+            Snapshot = Snapshot(".pdf", "Pdf.Reader", "registry-fallback"),
+        };
 
-        var readiness = Evaluate(CreateStatus(audit));
+        var readiness = Evaluate(CreateStatus(CreateAudit(item)));
 
         Assert.False(readiness.Ready);
         Assert.Equal("non-primary-query-evidence", readiness.Code);
@@ -112,12 +125,11 @@ public sealed class AgentReadinessEvaluatorTests
     [Fact]
     public void Evaluate_RejectsARecordedRuntimeError()
     {
-        var status = CreateStatus(
-            CreateAudit(CreateItem(true, AgentReadinessEvaluator.PrimaryQuery)))
-            with
+        var status = CreateStatus(CreateAudit(
+            CreateItem(".mp4", healthy: true))) with
         {
             ServiceState = "degraded",
-            LastError = "Media Player package is unavailable.",
+            LastError = "Target resolution failed.",
         };
 
         var readiness = Evaluate(status);
@@ -130,8 +142,7 @@ public sealed class AgentReadinessEvaluatorTests
     public void Evaluate_RejectsExpiredPrimaryQueryEvidence()
     {
         var now = DateTimeOffset.Parse("2026-08-01T12:00:00Z");
-        var audit = CreateAudit(
-            CreateItem(true, AgentReadinessEvaluator.PrimaryQuery)) with
+        var audit = CreateAudit(CreateItem(".mp4", healthy: true)) with
         {
             AuditedAtUtc = now - MaximumAuditAge - TimeSpan.FromSeconds(1),
         };
@@ -142,18 +153,15 @@ public sealed class AgentReadinessEvaluatorTests
             now);
 
         Assert.False(readiness.Ready);
-        Assert.False(readiness.AuditFresh);
         Assert.Equal("audit-stale", readiness.Code);
         Assert.Equal(1201, readiness.AuditAgeSeconds);
-        Assert.Equal(1200, readiness.MaximumAuditAgeSeconds);
     }
 
     [Fact]
     public void Evaluate_AcceptsEvidenceAtFreshnessBoundary()
     {
         var now = DateTimeOffset.Parse("2026-08-01T12:00:00Z");
-        var audit = CreateAudit(
-            CreateItem(true, AgentReadinessEvaluator.PrimaryQuery)) with
+        var audit = CreateAudit(CreateItem(".mp4", healthy: true)) with
         {
             AuditedAtUtc = now - MaximumAuditAge,
         };
@@ -164,22 +172,18 @@ public sealed class AgentReadinessEvaluatorTests
             now);
 
         Assert.True(readiness.Ready);
-        Assert.True(readiness.AuditFresh);
         Assert.Equal("ready", readiness.Code);
         Assert.Equal(1200, readiness.AuditAgeSeconds);
     }
 
-    private static AgentReadiness Evaluate(AgentStatus status)
-    {
-        return AgentReadinessEvaluator.Evaluate(
+    private static AgentReadiness Evaluate(AgentStatus status) =>
+        AgentReadinessEvaluator.Evaluate(
             status,
             MaximumAuditAge,
             status.Audit?.AuditedAtUtc ?? DateTimeOffset.UtcNow);
-    }
 
-    private static AgentStatus CreateStatus(AssociationAuditResult? audit)
-    {
-        return new AgentStatus(
+    private static AgentStatus CreateStatus(AssociationAuditResult? audit) =>
+        new(
             "running",
             AgentReadinessEvaluator.PrimaryMonitor,
             AgentReadinessEvaluator.PrimaryQuery,
@@ -188,37 +192,62 @@ public sealed class AgentReadinessEvaluatorTests
             audit,
             null,
             DateTimeOffset.UtcNow);
-    }
 
     private static AssociationAuditResult CreateAudit(
-        params AssociationAuditItem[] items)
-    {
-        return new AssociationAuditResult(
-            new AssociationTarget(
-                "Media.Player",
-                "Microsoft.ZuneMusic_1.0_x64__8wekyb3d8bbwe",
-                "Microsoft.ZuneMusic!App",
-                "Media Player",
-                [".mp4"]),
+        params AssociationAuditItem[] items) =>
+        new(
+            items.Select(item => item.Expected).ToArray(),
             items,
             DateTimeOffset.UtcNow);
-    }
 
     private static AssociationAuditItem CreateItem(
-        bool healthy,
-        string querySource)
+        string extension,
+        bool healthy)
     {
+        var expected = Expected(extension);
+        var effectiveProgId = healthy
+            ? expected.ProgId
+            : "Unexpected.Handler";
         return new AssociationAuditItem(
-            ".mp4",
+            extension,
+            expected,
             healthy,
-            new AssociationSnapshot(
-                ".mp4",
-                healthy ? "Media.Player" : "Another.Player",
-                healthy ? "Media.Player" : "Another.Player",
-                true,
-                healthy ? "Media Player" : "Another Player",
-                null,
-                querySource),
+            Snapshot(
+                extension,
+                effectiveProgId,
+                AgentReadinessEvaluator.PrimaryQuery),
             healthy ? null : "Association drift detected.");
     }
+
+    private static AssociationExpectedHandler Expected(string extension)
+    {
+        var video = string.Equals(
+            AssociationCatalog.Get(extension).Category,
+            AssociationCatalog.VideoCategory,
+            StringComparison.Ordinal);
+        return new AssociationExpectedHandler(
+            extension,
+            video
+                ? AssociationCatalog.VideoCategory
+                : AssociationCatalog.DocumentCategory,
+            video
+                ? AssociationConstants.MediaPlayerTargetStrategy
+                : AssociationConstants.CapturedCurrentTargetStrategy,
+            video ? "Media.Player" : "Pdf.Reader",
+            video ? "Microsoft.ZuneMusic_1.0_x64__8wekyb3d8bbwe" : null,
+            video ? "Media Player" : "PDF Reader");
+    }
+
+    private static AssociationSnapshot Snapshot(
+        string extension,
+        string progId,
+        string querySource) =>
+        new(
+            extension,
+            progId,
+            progId,
+            true,
+            "Application",
+            null,
+            querySource);
 }

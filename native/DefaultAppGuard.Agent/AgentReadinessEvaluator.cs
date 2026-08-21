@@ -8,8 +8,9 @@ public sealed record AgentReadiness(
     string ServiceState,
     string Query,
     string Monitor,
-    string? TargetProgId,
-    string? TargetPackageId,
+    int ExpectedHandlerCount,
+    int ResolvedHandlerCount,
+    int DistinctTargetCount,
     int AuditedExtensionCount,
     int PrimarySnapshotCount,
     int FailedReadCount,
@@ -25,8 +26,9 @@ public sealed record AgentReadiness(
 public static class AgentReadinessEvaluator
 {
     public const string PrimaryQuery =
-        "IApplicationAssociationRegistration.QueryCurrentDefault";
-    public const string PrimaryMonitor = "RegNotifyChangeKeyValue";
+        AssociationConstants.PrimaryQueryAlgorithm;
+    public const string PrimaryMonitor =
+        AssociationConstants.PrimaryMonitorAlgorithm;
 
     public static AgentReadiness Evaluate(
         AgentStatus status,
@@ -79,8 +81,12 @@ public static class AgentReadinessEvaluator
             status.ServiceState,
             status.QueryAlgorithm,
             status.MonitorAlgorithm,
-            audit?.Target.ProgId,
-            audit?.Target.PackageId,
+            audit?.ExpectedHandlers.Count ?? 0,
+            CountResolvedHandlers(audit),
+            audit?.ExpectedHandlers
+                .Select(handler => handler.ProgId)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count() ?? 0,
             items.Count,
             primarySnapshotCount,
             failedReadCount,
@@ -138,9 +144,10 @@ public static class AgentReadinessEvaluator
             return "audit-pending";
         }
 
-        if (string.IsNullOrWhiteSpace(audit.Target.ProgId) ||
-            string.IsNullOrWhiteSpace(audit.Target.PackageId) ||
-            audit.Target.SupportedExtensions.Count == 0)
+        if (audit.ExpectedHandlers.Count == 0 ||
+            audit.ExpectedHandlers.Any(handler =>
+                string.IsNullOrWhiteSpace(handler.ProgId) ||
+                !IsValidTarget(handler)))
         {
             return "target-unresolved";
         }
@@ -150,7 +157,7 @@ public static class AgentReadinessEvaluator
             return "audit-empty";
         }
 
-        if (audit.Target.SupportedExtensions.Count != audit.Items.Count)
+        if (!AuditScopesMatch(audit))
         {
             return "audit-scope-mismatch";
         }
@@ -173,5 +180,51 @@ public static class AgentReadinessEvaluator
         return primarySnapshotCount == audit.Items.Count
             ? "ready"
             : "primary-query-evidence-incomplete";
+    }
+
+    private static int CountResolvedHandlers(AssociationAuditResult? audit) =>
+        audit?.ExpectedHandlers.Count(handler =>
+            !string.IsNullOrWhiteSpace(handler.ProgId) &&
+            IsValidTarget(handler)) ?? 0;
+
+    private static bool IsValidTarget(AssociationExpectedHandler handler)
+    {
+        if (string.Equals(
+            handler.TargetStrategy,
+            AssociationConstants.MediaPlayerTargetStrategy,
+            StringComparison.Ordinal))
+        {
+            return !string.IsNullOrWhiteSpace(handler.PackageId);
+        }
+
+        return string.Equals(
+            handler.TargetStrategy,
+            AssociationConstants.CapturedCurrentTargetStrategy,
+            StringComparison.Ordinal);
+    }
+
+    private static bool AuditScopesMatch(AssociationAuditResult audit)
+    {
+        if (audit.ExpectedHandlers.Count != audit.Items.Count)
+        {
+            return false;
+        }
+
+        var handlers = new Dictionary<string, AssociationExpectedHandler>(
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var handler in audit.ExpectedHandlers)
+        {
+            if (!handlers.TryAdd(handler.Extension, handler))
+            {
+                return false;
+            }
+        }
+
+        var auditedExtensions = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
+        return audit.Items.All(item =>
+            auditedExtensions.Add(item.Extension) &&
+            handlers.TryGetValue(item.Extension, out var handler) &&
+            item.Expected == handler);
     }
 }

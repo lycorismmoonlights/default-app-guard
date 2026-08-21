@@ -10,6 +10,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+Import-Module (Join-Path $PSScriptRoot "RegistryTestIsolation.psm1") -Force
 
 function Assert-True {
     param(
@@ -103,6 +104,9 @@ if (@(Get-PackageAgentProcesses -ExecutablePath $agentPath).Count -ne 0) {
 $listener = [Net.Sockets.TcpListener]::new(
     [Net.IPAddress]::Loopback,
     0)
+$watchdogRegistryPath = "Software\DefaultAppGuard\Watchdog"
+$watchdogRegistrySnapshot = Get-DagRegistryTreeSnapshot `
+    -SubKeyPath $watchdogRegistryPath
 $passed = $false
 try {
     New-Item -ItemType Directory -Path $workPath | Out-Null
@@ -111,7 +115,7 @@ try {
     $statePath = Join-Path $runtimePath "agent-status.json"
     $configurationPath = Join-Path $runtimePath "guard-configuration.json"
     [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree(
-        "Software\DefaultAppGuard\Watchdog",
+        $watchdogRegistryPath,
         $false)
 
     $listener.Start()
@@ -234,13 +238,13 @@ try {
 }
 finally {
     $listener.Stop()
-    [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree(
-        "Software\DefaultAppGuard\Watchdog",
-        $false)
     foreach ($process in @(Get-PackageAgentProcesses `
         -ExecutablePath $agentPath)) {
         Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
     }
+    Restore-DagRegistryTreeSnapshot `
+        -SubKeyPath $watchdogRegistryPath `
+        -Snapshot $watchdogRegistrySnapshot
     if (Test-Path -LiteralPath $workPath) {
         Remove-Item -LiteralPath $workPath -Recurse -Force
     }

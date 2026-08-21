@@ -184,6 +184,13 @@ test("configuration persistence uses durable replacement and tested recovery", a
   const store = await read(
     "native/DefaultAppGuard.Agent/GuardConfigurationStore.cs",
   );
+  const notificationPolicy = await read(
+    "native/DefaultAppGuard.Agent/ConfigurationRecoveryNotificationPolicy.cs",
+  );
+  const notificationSink = await read(
+    "native/DefaultAppGuard.Agent/TrayUserNotificationSink.cs",
+  );
+  const agentProgram = await read("native/DefaultAppGuard.Agent/Program.cs");
   const lifecycle = await read("tests/Test-ReleasePackageLifecycle.ps1");
   const releaseGate = await read("packaging/Test-ReleaseGate.ps1");
   const promotion = await read("packaging/Promote-ReleaseCandidate.ps1");
@@ -199,8 +206,34 @@ test("configuration persistence uses durable replacement and tested recovery", a
   assert.ok(lifecycle.includes("recoveryUiVerified"));
   assert.ok(lifecycle.includes("recovery-dismiss-button"));
   assert.ok(lifecycle.includes("configurationSettingsPreserved"));
+  assert.ok(
+    lifecycle.includes("Assert-True $configurationRecoveryNotificationVerified"),
+  );
+  assert.ok(
+    lifecycle.includes(
+      "ConfigurationRecoveryNotificationLastQueuedKind",
+    ),
+  );
+  assert.ok(notificationPolicy.includes("lastQueuedEventId"));
+  assert.ok(notificationPolicy.includes("MarkQueued"));
+  assert.ok(notificationSink.includes("BalloonTipClicked"));
+  assert.ok(notificationSink.includes("ConfigurationRecoveryLastQueuedKind"));
+  assert.ok(
+    agentProgram.includes(
+      "ConfigurationRecoveryNotificationLastQueuedAtUtc",
+    ),
+  );
   assert.ok(releaseGate.includes("configurationPersistence.recoveryVerified"));
+  assert.ok(
+    releaseGate.includes("configurationRecoveryQueuedVerified"),
+  );
+  assert.ok(
+    releaseGate.includes("configurationRecoveryNotificationQueuedVerified"),
+  );
+  assert.ok(releaseGate.includes("notificationTelemetryHealthy"));
+  assert.ok(releaseGate.includes("passed = $true"));
   assert.ok(promotion.includes("configurationPersistence.recoveryVerified"));
+  assert.ok(promotion.includes("configurationRecoveryQueuedVerified"));
 });
 
 test("GitHub Actions use immutable action revisions", async () => {
@@ -289,7 +322,10 @@ test("candidate promotion requires provenance and exact-package main evidence", 
     ),
   );
   assert.ok(promotion.includes("RegNotifyChangeKeyValue"));
-  assert.ok(promotion.includes("primarySnapshotCount -eq 34"));
+  assert.ok(promotion.includes("primarySnapshotCount -eq 40"));
+  assert.ok(promotion.includes("genericExtensionCount -eq 6"));
+  assert.ok(promotion.includes("capturedRuleCount -eq 6"));
+  assert.ok(releaseGate.includes("expectedHandlerCount -ne 40"));
   assert.ok(promotion.includes("failedReadCount -eq 0"));
   assert.ok(promotion.includes("mainAlgorithm.auditFresh"));
   assert.ok(promotion.includes("watchdog.ReadinessFresh"));
@@ -367,7 +403,17 @@ test("installer validates, stages, and can roll back an upgrade", async () => {
   assert.ok(installer.includes('$watchdogArguments = "--watchdog $agentArguments"'));
   assert.ok(installer.includes("Wait-WatchdogTaskReady"));
   assert.ok(installer.includes("DefaultAppGuard.Setup.exe"));
+  assert.ok(installer.includes("Get-DagFileFingerprint"));
+  assert.equal(installer.includes("Get-FileHash"), false);
+  assert.ok(installer.includes("[Console]::OutputEncoding = $utf8WithoutBom"));
   assert.equal(installer.includes("[IO.File]::Replace($temporaryPath, $Path, $null)"), false);
+
+  const rollback = await read("tests/Test-InstalledUpgradeRollback.ps1");
+  assert.ok(rollback.includes('/api/readiness'));
+  assert.ok(rollback.includes("ExpectedHandlerCount"));
+  assert.ok(rollback.includes("PrimarySnapshotCount"));
+  assert.ok(rollback.includes("FailedReadCount"));
+  assert.equal(rollback.includes("Status.audit.healthy"), false);
 });
 
 test("diagnostics are packaged, redacted, and inspect the primary algorithm", async () => {
@@ -405,6 +451,12 @@ test("diagnostics are packaged, redacted, and inspect the primary algorithm", as
   assert.ok(diagnostics.includes('storage = "HKCU\\Software\\DefaultAppGuard'));
   assert.ok(diagnostics.includes("watchdogProcessMatches"));
   assert.ok(diagnostics.includes("notification-channel-unavailable"));
+  assert.ok(diagnostics.includes("notification-telemetry-invalid"));
+  assert.ok(
+    diagnostics.includes("configuration-recovery-notification-missing"),
+  );
+  assert.ok(diagnostics.includes("NotificationLastQueuedKind"));
+  assert.ok(diagnostics.includes("configurationRecoveryQueuedVerified"));
   assert.ok(diagnostics.includes("notifications = [ordered]@{"));
   assert.ok(diagnostics.includes("operationalLogs = [ordered]@{"));
   assert.ok(diagnostics.includes("operational-log-retention-exceeded"));
@@ -418,7 +470,7 @@ test("diagnostics are packaged, redacted, and inspect the primary algorithm", as
   assert.ok(diagnostics.includes('"configuration-$configurationRecoveryCode"'));
   assert.ok(diagnostics.includes("configurationPersistence = [ordered]@{"));
   assert.ok(diagnostics.includes("noticeCodes"));
-  assert.ok(diagnostics.includes("schemaVersion = 6"));
+  assert.ok(diagnostics.includes("schemaVersion = 7"));
   assert.equal(
     diagnostics.includes('"expected-ignore-new-while-running"'),
     false,
@@ -454,6 +506,23 @@ test("uninstaller verifies ownership before removing task or directories", async
   assert.ok(removeInstallIndex > unregisterIndex);
   assert.ok(removeRegistrationIndex > removeInstallIndex);
   assert.ok(uninstaller.includes("UninstallRegistrationRemoved"));
+});
+
+test("watchdog backoff verification restores existing product telemetry", async () => {
+  const script = await read("tests/Test-WatchdogBackoff.ps1");
+  const lifecycle = await read("tests/Test-ReleasePackageLifecycle.ps1");
+  const isolation = await read("tests/RegistryTestIsolation.psm1");
+
+  assert.ok(isolation.includes("Get-DagRegistryTreeSnapshot"));
+  assert.ok(isolation.includes("Restore-DagRegistryTreeSnapshot"));
+  assert.ok(script.includes("$watchdogRegistrySnapshot"));
+  assert.ok(script.includes("-Snapshot $watchdogRegistrySnapshot"));
+  assert.ok(lifecycle.includes("$watchdogRegistrySnapshot"));
+  assert.ok(lifecycle.includes("-Snapshot $watchdogRegistrySnapshot"));
+  assert.ok(lifecycle.includes("-RedirectStandardError $setupInstallErrorPath"));
+  assert.ok(lifecycle.includes("The graphical Setup launcher failed with exit code"));
+  assert.ok(lifecycle.includes("[object[]]$genericInspections"));
+  assert.ok(lifecycle.includes("[object[]]$associationCatalog"));
 });
 
 test("production UI exposes only implemented product capabilities", async () => {

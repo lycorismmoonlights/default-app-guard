@@ -19,6 +19,9 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+$utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
+[Console]::OutputEncoding = $utf8WithoutBom
+$global:OutputEncoding = $utf8WithoutBom
 $packageModulePath = Join-Path $PSScriptRoot "DefaultAppGuard.Package.psm1"
 if (-not (Test-Path -LiteralPath $packageModulePath -PathType Leaf)) {
     throw "Package verification module is missing."
@@ -296,14 +299,17 @@ function Wait-AgentReady {
                 $lastFailure = "Readiness reported another algorithm."
                 continue
             }
-            if ([string]::IsNullOrWhiteSpace(
-                    [string]$readiness.TargetProgId) -or
-                [string]::IsNullOrWhiteSpace(
-                    [string]$readiness.TargetPackageId)) {
-                $lastFailure = "Readiness did not resolve Microsoft Media Player."
+            if ([int]$readiness.ExpectedHandlerCount -le 0 -or
+                [int]$readiness.ResolvedHandlerCount -ne
+                    [int]$readiness.ExpectedHandlerCount -or
+                [int]$readiness.DistinctTargetCount -le 0 -or
+                [int]$readiness.DistinctTargetCount -gt
+                    [int]$readiness.ExpectedHandlerCount) {
+                $lastFailure = "Readiness did not resolve every protected handler."
                 continue
             }
-            if ([int]$readiness.AuditedExtensionCount -le 0 -or
+            if ([int]$readiness.AuditedExtensionCount -ne
+                    [int]$readiness.ExpectedHandlerCount -or
                 [int]$readiness.PrimarySnapshotCount -ne
                     [int]$readiness.AuditedExtensionCount -or
                 [int]$readiness.FailedReadCount -ne 0) {
@@ -812,10 +818,9 @@ try {
         watchdogIntervalMinutes = $WatchdogIntervalMinutes
         uninstallRegistryKeyName = $UninstallRegistryKeyName
         packageManifestSha256 = (
-            Get-FileHash `
-                -LiteralPath (
-                    Join-Path $installPath "package-manifest.json") `
-                -Algorithm SHA256).Hash
+            Get-DagFileFingerprint `
+                -Path (Join-Path $installPath "package-manifest.json")
+        ).Sha256
         packagePayloadFileCount = @($manifest.payload).Count
         installedAtUtc = $installedAtUtc
         updatedAtUtc = [DateTimeOffset]::UtcNow.ToString("O")
@@ -854,8 +859,9 @@ try {
             $agent.Health.OperationalLogRetainedFileCountLimit
         Ready = $agent.Readiness.Ready
         ReadinessCode = $agent.Readiness.Code
-        TargetProgId = $agent.Readiness.TargetProgId
-        TargetPackageId = $agent.Readiness.TargetPackageId
+        ExpectedHandlerCount = $agent.Readiness.ExpectedHandlerCount
+        ResolvedHandlerCount = $agent.Readiness.ResolvedHandlerCount
+        DistinctTargetCount = $agent.Readiness.DistinctTargetCount
         AuditedExtensionCount = $agent.Readiness.AuditedExtensionCount
         PrimarySnapshotCount = $agent.Readiness.PrimarySnapshotCount
         FailedReadCount = $agent.Readiness.FailedReadCount

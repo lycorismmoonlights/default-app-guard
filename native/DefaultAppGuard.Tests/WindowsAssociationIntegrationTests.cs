@@ -38,6 +38,13 @@ public sealed class WindowsAssociationIntegrationTests
             $"{AssociationConstants.MediaPlayerPackageName}_",
             target.PackageId,
             StringComparison.OrdinalIgnoreCase);
+        var applicationName = Assert.IsType<string>(target.ApplicationName);
+        Assert.False(string.IsNullOrWhiteSpace(applicationName));
+        Assert.False(applicationName.StartsWith('@'));
+        Assert.DoesNotContain(
+            "ms-resource:",
+            applicationName,
+            StringComparison.OrdinalIgnoreCase);
         Assert.Equal(
             ProbeExtensions.Order(StringComparer.OrdinalIgnoreCase),
             target.SupportedExtensions);

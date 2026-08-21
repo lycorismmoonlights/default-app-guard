@@ -55,7 +55,8 @@ static int Resolve(ParsedArguments parsed)
 
 static int Audit(ParsedArguments parsed)
 {
-    var audit = new AssociationAuditService().Audit(parsed.Extensions);
+    var audit = new AssociationAuditService().AuditMediaPlayer(
+        parsed.Extensions);
     Write(audit, parsed.Json);
     return audit.Healthy ? 0 : 3;
 }

@@ -493,19 +493,27 @@ internal static class WatchdogRunner
             query == ExpectedQuery &&
             TryGetString(readiness, "monitor", out var monitor) &&
             monitor == ExpectedMonitor &&
-            TryGetString(
+            TryGetInt32(
                 readiness,
-                "targetProgId",
-                out _) &&
-            TryGetString(
+                "expectedHandlerCount",
+                out var expectedHandlerCount) &&
+            expectedHandlerCount > 0 &&
+            TryGetInt32(
                 readiness,
-                "targetPackageId",
-                out _) &&
+                "resolvedHandlerCount",
+                out var resolvedHandlerCount) &&
+            resolvedHandlerCount == expectedHandlerCount &&
+            TryGetInt32(
+                readiness,
+                "distinctTargetCount",
+                out var distinctTargetCount) &&
+            distinctTargetCount > 0 &&
+            distinctTargetCount <= expectedHandlerCount &&
             TryGetInt32(
                 readiness,
                 "auditedExtensionCount",
                 out var auditedExtensionCount) &&
-            auditedExtensionCount > 0 &&
+            auditedExtensionCount == expectedHandlerCount &&
             TryGetInt32(
                 readiness,
                 "primarySnapshotCount",

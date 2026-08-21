@@ -10,7 +10,7 @@ public sealed class AssociationAuditServiceIntegrationTests
     {
         Assert.True(OperatingSystem.IsWindows(), "Windows integration test.");
 
-        var result = new AssociationAuditService().Audit(
+        var result = new AssociationAuditService().AuditMediaPlayer(
             AssociationConstants.VideoExtensions);
 
         Assert.Equal(AssociationConstants.VideoExtensions.Count, result.Items.Count);
@@ -26,5 +26,36 @@ public sealed class AssociationAuditServiceIntegrationTests
                 "IApplicationAssociationRegistration.QueryCurrentDefault",
                 item.Snapshot.QuerySource);
         });
+    }
+
+    [Fact]
+    public void RealAudit_CapturesAndVerifiesNonVideoAssociationsThroughCom()
+    {
+        Assert.True(OperatingSystem.IsWindows(), "Windows integration test.");
+        string[] requested = [".pdf", ".txt", ".jpg", ".png", ".mp3", ".zip"];
+        var factory = new AssociationRuleFactory();
+        var rules = requested.Select(factory.CaptureCurrent).ToArray();
+
+        var result = new AssociationAuditService().Audit(rules);
+
+        Assert.Equal(requested.Order(), result.Items.Select(
+            item => item.Extension));
+        Assert.All(result.Items, item =>
+        {
+            Assert.True(item.Healthy);
+            Assert.NotNull(item.Snapshot);
+            Assert.Equal(
+                AssociationConstants.PrimaryQueryAlgorithm,
+                item.Snapshot.QuerySource);
+            Assert.Equal(
+                AssociationConstants.CapturedCurrentTargetStrategy,
+                item.Expected.TargetStrategy);
+        });
+        Assert.True(
+            result.ExpectedHandlers
+                .Select(handler => handler.ProgId)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count() >= 3,
+            "The real test set should exercise multiple default handlers.");
     }
 }

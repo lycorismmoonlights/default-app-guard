@@ -2,6 +2,12 @@ namespace DefaultAppGuard.Core;
 
 public static class AssociationConstants
 {
+    public const string PrimaryQueryAlgorithm =
+        "IApplicationAssociationRegistration.QueryCurrentDefault";
+    public const string PrimaryMonitorAlgorithm = "RegNotifyChangeKeyValue";
+    public const string MediaPlayerTargetStrategy = "system-media-player";
+    public const string CapturedCurrentTargetStrategy = "captured-current";
+
     public static readonly IReadOnlyList<string> VideoExtensions =
     [
         ".3g2",
