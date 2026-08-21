@@ -2,3 +2,6 @@ allowBuilds:
   esbuild: true
 onlyBuiltDependencies:
   - esbuild
+overrides:
+  nanoid: 3.3.18
+  postcss: 8.5.23

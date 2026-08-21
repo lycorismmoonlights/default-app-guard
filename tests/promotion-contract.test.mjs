@@ -552,7 +552,13 @@ test("production UI exposes only implemented product capabilities", async () => 
   assert.ok(app.includes('role="switch"'));
 });
 
-test("Vite includes the patched 6.4.3 release", async () => {
+test("frontend build dependencies stay on patched releases", async () => {
   const packageMetadata = JSON.parse(await read("package.json"));
+  const workspace = await read("pnpm-workspace.yaml");
+  const lockfile = await read("pnpm-lock.yaml");
+
   assert.equal(packageMetadata.dependencies.vite, "6.4.3");
+  assert.match(workspace, /overrides:\s+  nanoid: 3\.3\.18\s+  postcss: 8\.5\.23/);
+  assert.ok(lockfile.includes("nanoid@3.3.18"));
+  assert.ok(lockfile.includes("postcss@8.5.23"));
 });
