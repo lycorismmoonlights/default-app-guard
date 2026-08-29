@@ -17,7 +17,7 @@
     "test:promotion": "node --test tests/promotion-contract.test.mjs"
   },
   "dependencies": {
-    "@fluentui/react-icons": "^2.0.333",
+    "@fluentui/react-icons": "^2.0.338",
     "@vitejs/plugin-react": "5.0.4",
     "react": "19.2.0",
     "react-dom": "19.2.0",
