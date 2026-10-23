@@ -14,12 +14,18 @@ public sealed class AssociationMonitorWorkerIntegrationTests
     [InlineData(true)]
     public async Task RealWorker_AuditsAfterFileExtsNotificationAndRearms(bool separateProcess)
     {
-        var directory = Path.Combine(Path.GetTempPath(), "DefaultAppGuard-worker-" + Guid.NewGuid().ToString("N"));
+        var temporaryRoot = Path.GetFullPath(Path.GetTempPath());
+        var directoryName = "DefaultAppGuard-worker-" + Guid.NewGuid().ToString("N");
+        var directory = Path.Combine(temporaryRoot, directoryName);
         var probePath = @"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.defaultappguard-worker-" + Guid.NewGuid().ToString("N");
-        var options = AgentOptions.Parse([
-            "--state", Path.Combine(directory, "status.json"),
-            "--config", Path.Combine(directory, "config.json"),
-        ]);
+        var options = new AgentOptions(
+            "http://127.0.0.1:51873",
+            Path.Combine(directory, "status.json"),
+            Path.Combine(directory, "config.json"),
+            Path.Combine(directory, "logs"),
+            TimeSpan.FromMinutes(15),
+            false,
+            []);
         var state = new AgentRuntimeState();
         var reader = new WindowsAssociationReader();
         var store = new GuardConfigurationStore(options, new AssociationRuleFactory(reader), NullLogger<GuardConfigurationStore>.Instance);
@@ -44,7 +50,15 @@ public sealed class AssociationMonitorWorkerIntegrationTests
         {
             await worker.StopAsync(CancellationToken.None);
             Registry.CurrentUser.DeleteSubKeyTree(probePath, throwOnMissingSubKey: false);
-            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+            var cleanup = new DirectoryInfo(Path.GetFullPath(directory));
+            if (!string.Equals(cleanup.Name, directoryName, StringComparison.Ordinal) ||
+                !string.Equals(cleanup.Parent?.FullName,
+                    Path.TrimEndingDirectorySeparator(temporaryRoot), StringComparison.OrdinalIgnoreCase) ||
+                cleanup.LinkTarget is not null)
+            {
+                throw new InvalidOperationException("Refusing to remove an unexpected test directory.");
+            }
+            if (cleanup.Exists) cleanup.Delete(recursive: true);
         }
     }
 
