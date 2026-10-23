@@ -865,6 +865,7 @@ try {
         AuditedExtensionCount = $agent.Readiness.AuditedExtensionCount
         PrimarySnapshotCount = $agent.Readiness.PrimarySnapshotCount
         FailedReadCount = $agent.Readiness.FailedReadCount
+        MissingAssociationCount = $agent.Readiness.MissingAssociationCount
         AuditFresh = $agent.Readiness.AuditFresh
         AuditAgeSeconds = $agent.Readiness.AuditAgeSeconds
         MaximumAuditAgeSeconds =

@@ -113,6 +113,8 @@ internal static class WatchdogRunner
                 return 20;
             }
             packageIntegrityPassed = true;
+            // An upgraded, verified package must not inherit an older failure loop.
+            previousStatus = WatchdogTelemetry.ForVersion(previousStatus, packageCheck.Version);
 
             var agentPath = Path.Combine(packageDirectory, AgentFileName);
             failureStage = "initial-health-check";
@@ -651,7 +653,8 @@ internal static class WatchdogRunner
                 activeProcessId,
                 consecutiveRecoveryFailures,
                 nextRecoveryAllowedAtUtc,
-                failureStage));
+                failureStage,
+                typeof(WatchdogRunner).Assembly.GetName().Version?.ToString(3)));
     }
 }
 

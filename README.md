@@ -18,6 +18,13 @@ The project is currently an alpha. It detects drift and opens Windows' supported
 Default Apps surface for user-driven repair. It does not silently overwrite
 `UserChoice`, bypass UCPD, or claim an unbreakable hard lock.
 
+Version 0.2.1 handles Windows-update changes without shutting down monitoring:
+a primary COM `0x80070483` result is retained as an explicit missing default,
+never reported as a healthy association. Packaged-app ProgID changes are accepted
+only when the package family and stable AppUserModelID identify the same app.
+The local compatibility target is Windows 11 26H2 build 26300.9711; see the
+versioned bilingual notice for recovery steps and limitations.
+
 > 中文简介：这是一个面向 Windows 11 的默认应用监控工具。它用 Windows
 > COM 接口核验文件格式的实际默认程序。视频格式固定核验系统媒体播放器；用户
 > 明确选择的音频、文档、图片、压缩包和网页/数据格式则保护其当前默认程序，并在被其他软件改动后提示用户通过系统
@@ -36,7 +43,7 @@ source review and advanced operation.
 The current alpha is unsigned. Verify the checksum before installation:
 
 ```powershell
-Get-FileHash .\DefaultAppGuard-0.2.0-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DefaultAppGuard-0.2.1-win-x64.zip -Algorithm SHA256
 ```
 
 Read [ENVIRONMENT-AND-RISKS.txt](ENVIRONMENT-AND-RISKS.txt) before

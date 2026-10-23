@@ -557,8 +557,11 @@ test("frontend build dependencies stay on patched releases", async () => {
   const workspace = await read("pnpm-workspace.yaml");
   const lockfile = await read("pnpm-lock.yaml");
 
-  assert.equal(packageMetadata.dependencies.vite, "6.4.3");
+  assert.equal(packageMetadata.dependencies.vite, "6.4.4");
   assert.match(workspace, /overrides:\s+  nanoid: 3\.3\.18\s+  postcss: 8\.5\.23/);
   assert.ok(lockfile.includes("nanoid@3.3.18"));
   assert.ok(lockfile.includes("postcss@8.5.23"));
+  assert.match(workspace, /source-map-js: 1\.2\.2/);
+  assert.ok(lockfile.includes("source-map-js@1.2.2"));
+  assert.equal(lockfile.includes("source-map-js@1.2.1"), false);
 });

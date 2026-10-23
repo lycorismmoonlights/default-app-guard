@@ -7,6 +7,32 @@ namespace DefaultAppGuard.Tests;
 public sealed class RegistryChangeMonitorIntegrationTests
 {
     [Fact]
+    public async Task MainMonitorAlgorithm_ReceivesRealFileExtsSubtreeNotification()
+    {
+        const string root = @"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts";
+        var probePath = root + @"\.defaultappguard-probe-" + Guid.NewGuid().ToString("N");
+        using var monitor = new RegistryChangeMonitor(RegistryHive.CurrentUser, root);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        try
+        {
+            var first = monitor.WaitForChangeAsync(timeout.Token);
+            Registry.CurrentUser.CreateSubKey(probePath)?.Dispose();
+            await first;
+            var second = monitor.WaitForChangeAsync(timeout.Token);
+            using (var probe = Registry.CurrentUser.OpenSubKey(probePath, writable: true))
+            {
+                Assert.NotNull(probe);
+                probe.SetValue("RearmProbe", Guid.NewGuid().ToString("N"));
+            }
+            await second;
+        }
+        finally
+        {
+            Registry.CurrentUser.DeleteSubKeyTree(probePath, throwOnMissingSubKey: false);
+        }
+    }
+
+    [Fact]
     public async Task MainMonitorAlgorithm_ReceivesRealKernelChangeNotification()
     {
         Assert.True(OperatingSystem.IsWindows(), "Windows integration test.");

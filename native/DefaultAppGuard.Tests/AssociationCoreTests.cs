@@ -1,4 +1,5 @@
 using DefaultAppGuard.Core;
+using System.Runtime.InteropServices;
 
 namespace DefaultAppGuard.Tests;
 
@@ -262,6 +263,110 @@ public sealed class AssociationCoreTests
         ]));
     }
 
+    [Fact]
+    public void Reader_PreservesNoAssociationComResultWithoutReadingRegistry()
+    {
+        var registry = new FakeRegistrySource();
+        var reader = new WindowsAssociationReader(
+            new HResultEffectiveQuery(AssociationSnapshot.NoAssociationHResult), registry);
+
+        var snapshot = reader.Read(".mp4");
+
+        Assert.True(snapshot.NoAssociation);
+        Assert.True(snapshot.PrimaryQueryCompleted);
+        Assert.Equal(AssociationSnapshot.NoAssociationHResult, snapshot.QueryHResult);
+        Assert.Empty(snapshot.EffectiveProgId);
+        Assert.Null(snapshot.UserChoiceProgId);
+        Assert.Equal(0, registry.UserChoiceReadCount);
+        Assert.Throws<InvalidOperationException>(() =>
+            new AssociationRuleFactory(reader).CaptureCurrent(".pdf"));
+    }
+
+    [Theory]
+    [InlineData(unchecked((int)0x80070005))]
+    [InlineData(unchecked((int)0x80004005))]
+    public void Reader_DoesNotTreatOtherComFailuresAsMissingAssociation(int hresult)
+    {
+        var registry = new FakeRegistrySource();
+        var reader = new WindowsAssociationReader(new HResultEffectiveQuery(hresult), registry);
+
+        Assert.Throws<COMException>(() => reader.Read(".mp4"));
+        Assert.Equal(0, registry.UserChoiceReadCount);
+    }
+
+    [Theory]
+    [InlineData("Microsoft.Windows.Photos_2026.11090.22001.0_x64__8wekyb3d8bbwe", "Microsoft.Windows.Photos_8wekyb3d8bbwe!App", true)]
+    [InlineData("Microsoft.Windows.Photos_2026.11090.22001.0_x64__8wekyb3d8bbwe", "Microsoft.Windows.Photos_8wekyb3d8bbwe!OtherApp", false)]
+    [InlineData("Microsoft.Windows.Photos_2026.11090.22001.0_x64__aaaaaaaaaaaaa", "Microsoft.Windows.Photos_aaaaaaaaaaaaa!App", false)]
+    [InlineData(null, null, false)]
+    public void Audit_UsesStablePackagedAppIdentityAcrossProgIdChanges(
+        string? packageId, string? appId, bool expectedHealthy)
+    {
+        var snapshot = Snapshot(".png", "Updated.ProgId", AssociationConstants.PrimaryQueryAlgorithm)
+            with { PackageId = packageId, AppUserModelId = appId };
+        var service = new AssociationAuditService(
+            new FakeSnapshotReader(snapshot), new FakeMediaPlayerTargetResolver());
+        var rule = new ProtectedAssociationRule(
+            ".png", AssociationCatalog.ImageCategory,
+            AssociationConstants.CapturedCurrentTargetStrategy,
+            "Original.ProgId",
+            "Microsoft.Windows.Photos_2026.11060.2004.0_x64__8wekyb3d8bbwe",
+            "Photos", DateTimeOffset.UtcNow,
+            "Microsoft.Windows.Photos_8wekyb3d8bbwe!App");
+
+        var result = service.Audit([rule]);
+
+        Assert.Equal(expectedHealthy, Assert.Single(result.Items).Healthy);
+    }
+
+    [Fact]
+    public void Audit_MissingAssociationRemainsVisibleDriftWithPrimaryEvidence()
+    {
+        var reader = new WindowsAssociationReader(
+            new HResultEffectiveQuery(AssociationSnapshot.NoAssociationHResult),
+            new FakeRegistrySource());
+        var service = new AssociationAuditService(reader, new FakeMediaPlayerTargetResolver());
+
+        var result = service.Audit([new AssociationRuleFactory().CreateDefault(".mp4")]);
+
+        var item = Assert.Single(result.Items);
+        Assert.False(item.Healthy);
+        Assert.True(item.Snapshot!.NoAssociation);
+        Assert.Contains("0x80070483", item.Error);
+        Assert.Equal(1, result.DriftCount);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Audit_LegacyBaselineUsesOriginalRegistrationOnlyWithinCapturedFamily(bool sameFamily)
+    {
+        const string photos = "Microsoft.Windows.Photos_2026.11090.22001.0_x64__8wekyb3d8bbwe";
+        const string appId = "Microsoft.Windows.Photos_8wekyb3d8bbwe!App";
+        var snapshot = Snapshot(".png", "New.Photo.ProgId", AssociationConstants.PrimaryQueryAlgorithm)
+            with { PackageId = photos, AppUserModelId = appId };
+        var registry = new FakeRegistrySource(new ProgIdMetadata(
+            "Old.Photo.ProgId", "Photos", "Microsoft Corporation",
+            sameFamily ? photos : "Other.Application_1.0.0.0_x64__8wekyb3d8bbwe",
+            appId));
+        var rule = new ProtectedAssociationRule(
+            ".png", AssociationCatalog.ImageCategory,
+            AssociationConstants.CapturedCurrentTargetStrategy,
+            "Old.Photo.ProgId",
+            "Microsoft.Windows.Photos_2026.11060.2004.0_x64__8wekyb3d8bbwe",
+            "Photos", DateTimeOffset.UtcNow);
+        var service = new AssociationAuditService(
+            new FakeSnapshotReader(snapshot), new FakeMediaPlayerTargetResolver(), registry);
+
+        Assert.Equal(sameFamily, Assert.Single(service.Audit([rule]).Items).Healthy);
+    }
+
+    private sealed class HResultEffectiveQuery(int hresult) : IEffectiveAssociationQuery
+    {
+        public string QueryEffectiveProgId(string extension) =>
+            throw new COMException("Primary COM result.", hresult);
+    }
+
     private static AssociationSnapshot Snapshot(
         string extension,
         string progId,
@@ -283,7 +388,7 @@ public sealed class AssociationCoreTests
         }
     }
 
-    private sealed class FakeRegistrySource : IAssociationRegistrySource
+    private sealed class FakeRegistrySource(ProgIdMetadata? metadata = null) : IAssociationRegistrySource
     {
         public int UserChoiceReadCount { get; private set; }
 
@@ -295,7 +400,7 @@ public sealed class AssociationCoreTests
 
         public ProgIdMetadata ReadProgIdMetadata(string progId)
         {
-            return new ProgIdMetadata(progId, "Media Player", "Microsoft Corporation", null, null);
+            return metadata ?? new ProgIdMetadata(progId, "Media Player", "Microsoft Corporation", null, null);
         }
 
         public IReadOnlyList<string> ReadOpenWithProgIds(string extension)

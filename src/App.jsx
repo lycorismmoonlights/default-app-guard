@@ -217,8 +217,10 @@ function useAgentStatus() {
 }
 
 function PrimaryNav({ activeSection, agentError, agentStatus, onChange }) {
-  const healthy = agentStatus?.audit?.healthy === true && !agentError;
   const reachable = Boolean(agentStatus) && !agentError;
+  const running = reachable && agentStatus.serviceState === "running" &&
+    !agentStatus.lastError;
+  const healthy = running && agentStatus.audit?.healthy === true;
   return (
     <aside className="primary-nav" aria-label="主要导航">
       <nav className="primary-nav-list">
@@ -246,17 +248,19 @@ function PrimaryNav({ activeSection, agentError, agentStatus, onChange }) {
           <span>
             {healthy
               ? "实时监控正常"
-              : reachable
-                ? "Agent 运行异常"
-                : "Agent 未连接"}
+              : running
+                ? "检测到默认应用变化"
+                : reachable ? "Agent 运行异常" : "Agent 未连接"}
           </span>
         </div>
         <span>
           {healthy
             ? `${agentStatus.audit.healthyCount} 个文件格式正常`
-            : reachable
-              ? agentStatus.lastError || "请立即复检并查看保护记录"
-              : "本地监控服务未运行"}
+            : running
+              ? `${agentStatus.audit?.driftCount ?? 0} 个格式需要检查，监控持续运行`
+              : reachable
+                ? agentStatus.lastError || "请立即复检并查看保护记录"
+                : "本地监控服务未运行"}
         </span>
       </div>
     </aside>
@@ -340,15 +344,16 @@ function AssociationDefaults({
       else if (isProtected) state = "pending";
       return {
         ...entry,
-        currentApp:
-          normalizeApplicationName(snapshot?.applicationName) ||
+        currentApp: snapshot?.noAssociation
+          ? "尚未设置默认应用"
+          : normalizeApplicationName(snapshot?.applicationName) ||
           snapshot?.effectiveProgId ||
           (agentError ? "Agent 未连接" : "未读取"),
         item,
         inspection,
         isProtected,
         isSelected,
-        state,
+        state: snapshot?.noAssociation ? "missing" : state,
       };
     }),
     [
@@ -547,6 +552,11 @@ function AssociationDefaults({
                       <Warning24Regular />
                       已偏移
                     </span>
+                  ) : row.state === "missing" ? (
+                    <span className="row-status warning">
+                      <Warning24Regular />
+                      未设置默认应用
+                    </span>
                   ) : row.state === "healthy" ? (
                     <span className="row-status system">
                       <ShieldCheckmark24Filled />
@@ -600,7 +610,9 @@ function AssociationDefaults({
               </small>
             </span>
             <span className={`target-state ${focusedRow ? "" : "pending"}`}>
-              {focusedRow?.state === "mismatch" ? "已偏移" : "已识别"}
+              {focusedRow?.state === "missing"
+                ? "未设置"
+                : focusedRow?.state === "mismatch" ? "已偏移" : "已识别"}
             </span>
           </div>
           <dl className="target-details">

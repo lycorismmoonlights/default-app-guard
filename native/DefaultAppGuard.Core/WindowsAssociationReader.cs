@@ -1,4 +1,5 @@
 using System.Runtime.Versioning;
+using System.Runtime.InteropServices;
 
 namespace DefaultAppGuard.Core;
 
@@ -19,7 +20,25 @@ public sealed class WindowsAssociationReader(
         var normalized = ExtensionName.Normalize(extension);
 
         // QueryCurrentDefault is the primary result. Registry values are evidence only.
-        var effectiveProgId = effectiveQuery.QueryEffectiveProgId(normalized);
+        string effectiveProgId;
+        try
+        {
+            effectiveProgId = effectiveQuery.QueryEffectiveProgId(normalized);
+        }
+        catch (COMException exception) when (
+            exception.HResult == AssociationSnapshot.NoAssociationHResult)
+        {
+            // Preserve the COM result; stale UserChoice data is not a substitute.
+            return new AssociationSnapshot(
+                normalized, string.Empty, null, false, null, null,
+                AssociationConstants.PrimaryQueryAlgorithm,
+                exception.HResult);
+        }
+        if (string.IsNullOrWhiteSpace(effectiveProgId))
+        {
+            throw new InvalidOperationException(
+                $"Windows returned an empty effective ProgID for {normalized}.");
+        }
         var userChoice = registrySource.ReadUserChoice(normalized);
         var metadata = registrySource.ReadProgIdMetadata(effectiveProgId);
 
@@ -30,7 +49,8 @@ public sealed class WindowsAssociationReader(
             userChoice.HashPresent,
             metadata.ApplicationName,
             metadata.PackageId,
-            AssociationConstants.PrimaryQueryAlgorithm);
+            AssociationConstants.PrimaryQueryAlgorithm,
+            AppUserModelId: metadata.AppUserModelId);
     }
 
     public IReadOnlyList<AssociationSnapshot> ReadMany(IEnumerable<string> extensions)
