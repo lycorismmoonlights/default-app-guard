@@ -24,7 +24,8 @@ public sealed record AssociationAuditResult(
 [SupportedOSPlatform("windows")]
 public sealed class AssociationAuditService(
     IAssociationSnapshotReader reader,
-    IMediaPlayerTargetResolver resolver)
+    IMediaPlayerTargetResolver resolver,
+    IAssociationRegistrySource? registrySource = null)
 {
     public AssociationAuditService()
         : this(
@@ -97,7 +98,8 @@ public sealed class AssociationAuditService(
                 rule.TargetStrategy,
                 rule.ExpectedProgId,
                 rule.ExpectedPackageId,
-                rule.ExpectedApplicationName);
+                rule.ExpectedApplicationName,
+                ResolveExpectedAppId(rule));
         }).ToArray();
 
         var items = expectedHandlers.Select(expected =>
@@ -114,20 +116,20 @@ public sealed class AssociationAuditService(
                         $"Windows returned association data for {snapshot.Extension} " +
                         $"while auditing {expected.Extension}.");
                 }
-                if (!string.Equals(
-                    snapshot.QuerySource,
-                    AssociationConstants.PrimaryQueryAlgorithm,
-                    StringComparison.Ordinal))
+                if (!snapshot.PrimaryQueryCompleted)
                 {
                     throw new InvalidOperationException(
                         $"The handler for {expected.Extension} was not read by " +
                         "the primary COM query.");
                 }
 
-                var healthy = string.Equals(
+                var healthy = !snapshot.NoAssociation && (string.Equals(
                                   snapshot.EffectiveProgId,
                                   expected.ProgId,
-                                  StringComparison.OrdinalIgnoreCase);
+                                  StringComparison.OrdinalIgnoreCase) ||
+                              WindowsPackageIdentity.SameApplication(
+                                  expected.PackageId, expected.AppUserModelId,
+                                  snapshot.PackageId, snapshot.AppUserModelId));
                 return new AssociationAuditItem(
                     expected.Extension,
                     expected,
@@ -135,7 +137,9 @@ public sealed class AssociationAuditService(
                     snapshot,
                     healthy
                         ? null
-                        : "The effective handler does not match the protected baseline.");
+                        : snapshot.NoAssociation
+                            ? "Windows reports no default application (0x80070483)."
+                            : "The effective handler does not match the protected baseline.");
             }
             catch (Exception exception) when (
                 AssociationReadFailure.IsExpected(exception))
@@ -159,6 +163,33 @@ public sealed class AssociationAuditService(
         IEnumerable<string> extensions) =>
         Audit(extensions.Select(extension =>
             new AssociationRuleFactory().CreateDefault(extension)));
+
+    private string? ResolveExpectedAppId(ProtectedAssociationRule rule)
+    {
+        if (!string.IsNullOrWhiteSpace(rule.ExpectedAppUserModelId))
+        {
+            return rule.ExpectedAppUserModelId;
+        }
+        if (string.IsNullOrWhiteSpace(rule.ExpectedPackageId)) return null;
+
+        // Older schema 3 baselines have no app ID. Only use their original
+        // ProgID registration when its package family still matches the baseline.
+        try
+        {
+            var metadata = (registrySource ?? new WindowsAssociationRegistrySource())
+                .ReadProgIdMetadata(rule.ExpectedProgId!);
+            var family = WindowsPackageIdentity.FamilyName(rule.ExpectedPackageId);
+            return family is not null && string.Equals(
+                    family, WindowsPackageIdentity.FamilyName(metadata.PackageId),
+                    StringComparison.OrdinalIgnoreCase)
+                ? metadata.AppUserModelId
+                : null;
+        }
+        catch (Exception exception) when (AssociationReadFailure.IsExpected(exception))
+        {
+            return null;
+        }
+    }
 
     private static ProtectedAssociationRule NormalizeRule(
         ProtectedAssociationRule rule)

@@ -21,7 +21,8 @@ public sealed record AgentReadiness(
     long MaximumAuditAgeSeconds,
     DateTimeOffset? AuditedAtUtc,
     string? LastError,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    int MissingAssociationCount = 0);
 
 public static class AgentReadinessEvaluator
 {
@@ -55,17 +56,17 @@ public static class AgentReadinessEvaluator
         }
         var auditFresh = audit is not null && auditAge <= maximumAuditAge;
         var primarySnapshotCount = items.Count(item =>
-            string.Equals(
-                item.Snapshot?.QuerySource,
-                PrimaryQuery,
-                StringComparison.Ordinal));
+            item.Snapshot?.PrimaryQueryCompleted is true);
         var nonPrimarySnapshotCount = items.Count(item =>
             item.Snapshot is not null &&
             !string.Equals(
                 item.Snapshot.QuerySource,
                 PrimaryQuery,
                 StringComparison.Ordinal));
-        var failedReadCount = items.Count(item => item.Snapshot is null);
+        var failedReadCount = items.Count(item =>
+            item.Snapshot is null ||
+            (item.Snapshot.QuerySource == PrimaryQuery &&
+             !item.Snapshot.PrimaryQueryCompleted));
 
         var code = GetReadinessCode(
             status,
@@ -99,7 +100,8 @@ public static class AgentReadinessEvaluator
             (long)Math.Ceiling(maximumAuditAge.TotalSeconds),
             audit?.AuditedAtUtc,
             status.LastError,
-            status.UpdatedAtUtc);
+            status.UpdatedAtUtc,
+            items.Count(item => item.Snapshot?.NoAssociation is true));
     }
 
     private static string GetReadinessCode(

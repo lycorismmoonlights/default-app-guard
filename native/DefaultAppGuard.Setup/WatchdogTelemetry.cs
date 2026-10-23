@@ -18,7 +18,8 @@ internal sealed record WatchdogStatus(
     int? ActiveProcessId,
     int ConsecutiveRecoveryFailures,
     DateTimeOffset? NextRecoveryAllowedAtUtc,
-    string? FailureStage);
+    string? FailureStage,
+    string? WatchdogVersion = null);
 
 internal static class WatchdogTelemetry
 {
@@ -100,7 +101,8 @@ internal static class WatchdogTelemetry
                 GetNullableInt32(root, "activeProcessId"),
                 failureCount,
                 GetNullableDateTimeOffset(root, "nextRecoveryAllowedAtUtc"),
-                GetNullableString(root, "failureStage"));
+                GetNullableString(root, "failureStage"),
+                GetNullableString(root, "watchdogVersion"));
         }
         catch (Exception exception) when (
             exception is JsonException or InvalidOperationException)
@@ -108,6 +110,14 @@ internal static class WatchdogTelemetry
             return null;
         }
     }
+
+    internal static WatchdogStatus? ForVersion(
+        WatchdogStatus? previous,
+        string? version) =>
+        !string.IsNullOrWhiteSpace(version) &&
+        string.Equals(previous?.WatchdogVersion, version, StringComparison.Ordinal)
+            ? previous
+            : null;
 
     internal static bool ShouldDeferRecovery(
         WatchdogStatus? previous,
@@ -188,6 +198,7 @@ internal static class WatchdogTelemetry
         {
             writer.WriteStartObject();
             writer.WriteNumber("schemaVersion", status.SchemaVersion);
+            writer.WriteString("watchdogVersion", status.WatchdogVersion);
             writer.WriteString("outcome", status.Outcome);
             writer.WriteString("invokedAtUtc", status.InvokedAtUtc);
             writer.WriteString("completedAtUtc", status.CompletedAtUtc);

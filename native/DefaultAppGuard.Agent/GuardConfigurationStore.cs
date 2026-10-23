@@ -412,6 +412,7 @@ public sealed class GuardConfigurationStore
                 ExpectedPackageId = null,
                 ExpectedApplicationName = "Microsoft Media Player",
                 CapturedAtUtc = null,
+                ExpectedAppUserModelId = null,
             };
         }
 
@@ -435,6 +436,7 @@ public sealed class GuardConfigurationStore
             ExpectedPackageId = NormalizeOptional(rule.ExpectedPackageId),
             ExpectedApplicationName = NormalizeOptional(
                 rule.ExpectedApplicationName),
+            ExpectedAppUserModelId = NormalizeOptional(rule.ExpectedAppUserModelId),
         };
     }
 

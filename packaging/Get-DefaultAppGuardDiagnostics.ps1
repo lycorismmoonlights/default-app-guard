@@ -1068,6 +1068,12 @@ $report = [ordered]@{
             0
         }
         auditFreshnessAvailable = $auditFreshnessAvailable
+        missingAssociationCount = if ($null -ne $readiness -and
+            $null -ne $readiness.PSObject.Properties["MissingAssociationCount"]) {
+            $readiness.MissingAssociationCount
+        } else {
+            0
+        }
         auditFresh = $auditFresh
         auditAgeSeconds = $auditAgeSeconds
         maximumAuditAgeSeconds = $maximumAuditAgeSeconds

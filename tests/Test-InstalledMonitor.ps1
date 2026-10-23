@@ -2,7 +2,8 @@
 param(
     [string]$AgentUrl = "http://127.0.0.1:51873",
     [ValidateRange(2, 30)]
-    [int]$TimeoutSeconds = 10
+    [int]$TimeoutSeconds = 10,
+    [switch]$AllowAssociationDrift
 )
 
 Set-StrictMode -Version Latest
@@ -83,8 +84,17 @@ Start-Sleep -Milliseconds 500
 $after = Invoke-RestMethod `
     -Uri "$($AgentUrl.TrimEnd('/'))/api/status" `
     -TimeoutSec 2
-if (-not [bool]$after.audit.healthy -or
-    [int]$after.audit.driftCount -ne 0) {
+$readiness = Invoke-RestMethod `
+    -Uri "$($AgentUrl.TrimEnd('/'))/api/readiness" `
+    -TimeoutSec 2
+if (-not [bool]$readiness.ready -or
+    [int]$readiness.failedReadCount -ne 0 -or
+    [int]$readiness.primarySnapshotCount -ne @($after.audit.items).Count) {
+    throw "Installed Agent lacks fresh primary COM evidence after the monitor probe."
+}
+if (-not $AllowAssociationDrift -and
+    (-not [bool]$after.audit.healthy -or
+        [int]$after.audit.driftCount -ne 0)) {
     throw "Installed Agent audit was unhealthy after the monitor probe."
 }
 
@@ -99,4 +109,10 @@ if (-not [bool]$after.audit.healthy -or
     MainMonitor = $health.Monitor
     HealthyCount = $after.audit.healthyCount
     DriftCount = $after.audit.driftCount
+    PrimarySnapshotCount = $readiness.primarySnapshotCount
+    MissingAssociationCount = if ($null -ne
+        $readiness.PSObject.Properties["missingAssociationCount"]) {
+        $readiness.missingAssociationCount
+    } else { 0 }
+    FailedReadCount = $readiness.failedReadCount
 }

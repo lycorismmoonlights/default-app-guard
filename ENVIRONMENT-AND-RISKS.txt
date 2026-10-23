@@ -1,8 +1,57 @@
 DefaultAppGuard Community
 环境配置要求与风险提示 / Environment Requirements and Risk Notice
 
-适用版本 / Applies to version: 0.2.0
-更新日期 / Updated: 2026-08-21
+适用版本 / Applies to version: 0.2.1
+更新日期 / Updated: 2026-10-23
+
+0.2.1 版本变化 / Version 0.2.1 changes
+
+- 中文：修复 Windows 更新后部分格式没有默认程序时，旧看门狗不断重启、最终关闭
+  Agent 的问题。主 COM 接口返回“没有关联”（HRESULT 0x80070483）时，界面显示
+  “未设置默认应用”，守护仍持续运行并提醒。此结果不代表该格式已受保护；请点击
+  “Windows 默认应用”，搜索对应扩展名（例如 .webm），选择您希望使用的程序，
+  然后返回本工具点击“立即复检”。如果列表没有所需程序，请先安装支持该格式的应用。
+- English: fixes the restart loop that stopped the Agent after Windows updates
+  left some formats without a default app. A primary COM result of no association
+  (HRESULT 0x80070483) is shown as a missing default while monitoring continues.
+  It does not mean that format is correctly configured. Open Windows Default
+  Apps, search for the extension (for example .webm), select your preferred app,
+  then return and select Recheck. Install a compatible app first if necessary.
+- 中文：区分“COM 已明确报告没有默认应用”和“COM 查询发生其他错误”。前者保留
+  原始错误码并计入未设置数量；权限错误、接口失败、空结果等仍为查询失败，不以
+  注册表或周期扫描替代主算法，也不会显示为全部正常。
+- English: distinguishes a COM-confirmed missing default from other query
+  failures. The original HRESULT and missing count remain visible. Access
+  errors, interface failures and unexplained empty results still fail validation;
+  registry data and periodic checks do not substitute for the primary algorithm.
+- 中文：“照片”等打包应用升级可能更换版本号甚至 ProgID。本版本核验 Windows
+  包家族及稳定 AppUserModelID；二者都一致才认可为同一应用升级。不同应用、不同
+  发布者或身份无法确认时仍告警。旧基线不会被当前程序自动覆盖，避免把接管当成更新。
+- English: packaged-app updates can change the version and ProgID. The Agent
+  verifies both the Windows package family and stable AppUserModelID before
+  accepting a changed ProgID as the same app. Another app, publisher or unknown
+  identity still produces drift. Existing baselines are not overwritten with
+  the current handler automatically.
+- 中文：旧版启动失败可能留下最长一小时的重试等待。本版本在核验新安装包后，
+  不再沿用旧版本的失败等待，因此升级后可立即尝试恢复守护。同版本连续失败仍会
+  延迟重试，避免反复启动占用资源；如果升级失败，安装器会保留或恢复原安装。
+- English: old startup failures could leave up to an hour of recovery backoff.
+  After verifying a new package, this version starts a fresh recovery attempt
+  instead of inheriting the previous version's waiting period. Repeated failures
+  within the same version still use bounded backoff to avoid restart loops.
+  If an upgrade fails, the installer preserves or restores the old installation.
+- 中文：本次兼容性验证目标为本机 Windows 11 26H2、26300.9711。其余 Windows
+  构建仍需单独验证；此前 25H2 的结果是历史证据。升级保留用户已选格式及通知偏好。
+  此工具持续检测和提醒，不能强制阻止有权限的软件更改关联，也不会自动恢复关联。
+- English: this update targets local Windows 11 26H2 build 26300.9711. Other
+  builds need separate validation; previous 25H2 results are historical evidence.
+  Upgrades preserve selected formats and notification preferences. This utility
+  detects and reports changes; it cannot prevent an authorized app from changing
+  defaults and does not automatically restore them.
+
+下列 0.2.0 说明保留为功能与风险背景；当前包版本以顶部 0.2.1 标记为准。
+The following 0.2.0 notes remain as feature and risk background; the current
+package version is 0.2.1 as identified above.
 
 0.2.0 版本变化 / Version 0.2.0 changes
 
@@ -30,7 +79,7 @@ DefaultAppGuard Community
 1. 环境要求
 
 - 操作系统：Windows 11 x64。
-- 已验证环境：Windows 11 25H2（内部版本 26200）。
+- 历史已验证环境：Windows 11 25H2（内部版本 26200）；当前兼容性环境见顶部。
 - 视频目标应用：必须已安装 Microsoft Media Player（媒体播放器）。非视频格式没有
   统一目标应用；用户明确选择格式后，Agent 会把该格式当前实际生效的默认程序记录为基线。
 - 账户：需要可交互登录的普通 Windows 用户账户。
@@ -80,7 +129,7 @@ DefaultAppGuard Community
 
 3.1 本版本的签名状态
 
-- 适用本提示文本的 0.2.0 版本是“未签名 alpha 版本”。
+- 本提示文本适用的 0.2.1 版本仍是“未签名 alpha 版本”。
 - DefaultAppGuard.Agent.exe、DefaultAppGuard.Setup.exe、Install-DefaultAppGuard.ps1、
   Uninstall-DefaultAppGuard.ps1、Get-DefaultAppGuardDiagnostics.ps1 和
   DefaultAppGuard.Package.psm1 均没有受 Windows 信任的发布者签名。
@@ -110,7 +159,7 @@ DefaultAppGuard Community
 3) 同时下载对应的 .sha256 文件，并核对 ZIP 的 SHA-256。可以在 ZIP
    所在文件夹打开 PowerShell，运行：
 
-   Get-FileHash .\DefaultAppGuard-0.2.0-win-x64.zip -Algorithm SHA256
+   Get-FileHash .\DefaultAppGuard-0.2.1-win-x64.zip -Algorithm SHA256
 
    输出的 64 位哈希必须与 .sha256 文件完全一致。任何一位不同都不要运行。
 4) 完整解压 ZIP 后再安装，不要从压缩包预览窗口直接运行脚本。
@@ -318,7 +367,8 @@ English
 1. Environment requirements
 
 - Operating system: Windows 11 x64.
-- Fully validated environment: Windows 11 25H2, build 26200.
+- Historical validation environment: Windows 11 25H2, build 26200; see the current
+  compatibility target at the top of this file.
 - Video target: Microsoft Media Player must be installed. Non-video formats
   have no universal target; after explicit selection, the Agent records the
   format's currently effective Windows default as its baseline.
@@ -385,7 +435,7 @@ English
 
 3.1 Signing status of this version
 
-- Version 0.2.0 covered by this notice is an unsigned alpha release.
+- Version 0.2.1 covered by this notice remains an unsigned alpha release.
 - DefaultAppGuard.Agent.exe, DefaultAppGuard.Setup.exe, Install-DefaultAppGuard.ps1,
   Uninstall-DefaultAppGuard.ps1, Get-DefaultAppGuardDiagnostics.ps1, and
   DefaultAppGuard.Package.psm1 do not have a publisher signature trusted by
@@ -422,7 +472,7 @@ Consider installing this unsigned alpha only when every item below is true:
 3) Download the matching .sha256 file and verify the ZIP. Open PowerShell in
    the folder containing the ZIP and run:
 
-   Get-FileHash .\DefaultAppGuard-0.2.0-win-x64.zip -Algorithm SHA256
+   Get-FileHash .\DefaultAppGuard-0.2.1-win-x64.zip -Algorithm SHA256
 
    The 64-character hash must match the .sha256 file exactly. Do not run the
    package when even one character is different.

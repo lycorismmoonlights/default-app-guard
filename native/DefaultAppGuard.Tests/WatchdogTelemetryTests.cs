@@ -83,6 +83,25 @@ public sealed class WatchdogTelemetryTests
     }
 
     [Fact]
+    public void ForVersion_KeepsCurrentBackoffAndResetsOldOrLegacyState()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var legacy = CreateStatus(now, 63, now.AddMinutes(60));
+        var old = legacy with { WatchdogVersion = "0.2.0" };
+        var current = legacy with { WatchdogVersion = "0.2.1" };
+
+        Assert.Null(WatchdogTelemetry.ForVersion(legacy, "0.2.1"));
+        Assert.Null(WatchdogTelemetry.ForVersion(old, "0.2.1"));
+        Assert.Null(WatchdogTelemetry.ForVersion(null, "0.2.1"));
+        Assert.Null(WatchdogTelemetry.ForVersion(current, null));
+        Assert.Same(current, WatchdogTelemetry.ForVersion(current, "0.2.1"));
+        Assert.True(WatchdogTelemetry.ShouldDeferRecovery(
+            WatchdogTelemetry.ForVersion(current, "0.2.1"), now));
+        Assert.Equal(1, WatchdogTelemetry.NextRecoveryFailure(
+            WatchdogTelemetry.ForVersion(old, "0.2.1"), now).FailureCount);
+    }
+
+    [Fact]
     public void SerializeAndDeserialize_RoundTripsRedactedStatus()
     {
         var now = DateTimeOffset.Parse("2026-08-01T03:00:00Z");
@@ -99,7 +118,8 @@ public sealed class WatchdogTelemetryTests
             456,
             0,
             null,
-            null);
+            null,
+            "0.2.1");
 
         var content = WatchdogTelemetry.Serialize(status);
 

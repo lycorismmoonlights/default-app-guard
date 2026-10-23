@@ -73,6 +73,7 @@ public sealed class AssociationRuleFactory(
             snapshot.EffectiveProgId,
             snapshot.PackageId,
             snapshot.ApplicationName,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            snapshot.AppUserModelId);
     }
 }

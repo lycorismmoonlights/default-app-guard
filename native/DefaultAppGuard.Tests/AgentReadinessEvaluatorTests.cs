@@ -176,6 +176,47 @@ public sealed class AgentReadinessEvaluatorTests
         Assert.Equal(1200, readiness.AuditAgeSeconds);
     }
 
+    [Fact]
+    public void Evaluate_KeepsAgentReadyForExplicitComNoAssociationResult()
+    {
+        var item = CreateItem(".mp4", healthy: false) with
+        {
+            Snapshot = Snapshot(".mp4", "", AgentReadinessEvaluator.PrimaryQuery) with
+            {
+                QueryHResult = AssociationSnapshot.NoAssociationHResult,
+            },
+        };
+
+        var readiness = Evaluate(CreateStatus(CreateAudit(item)));
+
+        Assert.True(readiness.Ready);
+        Assert.Equal(1, readiness.PrimarySnapshotCount);
+        Assert.Equal(1, readiness.MissingAssociationCount);
+        Assert.Equal(1, readiness.DriftCount);
+        Assert.Equal(0, readiness.FailedReadCount);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(unchecked((int)0x80070005))]
+    public void Evaluate_RejectsEmptyOrFailedComSnapshotWithoutExplicitNoAssociation(int hresult)
+    {
+        var item = CreateItem(".mp4", healthy: false) with
+        {
+            Snapshot = Snapshot(".mp4", "", AgentReadinessEvaluator.PrimaryQuery) with
+            {
+                QueryHResult = hresult,
+            },
+        };
+
+        var readiness = Evaluate(CreateStatus(CreateAudit(item)));
+
+        Assert.False(readiness.Ready);
+        Assert.Equal(0, readiness.PrimarySnapshotCount);
+        Assert.Equal(0, readiness.MissingAssociationCount);
+        Assert.Equal(1, readiness.FailedReadCount);
+    }
+
     private static AgentReadiness Evaluate(AgentStatus status) =>
         AgentReadinessEvaluator.Evaluate(
             status,

@@ -38,3 +38,11 @@ test("keeps generalized selection usable on mobile", async () => {
   assert.match(styles, /\.defaults-workspace \{[\s\S]*flex-direction: column/);
   assert.match(styles, /\.apply-area \{[\s\S]*grid-template-columns:/);
 });
+
+test("keeps a missing default distinct from a stopped monitor", async () => {
+  const app = await read("src/App.jsx");
+  assert.match(app, /snapshot\?\.noAssociation/);
+  assert.match(app, /未设置默认应用/);
+  assert.match(app, /监控持续运行/);
+  assert.match(app, /agentStatus\.serviceState === "running"/);
+});
