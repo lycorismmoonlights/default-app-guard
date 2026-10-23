@@ -87,3 +87,15 @@ interactive-task notification difference has not been established.
 
 - [QueryCurrentDefault](https://learn.microsoft.com/windows/win32/api/shobjidl_core/nf-shobjidl_core-iapplicationassociationregistration-querycurrentdefault)
 - [PackageFamilyNameFromFullName](https://learn.microsoft.com/windows/win32/api/appmodel/nf-appmodel-packagefamilynamefromfullname)
+
+## Build Dependency Patches
+
+Vite stays on the existing major/minor line, updated to 6.4.4. The existing
+pnpm override policy also pins source-map-js to 1.2.2. The promotion contract
+checks both pins so rebuilding cannot silently reintroduce the affected versions.
+The packaged Agent serves static frontend files and does not run a Vite server.
+A fresh `pnpm audit --prod --json` on 2026-10-23 reported zero known advisories
+after the patch; the 128 native and 27 frontend/contract tests were rerun.
+
+- [Vite / launch-editor advisory](https://github.com/advisories/GHSA-587h-7wmj-h5pm)
+- [source-map-js advisory](https://github.com/advisories/GHSA-68fv-2mgg-jv7q)

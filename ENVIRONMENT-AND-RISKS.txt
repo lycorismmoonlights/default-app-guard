@@ -49,6 +49,15 @@ DefaultAppGuard Community
   detects and reports changes; it cannot prevent an authorized app from changing
   defaults and does not automatically restore them.
 
+- 中文：同时更新构建工具 Vite 6.4.4 和 source-map-js 1.2.2 安全补丁。
+  普通用户使用完整安装包即可，不需要安装 Node.js、Vite 或自行下载这些依赖。
+  安全审计通过只表示检查时未发现已知依赖告警，不代表软件没有任何安全风险。
+- English: also updates the build toolchain to Vite 6.4.4 and source-map-js
+  1.2.2 security patches. Users of the complete installation package do not
+  need Node.js, Vite, or separate dependency downloads. A clean dependency
+  audit means no known dependency alerts were found at check time, not that
+  the software is free of all security risks.
+
 下列 0.2.0 说明保留为功能与风险背景；当前包版本以顶部 0.2.1 标记为准。
 The following 0.2.0 notes remain as feature and risk background; the current
 package version is 0.2.1 as identified above.
